@@ -10,9 +10,12 @@ permissions:
 
 jobs:
   build:
-    # centmem uses cgo (sqlite-vec + mattn/go-sqlite3), so each target is built
-    # on a native runner whose GOOS/GOARCH matches the desired platform. The
-    # artifact is named from `go env` so it always reflects the real binary.
+    # centmem uses cgo (sqlite-vec + mattn/go-sqlite3). Each target is built on
+    # a reliably available runner. The darwin/amd64 binary is cross-compiled on
+    # the arm64 macOS runner via Apple's universal clang (-arch x86_64), because
+    # the Intel macOS runner (macos-13) is being retired and is not reliably
+    # schedulable. Artifacts are named from `go env` so they always reflect the
+    # real binary.
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -21,16 +24,17 @@ jobs:
         include:
           - goos: darwin
             goarch: arm64
-            os: macos-latest        # arm64
+            os: macos-latest        # arm64 (native)
           - goos: darwin
             goarch: amd64
-            os: macos-13            # Intel x64
+            os: macos-latest        # arm64 host; cross-compile to x86_64 below
+            cgo_cc: clang -arch x86_64
           - goos: linux
             goarch: amd64
-            os: ubuntu-latest       # x64
+            os: ubuntu-latest       # x64 (native)
           - goos: linux
             goarch: arm64
-            os: ubuntu-24.04-arm    # arm64
+            os: ubuntu-24.04-arm    # arm64 (native)
 
     steps:
       - name: Checkout
@@ -42,18 +46,18 @@ jobs:
           go-version: "1.22.x"
           cache: true
 
-      # Derive the real GOOS/GOARCH from the native runner and build with it, so
-      # the artifact name (and SHA256SUMS) always match the binary architecture.
+      # Derive the real GOOS/GOARCH from the build toolchain and build with it,
+      # so the artifact name (and SHA256SUMS) always match the binary arch.
       - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cgo_cc }}
         run: |
-          export GOOS="$(go env GOOS)"
-          export GOARCH="$(go env GOARCH)"
-          echo "Building for ${GOOS}/${GOARCH} (expected ${{ matrix.goos }}/${{ matrix.goarch }})"
-          if [ "$GOOS/$GOARCH" != "${{ matrix.goos }}/${{ matrix.goarch }}" ]; then
-            echo "::error::runner architecture mismatch: got ${GOOS}/${GOARCH}, expected ${{ matrix.goos }}/${{ matrix.goarch }}"
-            exit 1
-          fi
-          go build -tags fts5 -o "centmem-${GOOS}-${GOARCH}" ./cmd/centmem
+          echo "Building ${GOOS}/${GOARCH} with CGO (CC=${CC:-native})"
+          CGO_ENABLED=1 go build -tags fts5 -o "centmem-${GOOS}-${GOARCH}" ./cmd/centmem
+          echo "Artifact:"
+          file "centmem-${GOOS}-${GOARCH}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
