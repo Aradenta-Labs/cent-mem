@@ -125,3 +125,67 @@ func TestE2E_WriteThenRecallAcrossScopes(t *testing.T) {
 		t.Errorf("fact scope = %v, want global", gm["scope"])
 	}
 }
+
+// TestCLI_Recall_SemanticMatched asserts that recall output for a paraphrase
+// query carries a result whose matched_by includes "semantic" (the M2 contract),
+// and that the stable shape matches the committed golden file. Dynamic fields
+// (id, created_at, score) are normalized before comparison.
+func TestCLI_Recall_SemanticMatched(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	runCLI(t, home, "put", "--scope", "global", "--type", "note", "--content", "we deploy via github actions to fly.io", "--tags", "deploy,ci")
+
+	stdout, _, code := runCLI(t, home, "recall", "how do we ship?", "--scope", "global", "--top", "5")
+	if code != 0 {
+		t.Fatalf("recall exit code = %d, want 0", code)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("recall output not valid JSON: %v", err)
+	}
+
+	// Normalize dynamic fields.
+	if results, ok := got["results"].([]any); ok {
+		for _, r := range results {
+			item := r.(map[string]any)
+			item["id"] = "<ID>"
+			item["created_at"] = "<TS>"
+			item["score"] = "<SCORE>"
+		}
+	}
+
+	// Contract: the top result for a paraphrase query is matched semantically.
+	if results, ok := got["results"].([]any); ok && len(results) > 0 {
+		top := results[0].(map[string]any)
+		matched, _ := top["matched_by"].([]any)
+		if !hasStrAny(matched, "semantic") {
+			t.Errorf("expected top result matched_by to include semantic, got %v", top["matched_by"])
+		}
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "recall_paraphrase.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	if err := json.Unmarshal(wantBytes, &want); err != nil {
+		t.Fatalf("golden not valid JSON: %v", err)
+	}
+
+	gotJSON, _ := json.MarshalIndent(got, "", "  ")
+	wantJSON, _ := json.MarshalIndent(want, "", "  ")
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("recall output mismatch\ngot:\n%s\nwant:\n%s", gotJSON, wantJSON)
+	}
+}
+
+func hasStrAny(ss []any, want string) bool {
+	for _, v := range ss {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}

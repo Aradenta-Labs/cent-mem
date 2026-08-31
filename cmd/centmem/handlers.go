@@ -111,6 +111,8 @@ func cmdPut(args []string) int {
 			return cli.Internalf("put: %v", err)
 		}
 
+		drainQueue(cfg, s)
+
 		return prettyPrint(fs, map[string]any{
 			"ok":     true,
 			"id":     id,
@@ -157,6 +159,8 @@ func cmdSet(args []string) int {
 		if err != nil {
 			return cli.Internalf("set: %v", err)
 		}
+
+		drainQueue(cfg, s)
 
 		return prettyPrint(fs, map[string]any{
 			"ok":     true,
@@ -233,7 +237,8 @@ func cmdRecall(args []string) int {
 		}
 		defer s.Close()
 
-		searcher := search.New(s)
+		emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
+		searcher := search.New(s).WithEmbedder(emb)
 		text := query
 
 		q := search.Query{
@@ -537,6 +542,18 @@ func cmdBackup(args []string) int {
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+func drainQueue(cfg config.Config, s *store.Store) {
+	emb, err := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
+	if err != nil {
+		return
+	}
+	defer emb.Close()
+	q := embed.NewQueue(s, emb)
+	q.MaxTime = 200 * time.Millisecond
+	// Best-effort background drain; errors are non-fatal (next run retries).
+	_, _ = q.Drain(context.Background())
+}
 
 func intFlag(fs *flag.FlagSet, name string, def int) int {
 	v := fs.Lookup(name)

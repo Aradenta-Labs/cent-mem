@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/farras/cent-mem/internal/embed"
 	"github.com/farras/cent-mem/internal/scope"
 	"github.com/farras/cent-mem/internal/store"
 )
@@ -51,11 +52,23 @@ type Ranked struct {
 // Searcher executes hybrid search against a Store.
 type Searcher struct {
 	store *store.Store
+	emb   embed.Embedder
 }
 
-// New builds a Searcher backed by s.
+// New builds a Searcher backed by s. It uses an offline StubEmbedder by
+// default; call WithEmbedder to attach a real ONNX embedder.
 func New(s *store.Store) *Searcher {
-	return &Searcher{store: s}
+	return &Searcher{store: s, emb: embed.NewStub(384)}
+}
+
+// WithEmbedder returns a Searcher that uses e for semantic queries. The
+// embedder is wrapped in an LRU cache keyed by query text. It returns the
+// receiver for chaining.
+func (s *Searcher) WithEmbedder(e embed.Embedder) *Searcher {
+	if e != nil {
+		s.emb = embed.NewCachingEmbedder(e, 256)
+	}
+	return s
 }
 
 // db exposes the underlying SQL handle.
@@ -164,12 +177,7 @@ func filterRanked(rs []Ranked, q Query) []Ranked {
 	return out
 }
 
-// Semantic is a stub for M1; it returns no results. Filled in M2.
-func (s *Searcher) Semantic(ctx context.Context, q Query, top int) ([]Ranked, error) {
-	return nil, nil
-}
-
-// Recall fuses keyword + facts + timeline (+ semantic stub) via RRF, applies
+// Recall fuses keyword + facts + timeline + semantic via RRF, applies
 // filters, dedups by id, and returns the top-N ranked results.
 func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 	top := q.Top
@@ -365,6 +373,67 @@ func (s *Searcher) queryRanked(ctx context.Context, sqlText string, args []any, 
 	return out, rows.Err()
 }
 
+// loadMemoriesByIDs loads full memory rows (with scope path) for the given ids.
+func (s *Searcher) loadMemoriesByIDs(ctx context.Context, ids []int64) ([]store.Memory, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := s.db().QueryContext(ctx, `
+		SELECT m.id, m.scope_id, sc.path, m.type, m.content, m.key, m.value_json, m.tags,
+		       m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at,
+		       m.created_at, m.updated_at
+		FROM memories m
+		JOIN scopes sc ON sc.id = m.scope_id
+		WHERE m.id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]store.Memory, 0, len(ids))
+	for rows.Next() {
+		m, err := scanMemoryRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *m)
+	}
+	return out, rows.Err()
+}
+
+// scanMemoryRow scans a full memory row (must match loadMemoriesByIDs column order).
+func scanMemoryRow(row interface{ Scan(...any) error }) (*store.Memory, error) {
+	var m store.Memory
+	var tags, valueJSON, key, sourceAgent, sourceSession sql.NullString
+	var summarizeAt sql.NullInt64
+	var created, updated int64
+	err := row.Scan(
+		&m.ID, &m.ScopeID, &m.ScopePath, &m.Type, &m.Content, &key, &valueJSON,
+		&tags, &sourceAgent, &sourceSession, &m.ContentHash, &m.Status,
+		&summarizeAt, &created, &updated,
+	)
+	if err != nil {
+		return nil, err
+	}
+	m.Key = key.String
+	m.ValueJSON = valueJSON.String
+	m.SourceAgent = sourceAgent.String
+	m.SourceSession = sourceSession.String
+	m.Tags = splitTags(tags.String)
+	if summarizeAt.Valid {
+		v := summarizeAt.Int64
+		m.SummarizeAt = &v
+	}
+	m.CreatedAt = time.UnixMicro(created)
+	m.UpdatedAt = time.UnixMicro(updated)
+	return &m, nil
+}
+
+// splitTags parses a comma-separated tag string into a slice.
 func splitTags(s string) []string {
 	if s == "" {
 		return nil

@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "query": "how do we ship?",
+  "results": [
+    {
+      "content": "we deploy via github actions to fly.io",
+      "created_at": "<TS>",
+      "id": "<ID>",
+      "matched_by": [
+        "timeline",
+        "semantic"
+      ],
+      "scope": "global",
+      "score": "<SCORE>",
+      "tags": [
+        "ci",
+        "deploy"
+      ],
+      "type": "note"
+    }
+  ]
+}

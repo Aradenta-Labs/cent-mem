@@ -668,6 +668,108 @@ func (s *Store) AppendEvent(ctx context.Context, e Event) error {
 }
 
 // ---------------------------------------------------------------------------
+// Embedding queue
+// ---------------------------------------------------------------------------
+
+// ClaimEmbedJobs atomically claims up to limit embed_queue rows whose claim is
+// stale (never claimed, or claimed before staleBefore), returning their
+// memory_ids. Concurrent invocations cannot double-claim the same row.
+func (s *Store) ClaimEmbedJobs(ctx context.Context, limit int, staleBefore int64) ([]int64, error) {
+	now := nowMicro()
+	rows, err := s.db.QueryContext(ctx, `
+		UPDATE embed_queue
+		   SET claimed_at = ?
+		 WHERE memory_id IN (
+		   SELECT memory_id FROM embed_queue
+		    WHERE claimed_at IS NULL OR claimed_at < ?
+		    ORDER BY priority DESC, created_at ASC
+		    LIMIT ?
+		 )
+		 RETURNING memory_id`,
+		now, staleBefore, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// LoadMemoryEmbedTexts returns the embeddable text for each memory id.
+// The text is the memory content; facts additionally include the key.
+func (s *Store) LoadMemoryEmbedTexts(ctx context.Context, ids []int64) (map[int64]string, error) {
+	if len(ids) == 0 {
+		return map[int64]string{}, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, type, content, COALESCE(key, '')
+		FROM memories
+		WHERE id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]string, len(ids))
+	for rows.Next() {
+		var id int64
+		var typ, content, key string
+		if err := rows.Scan(&id, &typ, &content, &key); err != nil {
+			return nil, err
+		}
+		if key != "" {
+			content = key + " " + content
+		}
+		out[id] = content
+	}
+	return out, rows.Err()
+}
+
+// WriteEmbedding persists an embedding for a memory into the embeddings table
+// and the memories_vec index, then removes it from the embed queue. It is
+// idempotent (INSERT OR REPLACE), so a retry after a crash is safe.
+func (s *Store) WriteEmbedding(ctx context.Context, memoryID int64, vec []float32, model string) error {
+	vecBlob, err := sqlite_vec.SerializeFloat32(vec)
+	if err != nil {
+		return fmt.Errorf("store: serialize embedding: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO embeddings(memory_id, embedding, model, embedded_at)
+		VALUES (?, ?, ?, ?)`,
+		memoryID, vecBlob, model, nowMicro()); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO memories_vec(memory_id, embedding)
+		VALUES (?, ?)`,
+		memoryID, vecBlob); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM embed_queue WHERE memory_id = ?`, memoryID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

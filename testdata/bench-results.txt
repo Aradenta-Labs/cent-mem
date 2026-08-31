@@ -1,0 +1,11 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/farras/cent-mem/internal/search
+cpu: Apple M1
+BenchmarkRecall_Hybrid_10k-8         	      50	   5956455 ns/op
+BenchmarkRecall_Keyword_Only_10k-8   	      50	    452718 ns/op
+BenchmarkEmbedQueue_Drain_64-8       	      50	   2746175 ns/op
+BenchmarkEmbedQuery-8                	      50	       983.3 ns/op
+BenchmarkEmbedQuery_WarmCache-8      	      50	       114.2 ns/op
+PASS
+ok  	github.com/farras/cent-mem/internal/search	37.752s
