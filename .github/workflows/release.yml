@@ -10,6 +10,9 @@ permissions:
 
 jobs:
   build:
+    # centmem uses cgo (sqlite-vec + mattn/go-sqlite3), so each target is built
+    # on a native runner whose GOOS/GOARCH matches the desired platform. The
+    # artifact is named from `go env` so it always reflects the real binary.
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -18,16 +21,16 @@ jobs:
         include:
           - goos: darwin
             goarch: arm64
-            os: macos-latest
+            os: macos-latest        # arm64
           - goos: darwin
             goarch: amd64
-            os: macos-latest
+            os: macos-13            # Intel x64
           - goos: linux
             goarch: amd64
-            os: ubuntu-latest
+            os: ubuntu-latest       # x64
           - goos: linux
             goarch: arm64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm    # arm64
 
     steps:
       - name: Checkout
@@ -39,10 +42,18 @@ jobs:
           go-version: "1.22.x"
           cache: true
 
-      # centmem uses cgo (sqlite-vec + mattn/go-sqlite3), so the native runner's
-      # toolchain builds the binary for its own GOOS/GOARCH.
-      - name: Build for ${{ matrix.goos }}/${{ matrix.goarch }}
-        run: go build -tags fts5 -o "centmem-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/centmem
+      # Derive the real GOOS/GOARCH from the native runner and build with it, so
+      # the artifact name (and SHA256SUMS) always match the binary architecture.
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        run: |
+          export GOOS="$(go env GOOS)"
+          export GOARCH="$(go env GOARCH)"
+          echo "Building for ${GOOS}/${GOARCH} (expected ${{ matrix.goos }}/${{ matrix.goarch }})"
+          if [ "$GOOS/$GOARCH" != "${{ matrix.goos }}/${{ matrix.goarch }}" ]; then
+            echo "::error::runner architecture mismatch: got ${GOOS}/${GOARCH}, expected ${{ matrix.goos }}/${{ matrix.goarch }}"
+            exit 1
+          fi
+          go build -tags fts5 -o "centmem-${GOOS}-${GOARCH}" ./cmd/centmem
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
