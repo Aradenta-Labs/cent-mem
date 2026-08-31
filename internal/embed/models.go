@@ -15,7 +15,7 @@ var ModelCatalog = map[string]ModelInfo{
 	"bge-small-en-v1.5": {
 		Name:   "bge-small-en-v1.5",
 		URL:    "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx",
-		SHA256: "f07936a0d24e9cb7bf4e5e8e4544d6ff0b5406c64bc25d6b41d06e236371c667",
+		SHA256: "828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35",
 		Dims:   384,
 		File:   "bge-small-en-v1.5.onnx",
 	},
