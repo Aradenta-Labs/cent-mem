@@ -6,7 +6,41 @@ This file tells any AI agent working **on this repo** what to do and how.
 
 cent-mem is a fast, local-first shared memory store for AI agents. Agents integrate via a **skill** that wraps the `centmem` CLI (Go). All agents read/write the same memory, scoped by project > agent > session, retrieved via hybrid search (semantic + keyword + facts + timeline).
 
-**Read these first, in order:**
+## ⚡ Start here — graphify knowledge graph (mandatory)
+
+**Before reading any source file or doc, query the knowledge graph first.**
+
+This repo has a pre-built graphify knowledge graph at [`graphify-out/`](graphify-out/). It indexes every Go package, doc, migration, test, and skill file as a navigable graph. Use it to orient yourself in seconds instead of grepping the whole repo.
+
+```bash
+# Answer any architecture or codebase question
+graphify query "<your question>"
+
+# Find how two components are connected
+graphify path "Store" "Hybrid Search Engine"
+
+# Get a plain-language explanation of any concept
+graphify explain "embed_queue"
+
+# For a broad overview, read the report
+cat graphify-out/GRAPH_REPORT.md
+```
+
+**Key facts from the graph (596 nodes, 1333 edges, 49 communities):**
+- **God nodes** — the most connected abstractions you must understand first:
+  `Store` (42 edges) · `Open()` (34) · `runCLI()` (26) · `newHome()` (25) · `Compact()` (19)
+- **Major communities:** CLI Command Dispatch · Scope Resolution · Embedder Cache & Queue · Hybrid Search Engine · Compaction & Summarization · Config & Retention · Model Download & Init
+- **Cross-cutting bridge:** `Open()` (store initializer) connects all 8 subsystems — any feature touching persistence goes through it.
+
+**After modifying any code file in this session, run:**
+```bash
+graphify update .
+```
+This re-extracts only changed files (AST-only, no API cost, ~seconds) to keep the graph current for the next agent.
+
+---
+
+**Then read these docs, in order:**
 1. [docs/PRD.md](docs/PRD.md) — requirements & goals
 2. [docs/architecture.md](docs/architecture.md) — components & data flow
 3. [docs/data-model.md](docs/data-model.md) — schema & tables
@@ -23,6 +57,7 @@ cent-mem is a fast, local-first shared memory store for AI agents. Agents integr
 4. **No network calls at runtime** except the one-time model download in `init`. Never add telemetry.
 5. **Fast matters.** Benchmark before and after changes that touch search or the embedder. Targets: p95 read < 300 ms @ 100k memories; p95 write overhead < 50 ms.
 6. **Tests gate merges.** Every command gets a golden-file JSON test. Core packages target ≥ 70% coverage.
+7. **Keep the graph current.** Run `graphify update .` after any code change so the next agent inherits an accurate graph.
 
 ## Repo layout (target)
 
@@ -39,6 +74,7 @@ cent-mem/
 │   └── scope/            # scope parsing + inheritance
 ├── skill/                # SKILL.md + adapters + install.sh
 ├── docs/                 # this documentation set
+├── graphify-out/         # knowledge graph (query before reading raw files)
 ├── testdata/             # golden files, fixtures
 ├── scripts/              # build/release helpers
 ├── .github/workflows/    # CI
@@ -53,6 +89,10 @@ go build ./...
 go vet ./...
 go test ./... -race
 go test ./... -bench=.   # perf-sensitive changes
+
+# Knowledge graph
+graphify query "<question>"   # ask the graph
+graphify update .              # update after code changes
 ```
 
 ## Milestone ordering — do not skip ahead
@@ -61,6 +101,7 @@ Follow [docs/implementation-plan.md](docs/implementation-plan.md). Current activ
 
 ## When you are unsure
 
+- **Query the graph first:** `graphify query "<your question>"` — it usually answers faster than reading files.
 - Prefer extending the existing contract over inventing new commands.
 - Ask before changing: scope grammar, exit codes, JSON field names, or the embedding model default.
 - Record significant decisions as a note memory (`centmem put --type note --tags decision`) so future sessions can recall them.
