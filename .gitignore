@@ -1,0 +1,48 @@
+# Binaries
+bin/
+*.exe
+*.exe?
+*.dll
+*.so
+*.dylib
+
+# Test & coverage artifacts
+*.test
+*.out
+coverage.txt
+
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment & Config
+.env
+.env.local
+
+# Local centmem state (paths used during dev/testing)
+.centmem/
+~/.centmem/
+
+# OS / IDE generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# AI agent local settings and skills
+.agent/
+.agents/
+.claude/
+.cursor/
+.gemini/
+.impeccable/
+skills-lock.json

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: lint / vet / test / build
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        go-version: ["1.22.x"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (with fts5 build tag)
+        run: go test -race -tags fts5 ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          args: --build-tags fts5 --timeout=5m
+          version: latest

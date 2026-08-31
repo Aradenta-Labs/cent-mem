@@ -1,0 +1,1 @@
+-- m0001_init.sql: Initial schema placeholder for Phase 0
