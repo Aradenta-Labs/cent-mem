@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-08-31
+
+### Changed
+
+- Relocated the project to the `github.com/aradenta-labs/cent-mem` module and
+  org. All internal imports and every install/docs URL now point to the new
+  path. No functional or CLI-contract changes.
+
+[1.1.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.1.0
+
 ## [1.0.0] - 2026-08-31
 
 First stable release. Single static binary + installable skill that gives any
