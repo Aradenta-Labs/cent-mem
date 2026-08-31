@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "fact \"missing.key\" not found in scope \"project:cent-mem\""
+  }
+}
