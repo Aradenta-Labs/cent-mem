@@ -26,6 +26,10 @@ EXPECTED=(
   "$TMPHOME/.cursor/rules/centmem"
   "$TMPHOME/.codex/skills/centmem"
   "$TMPHOME/.config/skills/centmem"
+  "$TMPHOME/.gemini/antigravity/skills/centmem"
+  "$TMPHOME/.trae/skills/centmem"
+  "$TMPHOME/.hermes/skills/centmem"
+  "$TMPHOME/.deepseek/skills/centmem"
 )
 
 echo "==> Test 1: install to all targets"

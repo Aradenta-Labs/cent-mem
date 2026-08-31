@@ -1,0 +1,38 @@
+{
+  "name": "centmem-skills",
+  "version": "1.2.0",
+  "description": "Cross-platform installer for cent-mem shared memory skills and slash commands",
+  "bin": {
+    "centmem-skills": "./bin/install.js"
+  },
+  "main": "./bin/install.js",
+  "scripts": {
+    "test": "node --test test/install.test.js"
+  },
+  "keywords": [
+    "centmem",
+    "ai",
+    "agents",
+    "skills",
+    "memory",
+    "installer",
+    "claude",
+    "cursor",
+    "codex",
+    "antigravity"
+  ],
+  "author": "Aradenta Labs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aradenta-labs/cent-mem.git",
+    "directory": "npm"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin",
+    "templates"
+  ]
+}

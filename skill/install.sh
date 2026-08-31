@@ -50,6 +50,10 @@ targets+=("$HOME/.claude/skills/$SKILL_NAME")
 targets+=("$HOME/.cursor/rules/$SKILL_NAME")
 targets+=("$HOME/.codex/skills/$SKILL_NAME")
 targets+=("$HOME/.config/skills/$SKILL_NAME")
+targets+=("$HOME/.gemini/antigravity/skills/$SKILL_NAME")
+targets+=("$HOME/.trae/skills/$SKILL_NAME")
+targets+=("$HOME/.hermes/skills/$SKILL_NAME")
+targets+=("$HOME/.deepseek/skills/$SKILL_NAME")
 
 if [[ "$LIST_ONLY" == "1" ]]; then
   echo "Skill source: $SKILL_SRC"

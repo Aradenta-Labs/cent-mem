@@ -101,6 +101,16 @@ export CENTMEM_RETENTION_NOTE_SUMMARIZE_AFTER_DAYS=60
 export CENTMEM_RETENTION_LOG_SUMMARIZE_AFTER_DAYS=21
 ```
 
+## 8. Connect your AI agents
+
+Install the skill and `/centmem` smart routing slash command into your agent harnesses:
+
+```bash
+npx centmem-skills
+```
+
+This installs the skill definitions for Antigravity, Claude Code, Cursor, Codex, Trae, Hermes, DeepSeek, and other harnesses, and sets up the **Read → Do → Update** memory loop in your project's `AGENTS.md`.
+
 ## Where to go next
 
 - Read [cli-contract.md](../cli-contract.md) for the exact CLI and JSON contract.

@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-31
+
+Frictionless UX release: `npx centmem-skills` standalone installer, automated project workflow loop injection, and smart routing `/centmem` slash command integration across major AI agent harnesses.
+
+### Added
+
+- **NPM installer package** (`centmem-skills`): Zero-dependency Node installer executable via `npx centmem-skills` (or `npx centmem-skills add <url>`), supporting cross-platform target discovery across macOS, Linux, and Windows.
+- **Automated workflow injection**: Automatically detects project instruction files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.github/copilot-instructions.md`) and injects the **Read → Do → Update** memory loop (using `<!-- centmem:start -->` tags for idempotency). Automatically creates `AGENTS.md` at the project root if no instruction files exist.
+- **Smart routing `/centmem` slash command**: Built-in slash command integrations and templates for Google Antigravity, Trae, Claude Code, Cursor, OpenAI Codex, DeepSeek, and Hermes. Automatically routes between recall, put/set, and maintenance operations.
+- **Node.js test suite**: Automated testing with `node:test` covering arguments parsing, idempotent block injections, and end-to-end multi-target installations.
+
 ## [1.1.0] - 2026-08-31
 
 ### Changed
@@ -61,4 +72,6 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[1.2.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.2.0
+[1.1.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.1.0
 [1.0.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.0.0

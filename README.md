@@ -6,7 +6,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#)
-[![Version](https://img.shields.io/badge/version-v1.0.0-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.2.0-success.svg)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#installation)
 [![Offline](https://img.shields.io/badge/offline-100%25-brightgreen)](#privacy)
 [![No API key](https://img.shields.io/badge/api%20key-not%20required-brightgreen)](#privacy)
@@ -68,11 +68,20 @@ Output is JSON on stdout (errors are JSON on stderr). See [docs/guides/getting-s
 ### Use from an AI agent
 
 ```bash
-# Install the skill into Claude Code / Cursor / Codex / Continue / Amazon Q
+# Install the skill & slash command across all agent harnesses in one step
+npx centmem-skills
+```
+
+Or via bash:
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/aradenta-labs/cent-mem/main/skill/install.sh)
 ```
 
-Once installed, the agent automatically reads `skill/SKILL.md` and uses the canonical recipes.
+Once installed, the installer automatically:
+1. Installs `SKILL.md` to your agents' skill directories (Antigravity, Claude Code, Cursor, Codex, Trae, Hermes, DeepSeek, Continue, etc.).
+2. Injects the **Read → Do → Update** memory loop into your project's `AGENTS.md` (or `.cursorrules` / `CLAUDE.md`).
+3. Sets up the smart **`/centmem`** slash command so you can recall, save, and maintain memories directly from your chat prompt.
+
 
 ---
 
