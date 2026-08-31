@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/farras/cent-mem/internal/embed"
@@ -244,5 +245,202 @@ func TestCLI_Forget(t *testing.T) {
 	fm := parseJSON(t, out)
 	if fm["deleted"] != float64(1) {
 		t.Errorf("deleted = %v, want 1", fm["deleted"])
+	}
+}
+
+func TestCLI_Compact_DryRun(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	runCLI(t, home, "put", "--scope", "project:cent-mem", "--type", "note", "--content", "alpha note")
+	runCLI(t, home, "put", "--scope", "project:cent-mem", "--type", "log", "--content", "alpha log")
+
+	stdout, _, code := runCLI(t, home, "compact", "--dry-run")
+	if code != 0 {
+		t.Fatalf("compact --dry-run exit code = %d, want 0", code)
+	}
+	m := parseJSON(t, stdout)
+	if m["ok"] != true {
+		t.Errorf("ok = %v, want true", m["ok"])
+	}
+	if m["dry_run"] != true {
+		t.Errorf("dry_run = %v, want true", m["dry_run"])
+	}
+	for _, k := range []string{"summarized", "archived"} {
+		if _, ok := m[k].(float64); !ok {
+			t.Errorf("expected numeric %s field, got %v", k, m[k])
+		}
+	}
+	if ids, ok := m["new_memory_ids"].([]any); !ok {
+		t.Errorf("expected new_memory_ids array, got %T", m["new_memory_ids"])
+	} else if len(ids) != 0 {
+		t.Errorf("expected no new ids on fresh store, got %v", ids)
+	}
+}
+
+func TestCLI_Doctor(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	stdout, _, code := runCLI(t, home, "doctor")
+	if code != 0 {
+		t.Fatalf("doctor exit code = %d, want 0", code)
+	}
+	m := parseJSON(t, stdout)
+	if m["ok"] != true {
+		t.Errorf("ok = %v, want true", m["ok"])
+	}
+	checks, ok := m["checks"].([]any)
+	if !ok || len(checks) == 0 {
+		t.Fatalf("expected checks array, got %v", m["checks"])
+	}
+	names := map[string]bool{}
+	for _, c := range checks {
+		cm := c.(map[string]any)
+		names[cm["name"].(string)] = true
+		if cm["status"] != "ok" {
+			t.Errorf("check %v status = %v, want ok", cm["name"], cm["status"])
+		}
+	}
+	for _, want := range []string{"integrity", "schema_version", "extensions", "model", "embed_queue", "permissions"} {
+		if !names[want] {
+			t.Errorf("doctor missing check %q", want)
+		}
+	}
+}
+
+func TestCLI_Backup(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	runCLI(t, home, "put", "--scope", "global", "--type", "note", "--content", "backup me")
+
+	backupPath := filepath.Join(home, "backup.db")
+	stdout, _, code := runCLI(t, home, "backup", "--to", backupPath)
+	if code != 0 {
+		t.Fatalf("backup exit code = %d, want 0", code)
+	}
+	m := parseJSON(t, stdout)
+	if m["ok"] != true {
+		t.Errorf("ok = %v, want true", m["ok"])
+	}
+	if m["backup"] != backupPath {
+		t.Errorf("backup = %v, want %v", m["backup"], backupPath)
+	}
+	if _, ok := m["size_mb"].(float64); !ok {
+		t.Errorf("expected size_mb field, got %v", m["size_mb"])
+	}
+	if info, err := os.Stat(backupPath); err != nil || info.Size() == 0 {
+		t.Errorf("expected non-empty backup file: %v", err)
+	}
+}
+
+func TestDoctor_ModelMissing(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	// Remove the model file; doctor should report it and exit 1.
+	if err := os.Remove(filepath.Join(home, "models", "bge-small-en-v1.5.onnx")); err != nil {
+		t.Fatalf("remove model: %v", err)
+	}
+
+	stdout, _, code := runCLI(t, home, "doctor")
+	if code != 1 {
+		t.Fatalf("doctor exit code = %d, want 1", code)
+	}
+	m := parseJSON(t, stdout)
+	if m["ok"] != false {
+		t.Errorf("ok = %v, want false", m["ok"])
+	}
+	found := false
+	for _, c := range m["checks"].([]any) {
+		cm := c.(map[string]any)
+		if cm["name"] == "model" && cm["status"] == "fail" {
+			found = true
+			if !strings.Contains(cm["detail"].(string), "init") {
+				t.Errorf("model detail %q should mention init", cm["detail"])
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected model check to fail")
+	}
+}
+
+func TestDoctor_CorruptDB(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	// Overwrite the DB with garbage so it cannot be opened.
+	if err := os.WriteFile(filepath.Join(home, "centmem.db"), []byte("not a sqlite database"), 0600); err != nil {
+		t.Fatalf("corrupt db: %v", err)
+	}
+	_, stderr, code := runCLI(t, home, "doctor")
+	if code != 1 {
+		t.Fatalf("doctor exit code = %d, want 1\nstderr: %s", code, stderr)
+	}
+}
+
+func TestBackup_RoundTrip(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	runCLI(t, home, "put", "--scope", "global", "--type", "note", "--content", "roundtrip memory")
+
+	backupPath := filepath.Join(home, "snapshot.db")
+	if _, _, code := runCLI(t, home, "backup", "--to", backupPath); code != 0 {
+		t.Fatalf("backup failed")
+	}
+	// Modify the live DB after the backup.
+	runCLI(t, home, "put", "--scope", "project:beta", "--type", "note", "--content", "after backup")
+
+	// Restore.
+	if _, _, code := runCLI(t, home, "restore", "--from", backupPath); code != 0 {
+		t.Fatalf("restore failed")
+	}
+
+	// The "after backup" memory should be gone; the original should still recall.
+	out, _, _ := runCLI(t, home, "recall", "roundtrip", "--scope", "global", "--top", "5")
+	m := parseJSON(t, out)
+	if results, ok := m["results"].([]any); !ok || len(results) == 0 {
+		t.Errorf("expected roundtrip memory after restore, got %v", m["results"])
+	}
+}
+
+func TestRestore_SafetyCopy(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	runCLI(t, home, "put", "--scope", "global", "--type", "note", "--content", "safety copy")
+
+	backupPath := filepath.Join(home, "snapshot.db")
+	if _, _, code := runCLI(t, home, "backup", "--to", backupPath); code != 0 {
+		t.Fatalf("backup failed")
+	}
+	if _, _, code := runCLI(t, home, "restore", "--from", backupPath); code != 0 {
+		t.Fatalf("restore failed")
+	}
+	if _, err := os.Stat(filepath.Join(home, "centmem.db.pre-restore.bak")); err != nil {
+		t.Errorf("expected .pre-restore.bak safety copy: %v", err)
+	}
+}
+
+func TestRestore_RejectsCorrupt(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	badPath := filepath.Join(home, "bad.db")
+	if err := os.WriteFile(badPath, []byte("garbage not a db"), 0600); err != nil {
+		t.Fatalf("write bad backup: %v", err)
+	}
+	_, _, code := runCLI(t, home, "restore", "--from", badPath)
+	if code != 1 {
+		t.Fatalf("restore exit code = %d, want 1", code)
+	}
+	// The live DB must be untouched.
+	if _, err := os.Stat(filepath.Join(home, "centmem.db")); err != nil {
+		t.Errorf("live db should remain: %v", err)
 	}
 }

@@ -2,17 +2,22 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/farras/cent-mem/internal/cli"
+	"github.com/farras/cent-mem/internal/compact"
 	"github.com/farras/cent-mem/internal/config"
 	"github.com/farras/cent-mem/internal/embed"
 	"github.com/farras/cent-mem/internal/scope"
@@ -54,7 +59,8 @@ func cmdInit(args []string) int {
 		}
 		path, err := embed.Downloader(modelName, modelPath)
 		if err != nil {
-			return cli.Internalf("init: download model: %v", err)
+			return cli.E(cli.ExitError, "INTERNAL", fmt.Sprintf("init: download model: %v", err),
+				"ensure the model file can be downloaded, or place it manually at the model path; see docs/troubleshooting.md")
 		}
 		_ = path
 
@@ -90,13 +96,21 @@ func cmdPut(args []string) int {
 		typ := fs.Lookup("type").Value.String()
 		content := fs.Lookup("content").Value.String()
 		if scopePath == "" {
-			return cli.Invalidf("put: --scope is required")
+			return cli.E(cli.ExitError, "INVALID", "put: --scope is required",
+				"pass --scope project:<name> or --scope global")
 		}
 		if content == "" {
-			return cli.Invalidf("put: --content is required")
+			return cli.E(cli.ExitError, "INVALID", "put: --content is required",
+				"pass --content '<your memory text>'")
 		}
 		if typ != "note" && typ != "log" {
 			return cli.Invalidf("put: --type must be note or log")
+		}
+
+		var summarizeAt *int64
+		if days := retentionDays(cfg, typ); days > 0 {
+			ts := time.Now().Add(time.Duration(days) * 24 * time.Hour).UnixMicro()
+			summarizeAt = &ts
 		}
 
 		id, status, err := s.PutMemory(context.Background(), store.MemoryInput{
@@ -106,6 +120,7 @@ func cmdPut(args []string) int {
 			Tags:          splitCSV(fs.Lookup("tags").Value.String()),
 			SourceAgent:   fs.Lookup("source-agent").Value.String(),
 			SourceSession: fs.Lookup("source-session").Value.String(),
+			SummarizeAt:   summarizeAt,
 		})
 		if err != nil {
 			return cli.Internalf("put: %v", err)
@@ -193,7 +208,9 @@ func cmdGet(args []string) int {
 
 		f, err := s.GetFact(context.Background(), scopePath, key, inherit)
 		if errors.Is(err, sql.ErrNoRows) {
-			return cli.NotFoundf("fact %q not found in scope %q", key, scopePath)
+			return cli.E(cli.ExitNotFound, "NOT_FOUND",
+				fmt.Sprintf("fact %q not found in scope %q", key, scopePath),
+				"use centmem set --scope <scope> --key <k> --value <v> to create it first")
 		}
 		if err != nil {
 			return cli.Internalf("get: %v", err)
@@ -276,13 +293,13 @@ func cmdRecall(args []string) int {
 		out := make([]map[string]any, 0, len(results))
 		for _, r := range results {
 			out = append(out, map[string]any{
-				"id":        r.ID,
-				"type":      r.Type,
-				"scope":     r.Scope,
-				"content":   r.Content,
-				"tags":      r.Tags,
+				"id":         r.ID,
+				"type":       r.Type,
+				"scope":      r.Scope,
+				"content":    r.Content,
+				"tags":       r.Tags,
 				"created_at": r.CreatedAt.Unix(),
-				"score":     round4(r.Score),
+				"score":      round4(r.Score),
 				"matched_by": r.MatchedBy,
 			})
 		}
@@ -482,25 +499,82 @@ func cmdStats(args []string) int {
 		}
 
 		return prettyPrint(fs, map[string]any{
-			"ok":               true,
-			"db_path":          st.DBPath,
-			"db_size_mb":       round2(st.DBSizeMB),
-			"memories":         st.Memories,
-			"by_type":          st.ByType,
-			"by_scope":         st.ByScope,
-			"last_compact_at":  lastCompact,
+			"ok":                 true,
+			"db_path":            st.DBPath,
+			"db_size_mb":         round2(st.DBSizeMB),
+			"memories":           st.Memories,
+			"by_type":            st.ByType,
+			"by_scope":           st.ByScope,
+			"last_compact_at":    lastCompact,
 			"pending_embeddings": st.PendingEmbedding,
 		})
 	})
 }
 
 // ---------------------------------------------------------------------------
-// doctor / backup
+// compact
 // ---------------------------------------------------------------------------
+
+func cmdCompact(args []string) int {
+	fs := newFlagSet("compact")
+	fs.String("scope", "", "restrict compaction to a scope + descendants")
+	fs.Bool("dry-run", false, "report what would be summarized without writing")
+	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		s, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("compact: %v", err)
+		}
+		defer s.Close()
+
+		policy := compact.Policy{
+			FactKeepForever:        cfg.Retention.FactKeepDays == 0,
+			NoteSummarizeAfterDays: cfg.Retention.NoteSummarizeAfterDays,
+			LogSummarizeAfterDays:  cfg.Retention.LogSummarizeAfterDays,
+		}
+
+		ctx, cancel := signalContext()
+		defer cancel()
+		res, err := compact.Compact(ctx, s, compact.Options{
+			Scope:  fs.Lookup("scope").Value.String(),
+			DryRun: fs.Lookup("dry-run").Value.String() == "true",
+			Policy: &policy,
+		})
+		if err != nil {
+			return cli.Internalf("compact: %v", err)
+		}
+
+		ids := res.NewMemoryIDs
+		if ids == nil {
+			ids = []int64{}
+		}
+		return prettyPrint(fs, map[string]any{
+			"ok":             true,
+			"summarized":     res.Summarized,
+			"archived":       res.Archived,
+			"new_memory_ids": ids,
+			"dry_run":        fs.Lookup("dry-run").Value.String() == "true",
+		})
+	})
+}
+
+// ---------------------------------------------------------------------------
+// doctor / backup / restore
+// ---------------------------------------------------------------------------
+
+// doctorCheck is a single named health check result.
+type doctorCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // "ok" | "fail"
+	Detail string `json:"detail,omitempty"`
+}
 
 func cmdDoctor(args []string) int {
 	fs := newFlagSet("doctor")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		checks := []doctorCheck{}
+		var warnings []string
+
+		// 1. DB opens + integrity.
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("doctor: %v", err)
@@ -509,13 +583,141 @@ func cmdDoctor(args []string) int {
 
 		var integrity string
 		if err := s.DB().QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
-			return cli.Internalf("doctor: %v", err)
+			checks = append(checks, doctorCheck{Name: "integrity", Status: "fail", Detail: err.Error()})
+		} else if integrity != "ok" {
+			checks = append(checks, doctorCheck{Name: "integrity", Status: "fail", Detail: integrity})
+		} else {
+			checks = append(checks, doctorCheck{Name: "integrity", Status: "ok"})
 		}
-		if integrity != "ok" {
-			return cli.Internalf("doctor: integrity check failed: %s", integrity)
+
+		// 2. Schema version matches binary.
+		cur, _ := s.SchemaVersion()
+		want := store.LatestSchemaVersion()
+		if cur == "" || cur != want {
+			checks = append(checks, doctorCheck{Name: "schema_version", Status: "fail",
+				Detail: fmt.Sprintf("db=%q binary=%q (run init to migrate)", cur, want)})
+		} else {
+			checks = append(checks, doctorCheck{Name: "schema_version", Status: "ok", Detail: cur})
 		}
-		return prettyPrint(fs, map[string]any{"ok": true, "integrity": integrity})
+
+		// 3. Extensions present.
+		var vecTable int
+		_ = s.DB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories_vec'`).Scan(&vecTable)
+		fts5 := false
+		if rows, err := s.DB().Query(`PRAGMA compile_options`); err == nil {
+			for rows.Next() {
+				var opt string
+				if rows.Scan(&opt) == nil && strings.Contains(opt, "ENABLE_FTS5") {
+					fts5 = true
+				}
+			}
+			rows.Close()
+		}
+		extsOK := vecTable == 1 && fts5
+		detail := fmt.Sprintf("sqlite_vec=%v fts5=%v", vecTable == 1, fts5)
+		if !extsOK {
+			checks = append(checks, doctorCheck{Name: "extensions", Status: "fail", Detail: detail})
+		} else {
+			checks = append(checks, doctorCheck{Name: "extensions", Status: "ok", Detail: detail})
+		}
+
+		// 4. Model file exists + sha256 matches catalog.
+		model, known := embed.ModelCatalog[cfg.Model.Name]
+		modelOK := true
+		modelDetail := "model=" + cfg.Model.Name
+		if !known {
+			modelOK = false
+			modelDetail += " unknown model in catalog"
+		} else if _, err := os.Stat(cfg.Model.Path); err != nil {
+			modelOK = false
+			modelDetail += " missing (run: centmem init)"
+		} else if sum, err := sha256File(cfg.Model.Path); err != nil {
+			modelOK = false
+			modelDetail += " sha256 error: " + err.Error()
+		} else if sum != model.SHA256 {
+			// A present-but-mismatched model is usable; flag it as a warning so the
+			// user can re-download, but don't block on it.
+			modelDetail += " sha256 mismatch (re-run: centmem init --force)"
+			warnings = append(warnings, modelDetail)
+		}
+		if !modelOK {
+			checks = append(checks, doctorCheck{Name: "model", Status: "fail", Detail: modelDetail})
+		} else {
+			checks = append(checks, doctorCheck{Name: "model", Status: "ok", Detail: modelDetail})
+		}
+
+		// 5. Embed queue backlog.
+		var pending int64
+		_ = s.DB().QueryRow(`SELECT COUNT(*) FROM embed_queue WHERE claimed_at IS NULL`).Scan(&pending)
+		checks = append(checks, doctorCheck{Name: "embed_queue", Status: "ok", Detail: fmt.Sprintf("pending=%d", pending)})
+		if pending > 1000 {
+			warnings = append(warnings, fmt.Sprintf("embed queue backlog: %d pending embeddings", pending))
+		}
+
+		// 6. Permissions: home dir 0700, DB 0600.
+		homeOK, homeDetail := checkPerm(cfg.Home, 0700)
+		if !homeOK {
+			checks = append(checks, doctorCheck{Name: "permissions", Status: "fail", Detail: homeDetail})
+		} else {
+			dbOK, dbDetail := checkPerm(cfg.DBPath, 0600)
+			if !dbOK {
+				checks = append(checks, doctorCheck{Name: "permissions", Status: "fail", Detail: dbDetail})
+			} else {
+				checks = append(checks, doctorCheck{Name: "permissions", Status: "ok", Detail: homeDetail + "; " + dbDetail})
+			}
+		}
+
+		// Determine overall status.
+		ok := true
+		for _, c := range checks {
+			if c.Status != "ok" {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			// Print the full checks report on stdout (with ok=false), then exit 1.
+			_ = prettyPrint(fs, map[string]any{
+				"ok":       false,
+				"checks":   checks,
+				"warnings": warnings,
+			})
+			return cli.E(cli.ExitError, "DOCTOR", "doctor found problems", "run the failing checks and re-run: centmem doctor")
+		}
+		return prettyPrint(fs, map[string]any{
+			"ok":       true,
+			"checks":   checks,
+			"warnings": warnings,
+		})
 	})
+}
+
+// checkPerm returns ok if path exists with at least the given permission bits
+// (not exceeding the mode), plus a human description.
+func checkPerm(path string, want os.FileMode) (bool, string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, path + " not accessible: " + err.Error()
+	}
+	mode := info.Mode().Perm()
+	if mode != want {
+		return false, fmt.Sprintf("%s mode=%o want=%o", path, mode, want)
+	}
+	return true, fmt.Sprintf("%s mode=%o", path, mode)
+}
+
+// sha256File returns the hex sha256 of the file at path.
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func cmdBackup(args []string) int {
@@ -535,8 +737,115 @@ func cmdBackup(args []string) int {
 		if _, err := s.DB().Exec("VACUUM INTO ?", to); err != nil {
 			return cli.Internalf("backup: %v", err)
 		}
-		return prettyPrint(fs, map[string]any{"ok": true, "to": to})
+		var sizeMB float64
+		if info, err := os.Stat(to); err == nil {
+			sizeMB = round2(float64(info.Size()) / (1024 * 1024))
+		}
+		return prettyPrint(fs, map[string]any{
+			"ok":      true,
+			"backup":  to,
+			"size_mb": sizeMB,
+		})
 	})
+}
+
+func cmdRestore(args []string) int {
+	fs := newFlagSet("restore")
+	fs.String("from", "", "backup file to restore from")
+	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		from := fs.Lookup("from").Value.String()
+		if from == "" {
+			return cli.Invalidf("restore: --from is required")
+		}
+		info, err := os.Stat(from)
+		if err != nil {
+			return cli.Invalidf("restore: cannot access %q: %v", from, err)
+		}
+		if info.Size() == 0 {
+			return cli.Invalidf("restore: backup file %q is empty", from)
+		}
+
+		// Verify the backup opens and passes integrity check before replacing.
+		tmp := cfg.DBPath + ".verify"
+		_ = os.Remove(tmp)
+		if err := copyFile(from, tmp); err != nil {
+			return cli.Internalf("restore: stage backup: %v", err)
+		}
+		defer os.Remove(tmp)
+		if err := checkDBIntegrity(tmp); err != nil {
+			return cli.Invalidf("restore: backup failed integrity check: %v", err)
+		}
+
+		// Safety copy of the current DB before replacing.
+		bak := cfg.DBPath + ".pre-restore.bak"
+		if _, err := os.Stat(cfg.DBPath); err == nil {
+			if err := copyFile(cfg.DBPath, bak); err != nil {
+				return cli.Internalf("restore: create safety copy: %v", err)
+			}
+		}
+
+		if err := copyFile(from, cfg.DBPath); err != nil {
+			return cli.Internalf("restore: replace db: %v", err)
+		}
+
+		return prettyPrint(fs, map[string]any{
+			"ok":              true,
+			"restored_from":   from,
+			"pre_restore_bak": bak,
+		})
+	})
+}
+
+// retentionDays returns the number of days after which a memory of the given
+// type becomes eligible for summarization, from the retention config. A value
+// of 0 means "keep forever" (summarize_at stays NULL).
+func retentionDays(cfg config.Config, typ string) int {
+	switch typ {
+	case "note":
+		return cfg.Retention.NoteSummarizeAfterDays
+	case "log":
+		return cfg.Retention.LogSummarizeAfterDays
+	}
+	return 0
+}
+
+// copyFile copies src to dst, preserving content. Used by backup/restore.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+// checkDBIntegrity opens the file at path with the SQLite driver and runs
+// PRAGMA integrity_check, returning an error unless it reports "ok".
+func checkDBIntegrity(path string) error {
+	db, err := sql.Open("sqlite3", "file:"+path+"?_busy_timeout=5000")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	var integrity string
+	if err := db.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
+		return err
+	}
+	if integrity != "ok" {
+		return fmt.Errorf("integrity check failed: %s", integrity)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

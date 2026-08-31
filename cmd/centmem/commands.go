@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/farras/cent-mem/internal/cli"
 	"github.com/farras/cent-mem/internal/config"
@@ -31,8 +35,10 @@ var commands = map[string]commandEntry{
 	"list":     {cmdList, "list --scope <scope> [--type t] [--tags a,b] [--limit N] [--offset N]", []string{"--scope", "--type", "--tags", "--limit", "--offset"}},
 	"forget":   {cmdForget, "forget --id N | --scope <s> --key <k> | --scope <s> --tag <t>", []string{"--id", "--scope", "--key", "--tag"}},
 	"stats":    {cmdStats, "stats", nil},
+	"compact":  {cmdCompact, "compact [--scope <s>] [--dry-run]", []string{"--scope", "--dry-run"}},
 	"doctor":   {cmdDoctor, "doctor", nil},
 	"backup":   {cmdBackup, "backup --to <path>", []string{"--to"}},
+	"restore":  {cmdRestore, "restore --from <path>", []string{"--from"}},
 }
 
 // buildRegistry returns a *cli.Registry populated with every registered command
@@ -68,12 +74,29 @@ type flagErrWriter struct{}
 
 func (flagErrWriter) Write(p []byte) (int, error) { return len(p), nil }
 
+// initLogging configures the process-wide slog logger based on the --verbose
+// and --quiet global flags. --quiet silences informational stderr; --verbose
+// enables debug-level logs (to stderr). Errors always go to stderr regardless.
+func initLogging(fs *flag.FlagSet) {
+	verbose := fs.Lookup("verbose") != nil && fs.Lookup("verbose").Value.String() == "true"
+	quiet := fs.Lookup("quiet") != nil && fs.Lookup("quiet").Value.String() == "true"
+	var level slog.Level = slog.LevelError
+	if verbose && !quiet {
+		level = slog.LevelDebug
+	} else if !quiet {
+		level = slog.LevelInfo
+	}
+	h := slog.NewTextHandler(osStderr, &slog.HandlerOptions{Level: level})
+	slog.SetDefault(slog.New(h))
+}
+
 // runCommand parses flags, loads config, invokes fn, and maps errors to output.
 func runCommand(args []string, fs *flag.FlagSet, fn func(cfg config.Config, fs *flag.FlagSet) error) int {
 	if err := fs.Parse(args); err != nil {
 		cli.WriteError(osStderr, cli.Invalidf("flag parse: %v", err))
 		return cli.ExitError
 	}
+	initLogging(fs)
 
 	cfg, err := loadConfig(fs)
 	if err != nil {
@@ -96,6 +119,7 @@ func runCommandQuery(args []string, fs *flag.FlagSet, fn func(cfg config.Config,
 		cli.WriteError(osStderr, cli.Invalidf("flag parse: %v", err))
 		return cli.ExitError
 	}
+	initLogging(fs)
 
 	cfg, err := loadConfig(fs)
 	if err != nil {
@@ -108,6 +132,26 @@ func runCommandQuery(args []string, fs *flag.FlagSet, fn func(cfg config.Config,
 		return cli.ExitCodeFor(err)
 	}
 	return cli.ExitOK
+}
+
+// signalContext returns a context cancelled on SIGINT/SIGTERM. Commands that
+// perform multi-row transactional work (e.g. compact) use it so an interrupt
+// rolls back cleanly instead of leaving a partially-applied transaction.
+func signalContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		select {
+		case <-ch:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() {
+		signal.Stop(ch)
+		cancel()
+	}
 }
 
 // splitLeadingQuery separates a leading positional query from the flag portion

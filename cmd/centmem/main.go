@@ -48,7 +48,7 @@ func run(args []string) int {
 
 func printUsage(w *os.File) {
 	fmt.Fprintln(w, "Usage: centmem <command> [flags]")
-	fmt.Fprintln(w, "Commands: init, put, set, get, recall, timeline, list, forget, stats, doctor, backup")
+	fmt.Fprintln(w, "Commands: init, put, set, get, recall, timeline, list, forget, stats, compact, doctor, backup, restore")
 }
 
 // loadConfig builds a config.Config applying global overrides.

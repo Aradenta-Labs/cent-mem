@@ -102,8 +102,10 @@ The canonical, complete contract is [docs/cli-contract.md](../docs/cli-contract.
 | `list` | `list --scope <s> [--type t] [--tags a,b] [--limit N] [--offset N]` | browse memories |
 | `forget` | `forget --id N` or `--scope <s> --key <k>` or `--scope <s> --tag <t>` | delete memory |
 | `stats` | `stats` | store summary |
+| `compact` | `compact [--scope <s>] [--dry-run]` | summarize + archive old memories |
 | `doctor` | `doctor` | integrity check |
 | `backup` | `backup --to <path>` | snapshot DB |
+| `restore` | `restore --from <path>` | restore DB from backup |
 
 ## Agent best practices
 

@@ -171,7 +171,26 @@ Integrity check, model check, config check. Exit 0 healthy.
 ```
 centmem backup --to ~/backups/centmem-$(date +%F).db
 ```
-`VACUUM INTO`.
+`VACUUM INTO`. Output: `{"ok": true, "backup": "<path>", "size_mb": 4.2}`.
+
+---
+
+### 3.12 `compact` — summarize + archive old memories
+```
+centmem compact [--scope <scope>] [--dry-run]
+```
+Summarizes eligible memories (past their `summarize_at`) into consolidated
+`note` rows and archives the originals. `--dry-run` reports what would happen
+without writing. Output: `{"ok": true, "summarized": N, "archived": N, "new_memory_ids": [...], "dry_run": false}`.
+
+---
+
+### 3.13 `restore`
+```
+centmem restore --from path.db
+```
+Verifies the backup (integrity check), writes a `.pre-restore.bak` safety copy
+of the current DB, then replaces the live DB. Output: `{"ok": true, "restored_from": "...", "pre_restore_bak": "..."}`.
 
 ---
 

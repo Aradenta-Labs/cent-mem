@@ -17,3 +17,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_vec USING vec0(
 -- within a scope.
 CREATE INDEX IF NOT EXISTS idx_memories_status_scope
     ON memories(status, scope_id);
+
+-- Bump the schema version so `doctor` can confirm the DB matches the binary.
+INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '2');

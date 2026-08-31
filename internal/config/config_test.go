@@ -119,3 +119,89 @@ func TestConfigEnsure(t *testing.T) {
 		t.Fatalf("models path is not a directory")
 	}
 }
+
+func TestConfigEnsureEnforces0700(t *testing.T) {
+	if os.PathSeparator != '/' {
+		t.Skip("permission enforcement is unix-only")
+	}
+	tempHome := filepath.Join(t.TempDir(), "precreated")
+	// Pre-create the dir with permissive perms to confirm Ensure fixes them.
+	if err := os.MkdirAll(tempHome, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{
+		Home:   tempHome,
+		DBPath: filepath.Join(tempHome, "centmem.db"),
+		Model:  config.ModelConfig{Name: "m", Path: filepath.Join(tempHome, "models", "m.onnx"), Dims: 1},
+	}
+	if err := cfg.Ensure(); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	info, err := os.Stat(tempHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0700 {
+		t.Errorf("home perms = %o, want 0700", got)
+	}
+}
+
+func TestConfigRetentionDefaults(t *testing.T) {
+	os.Clearenv()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	r := cfg.Retention
+	if r.FactKeepDays != 0 {
+		t.Errorf("FactKeepDays = %d, want 0", r.FactKeepDays)
+	}
+	if r.NoteSummarizeAfterDays != 30 {
+		t.Errorf("NoteSummarizeAfterDays = %d, want 30", r.NoteSummarizeAfterDays)
+	}
+	if r.LogSummarizeAfterDays != 14 {
+		t.Errorf("LogSummarizeAfterDays = %d, want 14", r.LogSummarizeAfterDays)
+	}
+	if r.LogDropAfterDays != 30 {
+		t.Errorf("LogDropAfterDays = %d, want 30", r.LogDropAfterDays)
+	}
+	if r.ArchiveKeepDays != 365 {
+		t.Errorf("ArchiveKeepDays = %d, want 365", r.ArchiveKeepDays)
+	}
+}
+
+func TestConfigRetentionEnvOverride(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("CENTMEM_RETENTION_NOTE_SUMMARIZE_AFTER_DAYS", "60")
+	os.Setenv("CENTMEM_RETENTION_LOG_SUMMARIZE_AFTER_DAYS", "21")
+	os.Setenv("CENTMEM_RETENTION_FACT_KEEP_DAYS", "0")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Retention.NoteSummarizeAfterDays != 60 {
+		t.Errorf("NoteSummarizeAfterDays = %d, want 60", cfg.Retention.NoteSummarizeAfterDays)
+	}
+	if cfg.Retention.LogSummarizeAfterDays != 21 {
+		t.Errorf("LogSummarizeAfterDays = %d, want 21", cfg.Retention.LogSummarizeAfterDays)
+	}
+	if cfg.Retention.FactKeepDays != 0 {
+		t.Errorf("FactKeepDays = %d, want 0", cfg.Retention.FactKeepDays)
+	}
+}
+
+func TestConfigRetentionRejectsNegative(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("CENTMEM_RETENTION_NOTE_SUMMARIZE_AFTER_DAYS", "-5")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("expected error for negative note_summarize_after_days")
+	}
+}
+
+func TestConfigDefaultRetention(t *testing.T) {
+	r := config.DefaultRetention()
+	if r.NoteSummarizeAfterDays != 30 || r.LogSummarizeAfterDays != 14 {
+		t.Errorf("unexpected defaults: %+v", r)
+	}
+}

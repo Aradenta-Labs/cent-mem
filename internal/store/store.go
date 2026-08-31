@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,8 +32,8 @@ var ErrNotFound = sql.ErrNoRows
 // Store owns the SQLite connection and exposes typed data-access methods.
 // No business logic or JSON I/O lives here.
 type Store struct {
-	db      *sql.DB
-	dbPath  string
+	db     *sql.DB
+	dbPath string
 }
 
 // Open opens (or creates) the SQLite database at cfg.DBPath, applies pending
@@ -66,6 +67,12 @@ func Open(cfg config.Config) (*Store, error) {
 	if err := s.applyMigrations(); err != nil {
 		db.Close()
 		return nil, err
+	}
+
+	// Restrict DB file permissions to owner-only (0600) for privacy. This also
+	// covers newly-created DBs whose default perms would otherwise be umask-based.
+	if info, err := os.Stat(cfg.DBPath); err == nil && info.Mode().Perm()&0077 != 0 {
+		_ = os.Chmod(cfg.DBPath, 0600)
 	}
 
 	return s, nil
@@ -117,7 +124,7 @@ func (s *Store) applyMigrations() error {
 			tx.Rollback()
 			return fmt.Errorf("store: apply migration %s: %w", name, err)
 		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO meta(key, value) VALUES('applied_migration', ?)`, name); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO meta(key, value) VALUES('migration:' || ?, ?)`, name, name); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("store: record migration %s: %w", name, err)
 		}
@@ -128,11 +135,32 @@ func (s *Store) applyMigrations() error {
 	return nil
 }
 
+// latestMigrationNumber parses the highest migration number from the embedded
+// migration filenames (e.g. m0002_vec.sql -> 2).
+func latestMigrationNumber() string {
+	files, err := fs.Glob(migrationsFS, "migrations/*.sql")
+	if err != nil {
+		return ""
+	}
+	max := 0
+	for _, f := range files {
+		base := strings.TrimPrefix(filepath.Base(f), "m")
+		base = strings.TrimSuffix(base, ".sql")
+		var n int
+		if _, err := fmt.Sscanf(base, "%d", &n); err == nil && n > max {
+			max = n
+		}
+	}
+	return strconv.Itoa(max)
+}
+
 // appliedMigrations returns the set of migration names already applied. It uses
 // the meta table, which may not exist yet on a fresh DB.
 func (s *Store) appliedMigrations() (map[string]bool, error) {
 	applied := map[string]bool{}
-	rows, err := s.db.Query(`SELECT value FROM meta WHERE key = 'applied_migration'`)
+	// New scheme: one row per migration under key "migration:<name>". Also honor
+	// the legacy single "applied_migration" row so pre-existing DBs migrate over.
+	rows, err := s.db.Query(`SELECT value FROM meta WHERE key = 'applied_migration' OR key LIKE 'migration:%'`)
 	if err != nil {
 		return nil, fmt.Errorf("store: query applied migrations: %w", err)
 	}
@@ -155,6 +183,18 @@ func (s *Store) currentSchemaVersion() (string, error) {
 		return "", nil
 	}
 	return v, err
+}
+
+// LatestSchemaVersion returns the newest migration number embedded in the
+// binary (the version a freshly-migrated DB should report).
+func LatestSchemaVersion() string {
+	return latestMigrationNumber()
+}
+
+// SchemaVersion returns the schema_version recorded in meta (the DB's current
+// state), or "" if unset.
+func (s *Store) SchemaVersion() (string, error) {
+	return s.currentSchemaVersion()
 }
 
 // nowMicro returns the current time as Unix microseconds.
@@ -665,6 +705,143 @@ func (s *Store) AppendEvent(ctx context.Context, e Event) error {
 		VALUES (?, ?, ?, ?, ?)`,
 		e.MemoryID, e.Op, e.ScopePath, payload, e.CreatedAt.UnixMicro())
 	return err
+}
+
+// ---------------------------------------------------------------------------
+// Compaction
+// ---------------------------------------------------------------------------
+
+// EligibleMemories returns active memories whose summarize_at is set and is at
+// or before now. When scopePath is non-empty, results are restricted to that
+// scope plus its descendants. Order is by created_at ascending.
+func (s *Store) EligibleMemories(ctx context.Context, scopePath string, now time.Time) ([]Memory, error) {
+	conds := []string{"m.status = 'active'", "m.summarize_at IS NOT NULL", "m.summarize_at <= ?"}
+	args := []any{now.UnixMicro()}
+
+	if scopePath != "" {
+		sc, err := scope.Parse(scopePath)
+		if err != nil {
+			return nil, err
+		}
+		ids, err := s.ResolveScopeIDs(ctx, sc, true, true)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return nil, nil
+		}
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+		conds = append(conds, "m.scope_id IN ("+placeholders+")")
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+
+	query := `SELECT m.id, m.scope_id, sc.path, m.type, m.content, m.key, m.value_json, m.tags,
+		m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at, m.created_at, m.updated_at
+		FROM memories m JOIN scopes sc ON sc.id = m.scope_id
+		WHERE ` + strings.Join(conds, " AND ") +
+		` ORDER BY m.created_at ASC`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Memory
+	for rows.Next() {
+		m, err := scanMemory(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *m)
+	}
+	return out, rows.Err()
+}
+
+// InsertConsolidatedNote inserts a new active note summarizing the given
+// originals, archives each original (status='archived'), appends a 'summarize'
+// event per original, and drops the originals' embedding/vector rows. It runs
+// in a single transaction so a mid-run interrupt leaves no partial state.
+// Returns the new note's id.
+func (s *Store) InsertConsolidatedNote(ctx context.Context, originals []Memory, summary string, now time.Time) (int64, error) {
+	if len(originals) == 0 {
+		return 0, fmt.Errorf("store: InsertConsolidatedNote requires >= 1 original")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	scopeID := originals[0].ScopeID
+	nowMicro := now.UnixMicro()
+
+	// Union of tags across originals.
+	tagSet := map[string]bool{}
+	for _, m := range originals {
+		for _, t := range m.Tags {
+			tagSet[t] = true
+		}
+	}
+	union := make([]string, 0, len(tagSet))
+	for t := range tagSet {
+		union = append(union, t)
+	}
+	sort.Strings(union)
+
+	contentHash := hashContent(originals[0].ScopePath, "note", "", summary)
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO memories(
+			scope_id, type, content, key, value_json, tags,
+			source_agent, source_session, content_hash, status, summarize_at,
+			created_at, updated_at
+		) VALUES (?, 'note', ?, NULL, NULL, ?, '', '', ?, 'active', NULL, ?, ?)`,
+		scopeID, summary, joinTags(union), contentHash, nowMicro, nowMicro)
+	if err != nil {
+		return 0, err
+	}
+	newID, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	// Archive originals, drop their vectors, append summarize events.
+	for _, m := range originals {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`,
+			nowMicro, m.ID); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM embeddings WHERE memory_id = ?`, m.ID); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM memories_vec WHERE memory_id = ?`, m.ID); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM embed_queue WHERE memory_id = ?`, m.ID); err != nil {
+			return 0, err
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"memory_id": m.ID, "summarized_into": newID, "op": "summarize",
+		})
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
+			VALUES (?, 'summarize', ?, ?, ?)`,
+			m.ID, m.ScopePath, string(payload), nowMicro); err != nil {
+			return 0, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return newID, nil
 }
 
 // ---------------------------------------------------------------------------

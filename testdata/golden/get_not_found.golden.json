@@ -1,6 +1,7 @@
 {
   "error": {
     "code": "NOT_FOUND",
-    "message": "fact \"missing.key\" not found in scope \"project:cent-mem\""
+    "message": "fact \"missing.key\" not found in scope \"project:cent-mem\"",
+    "hint": "use centmem set --scope <scope> --key <k> --value <v> to create it first"
   }
 }

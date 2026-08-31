@@ -8,15 +8,42 @@ import (
 )
 
 type Config struct {
-	Home   string
-	DBPath string
-	Model  ModelConfig
+	Home      string
+	DBPath    string
+	Model     ModelConfig
+	Retention Retention
 }
 
 type ModelConfig struct {
 	Name string
 	Path string
 	Dims int
+}
+
+// Retention captures per-type retention policies (see docs/data-model.md).
+// Values are in days; 0 means "keep forever".
+type Retention struct {
+	// FactKeepDays is 0 by default (facts are kept forever).
+	FactKeepDays int
+	// NoteSummarizeAfterDays: notes are summarized after this many days.
+	NoteSummarizeAfterDays int
+	// LogSummarizeAfterDays: logs are summarized after this many days.
+	LogSummarizeAfterDays int
+	// LogDropAfterDays: raw logs are dropped after this many days.
+	LogDropAfterDays int
+	// ArchiveKeepDays: archived rows are kept for audit for this many days.
+	ArchiveKeepDays int
+}
+
+// DefaultRetention returns the standard retention policy.
+func DefaultRetention() Retention {
+	return Retention{
+		FactKeepDays:           0,
+		NoteSummarizeAfterDays: 30,
+		LogSummarizeAfterDays:  14,
+		LogDropAfterDays:       30,
+		ArchiveKeepDays:        365,
+	}
 }
 
 // Load reads config.toml (if it exists) and applies overrides from env variables:
@@ -37,6 +64,7 @@ func Load() (Config, error) {
 			Path: "", // Will be computed after Home/Model.Name are final
 			Dims: 384,
 		},
+		Retention: DefaultRetention(),
 	}
 
 	// TODO/Future Phase: In M1/M4 we load a config.toml file if it exists.
@@ -65,13 +93,66 @@ func Load() (Config, error) {
 		}
 	}
 
+	// 3. Apply retention env overrides (CENTMEM_RETENTION_*).
+	if v := os.Getenv("CENTMEM_RETENTION_FACT_KEEP_DAYS"); v != "" {
+		cfg.Retention.FactKeepDays, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("CENTMEM_RETENTION_NOTE_SUMMARIZE_AFTER_DAYS"); v != "" {
+		cfg.Retention.NoteSummarizeAfterDays, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("CENTMEM_RETENTION_LOG_SUMMARIZE_AFTER_DAYS"); v != "" {
+		cfg.Retention.LogSummarizeAfterDays, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("CENTMEM_RETENTION_LOG_DROP_AFTER_DAYS"); v != "" {
+		cfg.Retention.LogDropAfterDays, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("CENTMEM_RETENTION_ARCHIVE_KEEP_DAYS"); v != "" {
+		cfg.Retention.ArchiveKeepDays, _ = strconv.Atoi(v)
+	}
+
+	// 4. Validate retention values (negative days are nonsensical).
+	if err := validateRetention(cfg.Retention); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
+}
+
+// validateRetention rejects nonsensical retention values.
+func validateRetention(r Retention) error {
+	neg := func(name string, v int) error {
+		if v < 0 {
+			return fmt.Errorf("config: invalid %s=%d: must be >= 0", name, v)
+		}
+		return nil
+	}
+	if err := neg("fact_keep_days", r.FactKeepDays); err != nil {
+		return err
+	}
+	if err := neg("note_summarize_after_days", r.NoteSummarizeAfterDays); err != nil {
+		return err
+	}
+	if err := neg("log_summarize_after_days", r.LogSummarizeAfterDays); err != nil {
+		return err
+	}
+	if err := neg("log_drop_after_days", r.LogDropAfterDays); err != nil {
+		return err
+	}
+	if err := neg("archive_keep_days", r.ArchiveKeepDays); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Ensure creates the home and model directories and sets permissions (0700 for Home).
 func (c Config) Ensure() error {
 	if err := os.MkdirAll(c.Home, 0700); err != nil {
 		return fmt.Errorf("failed to create home dir: %w", err)
+	}
+	// Explicitly enforce owner-only permissions (0700) on the home directory
+	// so `doctor` passes even if the directory was pre-created via umask 0755.
+	if err := os.Chmod(c.Home, 0700); err != nil {
+		return fmt.Errorf("failed to restrict home dir permissions: %w", err)
 	}
 
 	modelDir := filepath.Dir(c.Model.Path)
