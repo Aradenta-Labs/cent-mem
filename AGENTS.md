@@ -47,7 +47,7 @@ This re-extracts only changed files (AST-only, no API cost, ~seconds) to keep th
 4. [docs/cli-contract.md](docs/cli-contract.md) — CLI surface & JSON shapes
 5. [skill/SKILL.md](skill/SKILL.md) — the contract agents use at runtime
 6. [docs/implementation-plan.md](docs/implementation-plan.md) — milestones & ordering
-7. The **active phase plan** in [docs/plan-phase-0.md](docs/plan-phase-0.md) … [docs/plan-phase-4.md](docs/plan-phase-4.md) — detailed steps + tests for the current milestone
+7. The **active phase plan** in [docs/plans/plan-phase-0.md](docs/plans/plan-phase-0.md) … [docs/plans/plan-phase-4.md](docs/plans/plan-phase-4.md) — detailed steps + tests for the current milestone
 
 ## Ground rules
 

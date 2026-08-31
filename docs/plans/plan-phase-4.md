@@ -89,8 +89,8 @@ Exit 0 if all pass; exit 1 with failing checks listed.
 ## 4.6 Documentation polish
 
 - **README.md**: real quickstart (install binary → `init` → first recall), GIF/asciinema demo optional.
-- **docs/getting-started.md**: step-by-step install for a first-time user.
-- **docs/troubleshooting.md**: common issues (model download blocked, vec0 missing, DB locked) + fixes.
+- **docs/guides/getting-started.md**: step-by-step install for a first-time user.
+- **docs/guides/troubleshooting.md**: common issues (model download blocked, vec0 missing, DB locked) + fixes.
 - Keep `docs/cli-contract.md` and `skill/SKILL.md` in sync (contract test from M3 enforces).
 
 ## 4.7 Polish & robustness

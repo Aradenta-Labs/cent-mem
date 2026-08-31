@@ -1,6 +1,6 @@
 # Phase 4 (M4) — Task List
 
-> Generated from `docs/plan-phase-4.md` (source of truth for implementation order and tests).
+> Generated from `plan-phase-4.md` (source of truth for implementation order and tests).
 > This file is a working checklist artifact, not a substitute for the plan.
 
 **Goal:** Long-term growth is managed (auto-summarize old memories), ops tooling exists (`doctor`, `backup`), docs are complete, and the project hits v1.0 quality bars.
@@ -62,8 +62,8 @@
 
 ### 7. Docs polish
 - [ ] `README.md` real quickstart (install binary → `init` → first recall)
-- [ ] `docs/getting-started.md` step-by-step install for first-time user
-- [ ] `docs/troubleshooting.md` common issues (model download blocked, vec0 missing, DB locked) + fixes
+- [ ] `docs/guides/getting-started.md` step-by-step install for first-time user
+- [ ] `docs/guides/troubleshooting.md` common issues (model download blocked, vec0 missing, DB locked) + fixes
 - [ ] Keep `docs/cli-contract.md` and `skill/SKILL.md` in sync (contract test from M3 enforces)
 
 ### 8. Polish & robustness

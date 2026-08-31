@@ -11,7 +11,7 @@ Phased plan from zero to a working v1. Each milestone is independently shippable
 
 Legend: `[S]` small (~few hours), `[M]` medium (~a day), `[L]` large (multi-day).
 
-> **Detailed per-phase plans** (with implementation steps + test plans): [plan-phase-0.md](plan-phase-0.md) · [plan-phase-1.md](plan-phase-1.md) · [plan-phase-2.md](plan-phase-2.md) · [plan-phase-3.md](plan-phase-3.md) · [plan-phase-4.md](plan-phase-4.md) · [release-plan.md](release-plan.md)
+> **Detailed per-phase plans** (with implementation steps + test plans): [plans/plan-phase-0.md](plans/plan-phase-0.md) · [plans/plan-phase-1.md](plans/plan-phase-1.md) · [plans/plan-phase-2.md](plans/plan-phase-2.md) · [plans/plan-phase-3.md](plans/plan-phase-3.md) · [plans/plan-phase-4.md](plans/plan-phase-4.md) · [release-plan.md](release-plan.md)
 
 ---
 

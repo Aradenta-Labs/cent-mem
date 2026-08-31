@@ -19,7 +19,7 @@
 
 The SKILL.md exists from the initial doc set. This phase makes it **authoritative and testable**:
 
-1. Re-read [cli-contract.md](cli-contract.md) and reconcile every command name, flag, JSON field, and exit code in SKILL.md.
+1. Re-read [cli-contract.md](../cli-contract.md) and reconcile every command name, flag, JSON field, and exit code in SKILL.md.
 2. Remove any forward-looking statements that aren't yet true (e.g. don't promise `centmem ui`).
 3. Add a `## Commands` quick-reference table matching the final CLI exactly.
 4. Ensure the "agent best practices" section maps 1:1 to actual flags (`--scope`, `--tags`, `--source-agent`, `--source-session`, `--inherit`, `--children`).

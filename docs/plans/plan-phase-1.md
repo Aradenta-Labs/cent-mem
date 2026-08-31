@@ -3,7 +3,7 @@
 **Goal:** Every write/read command works **without embeddings**. By the end of this phase you can `init`, `put`, `set`, `get`, `recall` (keyword-only), `timeline`, `list`, `forget`, and `stats` end-to-end against a real SQLite DB. Semantic ranking is deferred to [Phase 2](plan-phase-2.md) — `recall` here still works via FTS5 + fact lookup + timeline.
 
 **Exit criteria:**
-- All commands in [cli-contract.md](cli-contract.md) except semantic ranking produce correct JSON.
+- All commands in [cli-contract.md](../cli-contract.md) except semantic ranking produce correct JSON.
 - Golden-file tests lock the JSON contract (stdout shape + exit code) for every command.
 - Scope inheritance: a `project:X` read returns matching `global` rows when `--inherit` (default).
 - `init` downloads the embedding model file (sha256 verified) — the model isn't *used* yet, just stored for M2.
@@ -17,7 +17,7 @@
 
 ## 1.2 Schema & migrations
 
-Implement `internal/store/migrations/m0001_init.sql` per [data-model.md](data-model.md):
+Implement `internal/store/migrations/m0001_init.sql` per [data-model.md](../data-model.md):
 
 Tables: `scopes`, `memories`, `memories_fts` (FTS5 external content), `embeddings` (created now, unused until M2), `embed_queue`, `events`, `meta`.
 
@@ -32,7 +32,7 @@ Tables: `scopes`, `memories`, `memories_fts` (FTS5 external content), `embedding
 
 ## 1.3 Scope package — `internal/scope/scope.go`
 
-Grammar from [cli-contract.md](cli-contract.md):
+Grammar from [cli-contract.md](../cli-contract.md):
 
 ```go
 type Scope struct {

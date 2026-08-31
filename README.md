@@ -63,7 +63,7 @@ centmem put --scope project:myapp --type note --content "we deploy via github ac
 centmem recall "how do we ship?" --scope project:myapp --top 5
 ```
 
-Output is JSON on stdout (errors are JSON on stderr). See [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
+Output is JSON on stdout (errors are JSON on stderr). See [docs/guides/getting-started.md](docs/guides/getting-started.md) for the full walkthrough.
 
 ### Use from an AI agent
 
@@ -99,7 +99,7 @@ Verify the SHA256 checksum from the `SHA256SUMS` file attached to each release.
 
 ### From a package manager
 
-_(Homebrew, apt, etc. — coming soon — see [docs/troubleshooting.md](docs/troubleshooting.md).)_
+_(Homebrew, apt, etc. — coming soon — see [docs/guides/troubleshooting.md](docs/guides/troubleshooting.md).)_
 
 ---
 
@@ -151,12 +151,14 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 ## Documentation
 
+Full documentation map: [docs/README.md](docs/README.md).
+
 ### For users
 
 | Doc | Purpose |
 |-----|---------|
-| [docs/getting-started.md](docs/getting-started.md) | Step-by-step install for first-time users |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Common issues & fixes |
+| [docs/guides/getting-started.md](docs/guides/getting-started.md) | Step-by-step install for first-time users |
+| [docs/guides/troubleshooting.md](docs/guides/troubleshooting.md) | Common issues & fixes |
 | [skill/SKILL.md](skill/SKILL.md) | The contract your agent reads at runtime |
 | [skill/adapters/](skill/adapters/) | Per-harness setup (Claude Code, Codex, Cursor, Continue, Amazon Q, custom) |
 
@@ -164,15 +166,17 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 | Doc | Purpose |
 |-----|---------|
+| [docs/README.md](docs/README.md) | Documentation index & reading order |
 | [docs/PRD.md](docs/PRD.md) | Requirements, goals, non-goals |
 | [docs/architecture.md](docs/architecture.md) | Components & data flow |
 | [docs/data-model.md](docs/data-model.md) | Schema & tables |
 | [docs/cli-contract.md](docs/cli-contract.md) | CLI surface & JSON contract (stable within v1.x) |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones & ordering |
-| [docs/plan-phase-0.md](docs/plan-phase-0.md) … [plan-phase-4.md](docs/plan-phase-4.md) | Detailed per-phase plans + tests |
+| [docs/plans/plan-phase-0.md](docs/plans/plan-phase-0.md) … [plan-phase-4.md](docs/plans/plan-phase-4.md) | Detailed per-phase plans + tests |
 | [docs/release-plan.md](docs/release-plan.md) | Release & QA process |
 | [AGENTS.md](AGENTS.md) | Rules for any AI agent editing this repo |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
+
 
 ---
 
@@ -216,7 +220,7 @@ See [docs/implementation-plan.md](docs/implementation-plan.md) and [docs/PRD.md 
 PRs welcome. Two things to know:
 
 1. **The CLI contract is stable.** Do not change command names, JSON field names, or exit codes without bumping the major version.
-2. **Use the active phase plan.** See [AGENTS.md](AGENTS.md) for the rules and [docs/plan-phase-*.md](docs/) for the detailed plan + test list for the current milestone.
+2. **Use the active phase plan.** See [AGENTS.md](AGENTS.md) for the rules and [docs/plans/plan-phase-*.md](docs/plans/) for the detailed plan + test list for the current milestone.
 
 ```bash
 go build ./...

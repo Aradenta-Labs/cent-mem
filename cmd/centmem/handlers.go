@@ -60,7 +60,7 @@ func cmdInit(args []string) int {
 		path, err := embed.Downloader(modelName, modelPath)
 		if err != nil {
 			return cli.E(cli.ExitError, "INTERNAL", fmt.Sprintf("init: download model: %v", err),
-				"ensure the model file can be downloaded, or place it manually at the model path; see docs/troubleshooting.md")
+				"ensure the model file can be downloaded, or place it manually at the model path; see docs/guides/troubleshooting.md")
 		}
 		_ = path
 

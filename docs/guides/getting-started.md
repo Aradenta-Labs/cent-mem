@@ -93,7 +93,7 @@ centmem restore --from ~/backups/centmem-2026-08-31.db
 
 ## 7. Configure retention
 
-Retention defaults are shown in `docs/data-model.md`. Override them per-machine
+Retention defaults are shown in [data-model.md](../data-model.md). Override them per-machine
 with environment variables, e.g.:
 
 ```bash
@@ -103,6 +103,7 @@ export CENTMEM_RETENTION_LOG_SUMMARIZE_AFTER_DAYS=21
 
 ## Where to go next
 
-- Read `docs/cli-contract.md` for the exact CLI and JSON contract.
-- Read `skill/SKILL.md` if you want to integrate an AI agent via the skill.
-- See `docs/troubleshooting.md` if anything goes wrong.
+- Read [cli-contract.md](../cli-contract.md) for the exact CLI and JSON contract.
+- Read [skill/SKILL.md](../../skill/SKILL.md) if you want to integrate an AI agent via the skill.
+- See [troubleshooting.md](troubleshooting.md) if anything goes wrong.
+

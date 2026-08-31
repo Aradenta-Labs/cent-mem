@@ -21,7 +21,7 @@
 
 ## 0.2 Repo scaffold
 
-Create the directory skeleton per [AGENTS.md](../AGENTS.md):
+Create the directory skeleton per [AGENTS.md](../../AGENTS.md):
 
 ```
 cent-mem/

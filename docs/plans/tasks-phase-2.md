@@ -1,7 +1,7 @@
 # cent-mem — Phase 2 (M2) Task List
 # Embeddings & Hybrid Search
-# Source: docs/plan-phase-2.md, docs/implementation-plan.md, docs/PRD.md,
-#         docs/architecture.md, docs/data-model.md, docs/cli-contract.md
+# Source: plan-phase-2.md, ../implementation-plan.md, ../PRD.md,
+#         ../architecture.md, ../data-model.md, ../cli-contract.md
 # Goal: `recall` returns semantically relevant results even with zero keyword
 #       overlap. Hybrid ranking (semantic + keyword + facts + timeline via RRF)
 #       fully wired. Writes trigger background embedding with no visible latency.
