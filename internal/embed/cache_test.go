@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
 )
 
 // countingEmbedder wraps a stub and counts Embed calls.

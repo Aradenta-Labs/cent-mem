@@ -9,8 +9,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/farras/cent-mem/internal/cli"
-	"github.com/farras/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/cli"
+	"github.com/aradenta-labs/cent-mem/internal/config"
 )
 
 // commandHandler runs a subcommand and returns a process exit code.

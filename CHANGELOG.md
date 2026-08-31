@@ -51,4 +51,4 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
-[1.0.0]: https://github.com/farras/cent-mem/releases/tag/v1.0.0
+[1.0.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.0.0

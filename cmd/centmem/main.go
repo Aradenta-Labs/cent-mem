@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/farras/cent-mem/internal/cli"
-	"github.com/farras/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/cli"
+	"github.com/aradenta-labs/cent-mem/internal/config"
 )
 
 // version is the current release version, set at build/release time.

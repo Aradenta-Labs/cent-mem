@@ -3,7 +3,7 @@ name: centmem
 description: Shared memory for AI agents. Call `centmem` to recall context and store learnings so every agent shares one brain. Use whenever you need to remember/retrieve project context, user preferences, decisions, or session history.
 version: 1.0.0
 binary: centmem
-homepage: https://github.com/farras/cent-mem
+homepage: https://github.com/aradenta-labs/cent-mem
 ---
 
 # Skill: centmem — Shared Memory for AI Agents

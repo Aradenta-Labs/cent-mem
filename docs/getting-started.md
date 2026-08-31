@@ -13,7 +13,7 @@ This guide takes a brand-new user from zero to a working shared memory in under
 Build from source:
 
 ```bash
-git clone https://github.com/farras/cent-mem.git
+git clone https://github.com/aradenta-labs/cent-mem.git
 cd cent-mem
 go build -tags fts5 -o centmem ./cmd/centmem
 sudo mv centmem /usr/local/bin/

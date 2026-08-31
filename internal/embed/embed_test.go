@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
 )
 
 func TestEmbedShape(t *testing.T) {

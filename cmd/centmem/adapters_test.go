@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/cli"
+	"github.com/aradenta-labs/cent-mem/internal/cli"
 )
 
 // TestAdapters_RecipesParse verifies that every flag used in the harness adapter

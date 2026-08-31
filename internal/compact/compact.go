@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 // Summarizer produces a consolidated summary from a group of memories.

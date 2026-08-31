@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farras/cent-mem/internal/config"
-	"github.com/farras/cent-mem/internal/embed"
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 func testStoreAndQueue(t *testing.T) (*store.Store, *embed.Queue) {

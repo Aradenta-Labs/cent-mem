@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farras/cent-mem/internal/config"
-	"github.com/farras/cent-mem/internal/embed"
-	"github.com/farras/cent-mem/internal/search"
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/search"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 // benchStore seeds n memories with distinct content and drains the embed queue

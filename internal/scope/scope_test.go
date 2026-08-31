@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/scope"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
 )
 
 func TestScopeParse_Valid(t *testing.T) {

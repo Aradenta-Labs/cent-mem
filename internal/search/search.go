@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/farras/cent-mem/internal/embed"
-	"github.com/farras/cent-mem/internal/scope"
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 // rrfK is the smoothing constant used by Reciprocal Rank Fusion.

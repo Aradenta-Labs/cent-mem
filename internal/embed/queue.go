@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 // Queue drains the embed_queue asynchronously (inline in the CLI, or a future

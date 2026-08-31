@@ -46,7 +46,7 @@ cent-mem/
 ```
 
 **Steps:**
-1. `go mod init github.com/farras/cent-mem`
+1. `go mod init github.com/aradenta-labs/cent-mem`
 2. Add `.gitignore` with Go-standard entries (`bin/`, `*.db`, `.env`, `~/.centmem` paths are outside repo anyway).
 3. Create placeholder `main.go` that prints version (JSON to stdout):
    ```go

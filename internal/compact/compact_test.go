@@ -9,9 +9,9 @@ import (
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 
-	"github.com/farras/cent-mem/internal/compact"
-	"github.com/farras/cent-mem/internal/config"
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/compact"
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 func testStore(t *testing.T) *store.Store {

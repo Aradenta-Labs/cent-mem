@@ -1,7 +1,7 @@
 # PRD: cent-mem — Shared Memory for AI Agents
 
 **Version:** 1.0 (v1 scope)
-**Owner:** Farras Mik
+**Owner:** Aradenta Labs
 **Date:** 2026-08-31
 **Status:** Approved — ready for implementation
 

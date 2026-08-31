@@ -1,4 +1,4 @@
-module github.com/farras/cent-mem
+module github.com/aradenta-labs/cent-mem
 
 go 1.27.0
 

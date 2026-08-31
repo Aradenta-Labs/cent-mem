@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
 )
 
 // serveModel spins up a local HTTP server that serves content and returns its

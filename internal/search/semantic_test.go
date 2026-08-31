@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/embed"
-	"github.com/farras/cent-mem/internal/search"
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/search"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 // embedAll drains the queue so memories_vec gets populated, then returns a

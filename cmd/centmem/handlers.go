@@ -16,13 +16,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/farras/cent-mem/internal/cli"
-	"github.com/farras/cent-mem/internal/compact"
-	"github.com/farras/cent-mem/internal/config"
-	"github.com/farras/cent-mem/internal/embed"
-	"github.com/farras/cent-mem/internal/scope"
-	"github.com/farras/cent-mem/internal/search"
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/cli"
+	"github.com/aradenta-labs/cent-mem/internal/compact"
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
+	"github.com/aradenta-labs/cent-mem/internal/search"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 // ---------------------------------------------------------------------------

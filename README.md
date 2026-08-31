@@ -49,8 +49,8 @@ Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Amazon Q Dev*
 
 ```bash
 # 1. Install the binary
-go install github.com/farras/cent-mem/cmd/centmem@latest
-# or download a release binary: https://github.com/farras/cent-mem/releases
+go install github.com/aradenta-labs/cent-mem/cmd/centmem@latest
+# or download a release binary: https://github.com/aradenta-labs/cent-mem/releases
 
 # 2. Initialize: creates ~/.centmem and downloads the default model (one-time, ~100 MB)
 centmem init
@@ -69,7 +69,7 @@ Output is JSON on stdout (errors are JSON on stderr). See [docs/getting-started.
 
 ```bash
 # Install the skill into Claude Code / Cursor / Codex / Continue / Amazon Q
-bash <(curl -fsSL https://raw.githubusercontent.com/farras/cent-mem/main/skill/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/aradenta-labs/cent-mem/main/skill/install.sh)
 ```
 
 Once installed, the agent automatically reads `skill/SKILL.md` and uses the canonical recipes.
@@ -81,14 +81,14 @@ Once installed, the agent automatically reads `skill/SKILL.md` and uses the cano
 ### From source
 
 ```bash
-go install github.com/farras/cent-mem/cmd/centmem@latest
+go install github.com/aradenta-labs/cent-mem/cmd/centmem@latest
 ```
 
 Requires Go ≥ 1.22.
 
 ### Pre-built binaries
 
-Download the binary for your platform from [Releases](https://github.com/farras/cent-mem/releases/latest):
+Download the binary for your platform from [Releases](https://github.com/aradenta-labs/cent-mem/releases/latest):
 
 | OS | Arch |
 |----|------|

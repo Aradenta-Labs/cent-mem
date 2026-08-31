@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farras/cent-mem/internal/config"
-	"github.com/farras/cent-mem/internal/search"
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/search"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 func testSearcher(t *testing.T) (*search.Searcher, *store.Store) {

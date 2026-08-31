@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
 )
 
 // newHome creates a temp CENTMEM home and sets env for the process.

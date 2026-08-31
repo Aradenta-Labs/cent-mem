@@ -19,8 +19,8 @@ import (
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/farras/cent-mem/internal/config"
-	"github.com/farras/cent-mem/internal/scope"
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
 )
 
 //go:embed migrations/*.sql

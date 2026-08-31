@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/config"
 )
 
 func TestConfigDefaults(t *testing.T) {

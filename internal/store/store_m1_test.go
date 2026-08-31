@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farras/cent-mem/internal/config"
-	"github.com/farras/cent-mem/internal/scope"
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 func testStore(t *testing.T) *store.Store {

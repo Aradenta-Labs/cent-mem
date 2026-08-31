@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/farras/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 // eligible put: write a memory then force its summarize_at into the past.

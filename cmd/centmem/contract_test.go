@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farras/cent-mem/internal/cli"
+	"github.com/aradenta-labs/cent-mem/internal/cli"
 )
 
 // repoRoot returns the repository root directory (parent of cmd/centmem).
