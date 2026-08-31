@@ -69,7 +69,7 @@ Output is JSON on stdout (errors are JSON on stderr). See [docs/guides/getting-s
 
 ```bash
 # Install the skill & slash command across all agent harnesses in one step
-npx centmem-skills
+npx @aradenta-labs/centmem-skills
 ```
 
 Or via bash:
