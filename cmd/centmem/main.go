@@ -36,14 +36,14 @@ func run(args []string) int {
 	// For simplicity, we require flags after the subcommand, but also support
 	// a leading --home/--db via re-parsing.
 
-	handler, ok := commands[cmd]
+	entry, ok := commands[cmd]
 	if !ok {
 		cli.WriteError(os.Stderr, cli.Invalidf("unknown command %q", cmd))
 		printUsage(os.Stderr)
 		return cli.ExitError
 	}
 
-	return handler(rest)
+	return entry.handler(rest)
 }
 
 func printUsage(w *os.File) {

@@ -12,20 +12,42 @@ import (
 // commandHandler runs a subcommand and returns a process exit code.
 type commandHandler func(args []string) int
 
-// commands maps subcommand names to their handlers.
-var commands = map[string]commandHandler{
-	"init":     cmdInit,
-	"put":      cmdPut,
-	"set":      cmdSet,
-	"get":      cmdGet,
-	"recall":   cmdRecall,
-	"timeline": cmdTimeline,
-	"list":     cmdList,
-	"forget":   cmdForget,
-	"stats":    cmdStats,
-	"doctor":   cmdDoctor,
-	"backup":   cmdBackup,
+// commandEntry couples a handler with the metadata used by the registry (and by
+// the contract tests that keep docs == code).
+type commandEntry struct {
+	handler commandHandler
+	usage   string
+	flags   []string
 }
+
+// commands maps subcommand names to their handlers + metadata.
+var commands = map[string]commandEntry{
+	"init":     {cmdInit, "init [--model <name>] [--force]", []string{"--model", "--force"}},
+	"put":      {cmdPut, "put --scope <scope> --type note|log --content <text> [--tags a,b] [--source-agent a] [--source-session s]", []string{"--scope", "--type", "--content", "--tags", "--source-agent", "--source-session"}},
+	"set":      {cmdSet, "set --scope <scope> --key <k> --value <json> [--tags a,b]", []string{"--scope", "--key", "--value", "--tags"}},
+	"get":      {cmdGet, "get --scope <scope> --key <k> [--inherit]", []string{"--scope", "--key", "--inherit"}},
+	"recall":   {cmdRecall, "recall <query> --scope <scope> [--top N] [--type t] [--tags a,b] [--since d] [--until d] [--agent a] [--inherit] [--children]", []string{"--scope", "--top", "--type", "--tags", "--since", "--until", "--agent", "--inherit", "--children"}},
+	"timeline": {cmdTimeline, "timeline --scope <scope> [--since d] [--until d] [--limit N]", []string{"--scope", "--since", "--until", "--limit"}},
+	"list":     {cmdList, "list --scope <scope> [--type t] [--tags a,b] [--limit N] [--offset N]", []string{"--scope", "--type", "--tags", "--limit", "--offset"}},
+	"forget":   {cmdForget, "forget --id N | --scope <s> --key <k> | --scope <s> --tag <t>", []string{"--id", "--scope", "--key", "--tag"}},
+	"stats":    {cmdStats, "stats", nil},
+	"doctor":   {cmdDoctor, "doctor", nil},
+	"backup":   {cmdBackup, "backup --to <path>", []string{"--to"}},
+}
+
+// buildRegistry returns a *cli.Registry populated with every registered command
+// and its metadata. Both the router (main.go) and the contract tests use it, so
+// there is a single source of truth for the command surface.
+func buildRegistry() *cli.Registry {
+	r := cli.NewRegistry()
+	for name, e := range commands {
+		r.Register(cli.Command{Name: name, Usage: e.usage, Flags: e.flags})
+	}
+	return r
+}
+
+// Names returns the sorted names of all registered commands.
+func Names() []string { return buildRegistry().Names() }
 
 var osStderr = os.Stderr
 

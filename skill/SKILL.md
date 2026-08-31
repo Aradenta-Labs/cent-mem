@@ -87,24 +87,23 @@ project:<name>/agent:<agent>/session:<id>
 - **Exit codes:** `0` success, `1` error (JSON on stderr), `2` not found, `3` conflict.
 - Error shape (stderr): `{"error":{"code":"NOT_FOUND","message":"...","hint":"..."}}`.
 
-## Full command reference
+## Commands
 
-See [docs/cli-contract.md](../docs/cli-contract.md) for the complete, stable contract. Summary:
+The canonical, complete contract is [docs/cli-contract.md](../docs/cli-contract.md). This quick reference matches the CLI exactly:
 
-| Command | Purpose |
-|---------|---------|
-| `init` | create/open store + download model |
-| `put` | write note or log memory |
-| `set` | upsert key/value fact |
-| `get` | fetch fact by key (with inheritance) |
-| `recall <query>` | hybrid search (semantic+keyword+facts+timeline) |
-| `timeline` | chronological logs |
-| `list` | browse memories |
-| `forget` | delete memory |
-| `compact` | summarize/archive old memories |
-| `stats` | store summary |
-| `doctor` | integrity check |
-| `backup` | snapshot DB |
+| Command | Usage | Purpose |
+|---------|-------|---------|
+| `init` | `init [--model <name>] [--force]` | create/open store + download model |
+| `put` | `put --scope <s> --type note\|log --content <t> [--tags a,b] [--source-agent a] [--source-session s]` | write note or log memory |
+| `set` | `set --scope <s> --key <k> --value <json> [--tags a,b]` | upsert key/value fact |
+| `get` | `get --scope <s> --key <k> [--inherit]` | fetch fact by key (with inheritance) |
+| `recall` | `recall <query> --scope <s> [--top N] [--type t] [--tags a,b] [--since d] [--until d] [--agent a] [--inherit] [--children]` | hybrid search (semantic+keyword+facts+timeline) |
+| `timeline` | `timeline --scope <s> [--since d] [--until d] [--limit N]` | chronological logs |
+| `list` | `list --scope <s> [--type t] [--tags a,b] [--limit N] [--offset N]` | browse memories |
+| `forget` | `forget --id N` or `--scope <s> --key <k>` or `--scope <s> --tag <t>` | delete memory |
+| `stats` | `stats` | store summary |
+| `doctor` | `doctor` | integrity check |
+| `backup` | `backup --to <path>` | snapshot DB |
 
 ## Agent best practices
 
@@ -114,6 +113,13 @@ See [docs/cli-contract.md](../docs/cli-contract.md) for the complete, stable con
 4. **Scope correctly.** Project-wide facts go in `project:X`. Per-agent checkpoints go in `project:X/agent:Y/session:Z`.
 5. **Prefer `set` for facts.** Use `put --type note` only for free-text memories.
 6. **Log checkpoints at session end** so the next agent has continuity.
+
+Flag usage rules:
+- `--scope`: required for writes; use the most specific scope the memory belongs to.
+- `--tags`: comma-separated, lowercase, no spaces (`decision,db`).
+- `--source-agent` / `--source-session`: always set on writes so provenance is tracked.
+- `--inherit` (default true on `recall`/`get`): include ancestor scopes (global).
+- `--children` (recall only): include descendant scopes (agents/sessions under a project).
 
 ## Integration notes per harness
 

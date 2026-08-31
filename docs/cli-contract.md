@@ -133,27 +133,14 @@ centmem timeline --scope <scope> [--since 24h] [--until 0] [--limit 50]
 
 ---
 
-### 3.7 `compact` — retention/summarization
-```
-centmem compact [--scope <scope>] [--dry-run]
-```
-Summarizes eligible memories (`summarize_at <= now`), archives originals, inserts consolidated note.
-
-**Output:**
-```json
-{"ok": true, "summarized": 14, "archived": 14, "new_memory_ids": [201]}
-```
-
----
-
-### 3.8 `list` — browse memories
+### 3.7 `list` — browse memories
 ```
 centmem list --scope <scope> [--type note] [--tags a,b] [--limit 20] [--offset 0]
 ```
 
 ---
 
-### 3.9 `forget` — delete a memory
+### 3.8 `forget` — delete a memory
 ```
 centmem forget --id 123 [--scope <scope> --key k] [--scope <scope> --tag tag] [--all-archived]
 ```
@@ -161,7 +148,7 @@ Deletes by id, or by scope+key, or by scope+tag. Archived rows are hard-deleted.
 
 ---
 
-### 3.10 `stats`
+### 3.9 `stats`
 ```
 centmem stats
 ```
@@ -172,7 +159,7 @@ centmem stats
 
 ---
 
-### 3.11 `doctor`
+### 3.10 `doctor`
 ```
 centmem doctor
 ```
@@ -180,7 +167,7 @@ Integrity check, model check, config check. Exit 0 healthy.
 
 ---
 
-### 3.12 `backup`
+### 3.11 `backup`
 ```
 centmem backup --to ~/backups/centmem-$(date +%F).db
 ```

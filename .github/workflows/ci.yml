@@ -30,6 +30,9 @@ jobs:
       - name: go test (with fts5 build tag)
         run: go test -race -tags fts5 ./...
 
+      - name: contract check (docs == code)
+        run: bash scripts/check_contract.sh
+
       - name: go build
         run: go build ./...
 

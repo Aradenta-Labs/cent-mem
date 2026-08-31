@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+            os: macos-latest
+          - goos: darwin
+            goarch: amd64
+            os: macos-latest
+          - goos: linux
+            goarch: amd64
+            os: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            os: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+
+      # centmem uses cgo (sqlite-vec + mattn/go-sqlite3), so the native runner's
+      # toolchain builds the binary for its own GOOS/GOARCH.
+      - name: Build for ${{ matrix.goos }}/${{ matrix.goarch }}
+        run: go build -tags fts5 -o "centmem-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/centmem
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: centmem-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: centmem-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: sha256sum centmem-* > SHA256SUMS
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
