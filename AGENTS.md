@@ -85,10 +85,10 @@ cent-mem/
 ## Development commands
 
 ```bash
-go build ./...
-go vet ./...
-go test ./... -race
-go test ./... -bench=.   # perf-sensitive changes
+go build -tags fts5 ./...
+go vet -tags fts5 ./...
+go test -tags fts5 ./... -race
+go test -tags fts5 ./... -bench=.   # perf-sensitive changes
 
 # Knowledge graph
 graphify query "<question>"   # ask the graph

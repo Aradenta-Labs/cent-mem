@@ -49,7 +49,7 @@ Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Amazon Q Dev*
 
 ```bash
 # 1. Install the binary
-go install github.com/aradenta-labs/cent-mem/cmd/centmem@latest
+go install -tags fts5 github.com/aradenta-labs/cent-mem/cmd/centmem@latest
 # or download a release binary: https://github.com/aradenta-labs/cent-mem/releases
 
 # 2. Initialize: creates ~/.centmem and downloads the default model (one-time, ~100 MB)
@@ -90,7 +90,7 @@ Once installed, the installer automatically:
 ### From source
 
 ```bash
-go install github.com/aradenta-labs/cent-mem/cmd/centmem@latest
+go install -tags fts5 github.com/aradenta-labs/cent-mem/cmd/centmem@latest
 ```
 
 Requires Go ≥ 1.22.
@@ -238,10 +238,10 @@ PRs welcome. Two things to know:
 2. **Use the active phase plan.** See [AGENTS.md](AGENTS.md) for the rules and [docs/plans/plan-phase-*.md](docs/plans/) for the detailed plan + test list for the current milestone.
 
 ```bash
-go build ./...
-go vet ./...
-go test ./... -race
-go test ./... -bench=.    # before/after perf-sensitive changes
+go build -tags fts5 ./...
+go vet -tags fts5 ./...
+go test -tags fts5 ./... -race
+go test -tags fts5 ./... -bench=.    # before/after perf-sensitive changes
 ```
 
 ---

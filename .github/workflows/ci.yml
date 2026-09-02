@@ -25,7 +25,7 @@ jobs:
           cache: true
 
       - name: go vet
-        run: go vet ./...
+        run: go vet -tags fts5 ./...
 
       - name: go test (with fts5 build tag)
         run: go test -race -tags fts5 ./...
@@ -34,7 +34,7 @@ jobs:
         run: bash scripts/check_contract.sh
 
       - name: go build
-        run: go build ./...
+        run: go build -tags fts5 ./...
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6

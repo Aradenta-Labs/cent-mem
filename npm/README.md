@@ -29,7 +29,7 @@ sudo mv centmem /usr/local/bin/
 
 **Option B: Install with Go (Go 1.22+)**
 ```bash
-go install github.com/aradenta-labs/cent-mem/cmd/centmem@latest
+go install -tags fts5 github.com/aradenta-labs/cent-mem/cmd/centmem@latest
 ```
 
 ### 2. Initialize `centmem` (Run once per machine)
