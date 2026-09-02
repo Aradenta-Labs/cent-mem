@@ -37,6 +37,7 @@
   },
   "files": [
     "bin",
-    "templates"
+    "templates",
+    "README.md"
   ]
 }
