@@ -1,7 +1,7 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` to recall context and store learnings so every agent shares one brain. Use whenever you need to remember/retrieve project context, user preferences, decisions, or session history.
-version: 1.0.0
+version: 1.3.0
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 ---
@@ -69,6 +69,22 @@ centmem put \
 centmem timeline --scope "project:$PROJ" --since 24h
 ```
 
+### 6. Auto-capture and transcript hooks
+```bash
+# Trigger an on-demand capture pass on a transcript
+centmem capture run --transcript "$TRANSCRIPT_PATH" --scope "project:$PROJ"
+
+# Inspect what memories were captured in the latest session
+centmem capture summary
+
+# List, add, or remove active capture categories
+centmem capture categories --list
+centmem capture categories --add "security"
+
+# Normalize a foreign harness transcript to standard JSONL
+centmem capture convert --harness cursor --input .cursor/logs/session.json
+```
+
 ## Scope grammar
 
 ```
@@ -106,6 +122,8 @@ The canonical, complete contract is [docs/cli-contract.md](../docs/cli-contract.
 | `doctor` | `doctor` | integrity check |
 | `backup` | `backup --to <path>` | snapshot DB |
 | `restore` | `restore --from <path>` | restore DB from backup |
+| `capture` | `capture <run\|summary\|categories\|convert> [flags]` | transcript auto-capture and session summaries |
+| `config` | `config <get\|set> [key] [value]` | get or set configuration keys in config.toml |
 
 ## Agent best practices
 
@@ -115,6 +133,7 @@ The canonical, complete contract is [docs/cli-contract.md](../docs/cli-contract.
 4. **Scope correctly.** Project-wide facts go in `project:X`. Per-agent checkpoints go in `project:X/agent:Y/session:Z`.
 5. **Prefer `set` for facts.** Use `put --type note` only for free-text memories.
 6. **Log checkpoints at session end** so the next agent has continuity.
+7. **Leverage auto-captured knowledge.** Memories ingested via transcript hooks have `source_agent = "capture-hook"`. You can recall them directly or inspect `centmem capture summary`.
 
 Flag usage rules:
 - `--scope`: required for writes; use the most specific scope the memory belongs to.
@@ -128,5 +147,7 @@ Flag usage rules:
 - **Claude Code:** invoke via Bash tool. Set `AGENT=claude` and `SID=<session id>`.
 - **Codex / Cursor / Continue:** invoke via their shell-exec capability with the same env vars.
 - **Custom harnesses:** shell out to `centmem`; capture stdout JSON, check exit code.
+- **Auto-capture hooks:** see [docs/guides/capture-hooks.md](../docs/guides/capture-hooks.md) and [skill/adapters/hooks/](./adapters/hooks/) for harness-specific hook scripts and file watcher setups.
 
 See [skill/adapters/](./adapters/) for harness-specific setup snippets.
+

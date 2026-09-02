@@ -189,3 +189,205 @@ func hasStrAny(ss []any, want string) bool {
 	}
 	return false
 }
+
+func TestCLI_Golden_ConfigSet(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init", "--non-interactive")
+
+	stdout, stderr, code := runCLI(t, home, "config", "set", "capture.harness", "claude-code")
+	if code != 0 {
+		t.Fatalf("config set exit code = %d, want 0 (stderr=%s)", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("config set output not valid JSON: %v", err)
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "config_set.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	if err := json.Unmarshal(wantBytes, &want); err != nil {
+		t.Fatalf("golden not valid JSON: %v", err)
+	}
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("config set output mismatch\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_ConfigGet(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init", "--non-interactive")
+
+	stdout, stderr, code := runCLI(t, home, "config", "get", "capture.backend")
+	if code != 0 {
+		t.Fatalf("config get exit code = %d, want 0 (stderr=%s)", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("config get output not valid JSON: %v", err)
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "config_get_key.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	if err := json.Unmarshal(wantBytes, &want); err != nil {
+		t.Fatalf("golden not valid JSON: %v", err)
+	}
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("config get output mismatch\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_CaptureSummary(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	transcript := `{"role":"user","content":"Let's decide on the database."}
+{"role":"assistant","content":"We decided to use SQLite-vec for local embeddings"}
+`
+	transcriptPath := filepath.Join(home, "golden_transcript.jsonl")
+	_ = os.WriteFile(transcriptPath, []byte(transcript), 0644)
+
+	stdout, _, code := runCLI(t, home, "capture", "run", "--transcript", transcriptPath, "--harness", "antigravity")
+	if code != 0 {
+		t.Fatalf("capture run code = %d, want 0", code)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	// Normalize dynamic fields
+	got["session_id"] = "<SESSION_ID>"
+	got["started_at"] = "<TIMESTAMP>"
+	got["ended_at"] = "<TIMESTAMP>"
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "capture_summary.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("summary golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_CaptureRunDecision(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	transcript := `{"role":"assistant","content":"We decided to use SQLite-vec for local embeddings"}`
+	transcriptPath := filepath.Join(home, "golden_run_decision.jsonl")
+	_ = os.WriteFile(transcriptPath, []byte(transcript), 0644)
+
+	stdout, stderr, code := runCLI(t, home, "capture", "run", "--transcript", transcriptPath, "--harness", "antigravity")
+	if code != 0 {
+		t.Fatalf("capture run code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	// Normalize dynamic fields
+	got["session_id"] = "<SESSION_ID>"
+	got["started_at"] = "<TIMESTAMP>"
+	got["ended_at"] = "<TIMESTAMP>"
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "capture_run_decision.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("capture run decision golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_CaptureConvert(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	transcript := `User: What is the roadmap?
+Assistant: We chose to release v1.3.0 next.
+`
+	transcriptPath := filepath.Join(home, "convert_golden.txt")
+	_ = os.WriteFile(transcriptPath, []byte(transcript), 0644)
+
+	stdout, _, code := runCLI(t, home, "capture", "convert", "--harness", "cursor", "--input", transcriptPath)
+	if code != 0 {
+		t.Fatalf("capture convert code = %d, want 0", code)
+	}
+
+	var got map[string]any
+	_ = json.Unmarshal([]byte(stdout), &got)
+	got["output"] = "<OUTPUT_PATH>"
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "capture_convert.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("convert golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_CaptureCategories(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	stdout, _, code := runCLI(t, home, "capture", "categories", "--list")
+	if code != 0 {
+		t.Fatalf("capture categories code = %d, want 0", code)
+	}
+
+	var got map[string]any
+	_ = json.Unmarshal([]byte(stdout), &got)
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "capture_categories.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("categories golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+

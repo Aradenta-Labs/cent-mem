@@ -39,6 +39,8 @@ var commands = map[string]commandEntry{
 	"doctor":   {cmdDoctor, "doctor", nil},
 	"backup":   {cmdBackup, "backup --to <path>", []string{"--to"}},
 	"restore":  {cmdRestore, "restore --from <path>", []string{"--from"}},
+	"capture":  {cmdCapture, "capture <run|summary|categories|convert> [flags]", []string{"--transcript", "--scope", "--session", "--add", "--remove", "--list", "--harness", "--input", "--output", "--watch", "--interval", "--state-file", "--once"}},
+	"config":   {cmdConfig, "config <get|set> [key] [value]", nil},
 }
 
 // buildRegistry returns a *cli.Registry populated with every registered command

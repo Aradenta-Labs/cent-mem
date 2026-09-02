@@ -111,9 +111,50 @@ npx @aradenta.labs/centmem-skills
 
 This installs the skill definitions for Antigravity, Claude Code, Cursor, Codex, Trae, Hermes, DeepSeek, and other harnesses, and sets up the **Read → Do → Update** memory loop in your project's `AGENTS.md`.
 
+## 9. Auto-capture from agent transcripts
+
+With auto-capture enabled, you don't even need to manually call `put` or `set`—cent-mem can monitor agent session transcripts and extract key decisions, facts, and code patterns automatically.
+
+### Background capture & session summary
+
+Install the hook for your agent harness:
+
+```bash
+bash skill/adapters/hooks/install.sh --all
+```
+
+After any agent conversation, inspect what was captured:
+
+```bash
+centmem capture summary
+```
+
+Output is JSON summarizing captured items and skip reasons:
+
+```json
+{"ok":true,"session_id":"sess_01","harness":"claude-code","captured":3,"skipped_duplicate":1,"items":[...]}
+```
+
+You can also run a capture pass manually on any transcript:
+
+```bash
+centmem capture run --transcript /path/to/session.jsonl --scope project:myapp
+```
+
+And inspect or modify active extraction categories:
+
+```bash
+centmem capture categories --list
+centmem capture categories --add "security"
+```
+
+See the full [Capture Hooks Guide](capture-hooks.md) for detailed configuration, classifier backends (Local LLM vs. heuristic vs. cloud), and custom prompt templates.
+
 ## Where to go next
 
+- Read [capture-hooks.md](capture-hooks.md) for the complete auto-capture and hook adapter guide.
 - Read [cli-contract.md](../cli-contract.md) for the exact CLI and JSON contract.
 - Read [skill/SKILL.md](../../skill/SKILL.md) if you want to integrate an AI agent via the skill.
 - See [troubleshooting.md](troubleshooting.md) if anything goes wrong.
+
 

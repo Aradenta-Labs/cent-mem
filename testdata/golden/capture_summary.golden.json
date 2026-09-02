@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "session_id": "<SESSION_ID>",
+  "harness": "antigravity",
+  "backend": "heuristic",
+  "started_at": "<TIMESTAMP>",
+  "ended_at": "<TIMESTAMP>",
+  "total_messages": 2,
+  "captured": 1,
+  "skipped_duplicate": 0,
+  "skipped_low_confidence": 0,
+  "items": [
+    {
+      "category": "decision",
+      "content": "We decided to use SQLite-vec for local embeddings",
+      "tags": [
+        "decision"
+      ],
+      "confidence": 0.75
+    }
+  ]
+}

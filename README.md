@@ -6,7 +6,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#)
-[![Version](https://img.shields.io/badge/version-v1.2.0-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.3.0-success.svg)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#installation)
 [![Offline](https://img.shields.io/badge/offline-100%25-brightgreen)](#privacy)
 [![No API key](https://img.shields.io/badge/api%20key-not%20required-brightgreen)](#privacy)
@@ -38,6 +38,7 @@ Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Amazon Q Dev*
 | 🚀 | **Fast** — p95 read < 300 ms on 100k memories; p95 write overhead < 50 ms |
 | 🧠 | **Hybrid search** — semantic (vec) + keyword (FTS5 bm25) + facts + timeline, fused via RRF |
 | 🗂️ | **Hierarchical scoping** — `global → project → agent → session`, with inheritance |
+| 🎣 | **Auto-capture** — extracts durable decisions, facts, and code from agent transcripts automatically |
 | 🧹 | **Auto-summarize** — old memories consolidate; the store stays lean forever |
 | 🩺 | **Self-checks** — `doctor`, `backup`, `restore` for ops |
 | 🔌 | **Pluggable** — swap embedders or summarizers via interfaces |
@@ -133,6 +134,11 @@ centmem compact [--dry-run]            # summarize + archive old memories
 centmem doctor                         # health checks
 centmem backup   --to <file>           # snapshot the DB
 centmem restore  --from <file>         # restore from snapshot
+centmem capture run [--watch]          # auto-capture from transcript
+centmem capture summary                # view latest capture report
+centmem capture categories --list      # list/manage capture categories
+centmem capture convert --harness <h>  # normalize transcript to JSONL
+centmem config set <k> <v>             # configure settings in config.toml
 centmem stats                          # store summary
 ```
 
@@ -158,6 +164,7 @@ Reads default to inheriting ancestor scopes. Pass `--children` to include descen
 
 - **Write path:** `put`/`set` persist to `memories`, queue an embedding. An inline worker drains the queue with stale-claim recovery so embeddings never block the CLI.
 - **Read path:** `recall` runs four rankers in parallel (semantic, keyword, facts, timeline), fuses via **Reciprocal Rank Fusion (k=60)**, then applies filters + dedup + slice-to-top.
+- **Auto-capture path:** Hooks intercept or watch transcripts, classify via local/cloud LLMs or heuristics, deduplicate via recall-before-write, and persist novel memories.
 - **Compaction:** notes/logs past `summarize_at` are summarized into a consolidated note; originals are archived and dropped from the vector index.
 
 See [docs/architecture.md](docs/architecture.md) for the full design.
@@ -173,9 +180,11 @@ Full documentation map: [docs/README.md](docs/README.md).
 | Doc | Purpose |
 |-----|---------|
 | [docs/guides/getting-started.md](docs/guides/getting-started.md) | Step-by-step install for first-time users |
+| [docs/guides/capture-hooks.md](docs/guides/capture-hooks.md) | Comprehensive guide for auto-capture & transcript hooks |
 | [docs/guides/troubleshooting.md](docs/guides/troubleshooting.md) | Common issues & fixes |
 | [skill/SKILL.md](skill/SKILL.md) | The contract your agent reads at runtime |
 | [skill/adapters/](skill/adapters/) | Per-harness setup (Claude Code, Codex, Cursor, Continue, Amazon Q, custom) |
+| [skill/adapters/hooks/](skill/adapters/hooks/) | Per-harness hook scripts & watcher setup |
 
 ### For contributors / agents working on this repo
 
@@ -222,9 +231,10 @@ Benchmarks live in `internal/search/search_bench_test.go` and are recorded in [`
 ## Roadmap
 
 - [x] **v1.0** — Core store, hybrid search, skill, compaction, polish
-- [ ] **v1.1** — Auto-capture from agent transcripts (hooks)
-- [ ] **v1.2** — TUI browser (`centmem ui`)
-- [ ] **v2** — Sync server (`centmemd`), multi-machine replication via `events` log, per-agent RBAC, remote embedding providers
+- [x] **v1.2** — Frictionless UX (npx installer, workflow loop injection, /centmem slash command)
+- [x] **v1.3** — Auto-capture from agent transcripts (hooks & multi-backend classification)
+- [ ] **v1.4** — TUI browser (`centmem ui`)
+- [ ] **v2.0** — Sync server (`centmemd`), multi-machine replication via `events` log, per-agent RBAC, remote embedding providers
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) and [docs/PRD.md § Open Questions](docs/PRD.md#10-open-questions).
 

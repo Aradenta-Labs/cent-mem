@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-02
+
+Auto-capture from agent transcripts: automatic extraction and storage of durable knowledge (decisions, facts, preferences, code, logs, errors, dependencies) directly from AI agent conversations with zero mandatory effort after setup.
+
+### Added
+
+- **Auto-capture engine** (`internal/capture`): Core extraction pipeline including transcript ingestion (`reader.go`), multi-backend classification (`classifier.go`), recall-before-write deduplication (`dedup.go`), store persistence (`writer.go`), session telemetry (`summary.go`), lifecycle locking (`session.go`), real-time file watcher (`watcher.go`), and multi-harness transcript normalization (`convert.go`).
+- **Three-tier classification engine**: Resilient fallback chain supporting Local LLM (Ollama/vLLM/LocalAI at `localhost:11434`), lightweight deterministic heuristic pattern matching (zero dependencies), and Bring-Your-Own-Key OpenAI-compatible cloud endpoints with one-time retry on malformed JSON responses and confidence threshold gating (`capture.confidence_threshold`).
+- **Hook adapters & recipes** (`skill/adapters/hooks/`): Per-harness hook specifications, shell exit traps, and file watcher configurations for Google Antigravity, Trae, Claude Code, Cursor, OpenAI Codex, DeepSeek, and Hermes.
+- **Unified hook installer** (`skill/adapters/hooks/install.sh`): Multi-platform shell installer supporting harness auto-detection, `--all`, `--harness`, `--scope`, `--trigger`, `--list`, `--dry-run`, `--uninstall`, and macOS `launchd` plist / Linux `systemd` user service unit generation.
+- **Real-time incremental watcher** (`centmem capture run --watch`): Low-overhead continuous file watcher with persistent byte-offset state tracking across restarts and configurable debouncing.
+- **CLI commands & subcommands**:
+  - `centmem capture run [--transcript <path>] [--scope <s>] [--watch]` — execute on-demand or continuous capture.
+  - `centmem capture summary [--session <id>]` — inspect captured items, telemetry, and skip reasons as structured JSON.
+  - `centmem capture categories [--list] [--add <c>] [--remove <c>]` — manage category whitelist.
+  - `centmem capture convert --harness <name> --input <path>` — normalize foreign transcripts into standard `.jsonl`.
+  - `centmem config set capture.<key> <value>` and `centmem config get capture.<key>` — manage `config.toml` settings.
+- **Custom prompt templates**: User-editable prompt at `~/.centmem/capture-prompt.md` with runtime interpolation of `{{CATEGORIES}}`, `{{CONFIDENCE_THRESHOLD}}`, and `{{RECALL_CONTEXT}}`.
+- **Recall-before-write deduplication**: Queries store recall context prior to classification to prevent duplicate memory insertion across sessions.
+- **Comprehensive documentation**: New [Capture Hooks Guide](docs/guides/capture-hooks.md), updated [Getting Started Guide](docs/guides/getting-started.md), and refreshed runtime recipes in [SKILL.md](skill/SKILL.md).
+
+### Changed
+
+- **Interactive `centmem init` wizard**: Extended initialization flow to interactively configure capture harness, triggers, classifier backends, endpoints, and default scopes.
+- **Configuration schema** (`internal/config`): Added `[capture]` configuration block and full suite of `CENTMEM_CAPTURE_*` environment variable overrides.
+
+### Security
+
+- **100% local-first default**: Transcript processing and classification run on-device with zero network calls.
+- **Zero API keys on disk**: `config.toml` stores only the name of the environment variable holding cloud credentials (e.g. `OPENAI_API_KEY`), never the plaintext secret.
+
 ## [1.2.0] - 2026-08-31
 
 Frictionless UX release: `npx @aradenta.labs/centmem-skills` standalone installer, automated project workflow loop injection, and smart routing `/centmem` slash command integration across major AI agent harnesses.
@@ -72,6 +103,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[1.3.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.3.0
 [1.2.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.2.0
 [1.1.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.1.0
 [1.0.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.0.0

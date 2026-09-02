@@ -205,3 +205,62 @@ func TestConfigDefaultRetention(t *testing.T) {
 		t.Errorf("unexpected defaults: %+v", r)
 	}
 }
+
+func TestConfigCaptureEnvOverrides(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("CENTMEM_CAPTURE_ENABLED", "true")
+	os.Setenv("CENTMEM_CAPTURE_HARNESS", "claude-code")
+	os.Setenv("CENTMEM_CAPTURE_SCOPE", "project:test")
+	os.Setenv("CENTMEM_CAPTURE_BACKEND", "openai-compatible")
+	os.Setenv("CENTMEM_CAPTURE_API_BASE_URL", "https://api.custom.com/v1")
+	os.Setenv("CENTMEM_CAPTURE_API_KEY_ENV", "CUSTOM_API_KEY")
+	os.Setenv("CENTMEM_CAPTURE_API_MODEL", "gpt-4o")
+	os.Setenv("CENTMEM_CAPTURE_CONFIDENCE_THRESHOLD", "0.85")
+	os.Setenv("CENTMEM_CAPTURE_CATEGORIES", "decision,fact,custom_cat")
+	os.Setenv("CENTMEM_CAPTURE_TRIGGERS", "session-end,on-demand")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if !cfg.Capture.Enabled {
+		t.Errorf("expected Enabled to be true")
+	}
+	if cfg.Capture.Harness != "claude-code" {
+		t.Errorf("expected Harness claude-code, got %q", cfg.Capture.Harness)
+	}
+	if cfg.Capture.Scope != "project:test" {
+		t.Errorf("expected Scope project:test, got %q", cfg.Capture.Scope)
+	}
+	if cfg.Capture.Backend != "openai-compatible" {
+		t.Errorf("expected Backend openai-compatible, got %q", cfg.Capture.Backend)
+	}
+	if cfg.Capture.APIBaseURL != "https://api.custom.com/v1" {
+		t.Errorf("expected APIBaseURL https://api.custom.com/v1, got %q", cfg.Capture.APIBaseURL)
+	}
+	if cfg.Capture.APIKeyEnv != "CUSTOM_API_KEY" {
+		t.Errorf("expected APIKeyEnv CUSTOM_API_KEY, got %q", cfg.Capture.APIKeyEnv)
+	}
+	if cfg.Capture.APIModel != "gpt-4o" {
+		t.Errorf("expected APIModel gpt-4o, got %q", cfg.Capture.APIModel)
+	}
+	if cfg.Capture.ConfidenceThreshold != 0.85 {
+		t.Errorf("expected ConfidenceThreshold 0.85, got %f", cfg.Capture.ConfidenceThreshold)
+	}
+	if len(cfg.Capture.Categories) != 3 || cfg.Capture.Categories[2] != "custom_cat" {
+		t.Errorf("unexpected categories: %+v", cfg.Capture.Categories)
+	}
+	if len(cfg.Capture.Triggers) != 2 || cfg.Capture.Triggers[0] != "session-end" {
+		t.Errorf("unexpected triggers: %+v", cfg.Capture.Triggers)
+	}
+}
+
+func TestConfigCaptureRejectsInvalidBackend(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("CENTMEM_CAPTURE_BACKEND", "invalid-backend")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("expected error for invalid capture backend")
+	}
+}
+

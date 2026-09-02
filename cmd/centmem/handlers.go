@@ -33,6 +33,8 @@ func cmdInit(args []string) int {
 	fs := newFlagSet("init")
 	fs.String("model", "bge-small-en-v1.5", "embedding model name")
 	fs.Bool("force", false, "re-download model even if present")
+	fs.Bool("non-interactive", false, "skip interactive capture setup wizard")
+	fs.Bool("wizard", false, "force run interactive capture setup wizard")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
 		if err := cfg.Ensure(); err != nil {
 			return cli.Internalf("init: %v", err)
@@ -52,6 +54,8 @@ func cmdInit(args []string) int {
 		cfg.Model.Dims = model.Dims
 		cfg.Model.Path = cfg.Home + "/models/" + modelName + ".onnx"
 		force := fs.Lookup("force").Value.String() == "true"
+		nonInteractive := fs.Lookup("non-interactive").Value.String() == "true"
+		forceWizard := fs.Lookup("wizard").Value.String() == "true"
 
 		modelPath := cfg.Model.Path
 		if force {
@@ -63,6 +67,22 @@ func cmdInit(args []string) int {
 				"ensure the model file can be downloaded, or place it manually at the model path; see docs/guides/troubleshooting.md")
 		}
 		_ = path
+
+		// Interactive capture wizard
+		configPath := filepath.Join(cfg.Home, "config.toml")
+		_, configErr := os.Stat(configPath)
+		shouldRunWizard := forceWizard || (!nonInteractive && os.IsNotExist(configErr))
+
+		if shouldRunWizard {
+			_ = runCaptureInitWizard(os.Stdin, os.Stderr, &cfg)
+		}
+
+		if err := config.SaveToHome(cfg); err != nil {
+			return cli.Internalf("init: save config: %v", err)
+		}
+		if err := writeDefaultCapturePrompt(cfg.Home); err != nil {
+			return cli.Internalf("init: write capture prompt: %v", err)
+		}
 
 		return prettyPrint(fs, map[string]any{
 			"ok":    true,

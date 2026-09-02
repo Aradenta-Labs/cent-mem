@@ -1,38 +1,41 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
-	Home      string
-	DBPath    string
-	Model     ModelConfig
-	Retention Retention
+	Home      string        `json:"home" toml:"home"`
+	DBPath    string        `json:"db_path" toml:"db_path"`
+	Model     ModelConfig   `json:"model" toml:"model"`
+	Retention Retention     `json:"retention" toml:"retention"`
+	Capture   CaptureConfig `json:"capture" toml:"capture"`
 }
 
 type ModelConfig struct {
-	Name string
-	Path string
-	Dims int
+	Name string `json:"name" toml:"name"`
+	Path string `json:"path" toml:"path"`
+	Dims int    `json:"dims" toml:"dims"`
 }
 
 // Retention captures per-type retention policies (see docs/data-model.md).
 // Values are in days; 0 means "keep forever".
 type Retention struct {
 	// FactKeepDays is 0 by default (facts are kept forever).
-	FactKeepDays int
+	FactKeepDays int `json:"fact_keep_days" toml:"fact_keep_days"`
 	// NoteSummarizeAfterDays: notes are summarized after this many days.
-	NoteSummarizeAfterDays int
+	NoteSummarizeAfterDays int `json:"note_summarize_after_days" toml:"note_summarize_after_days"`
 	// LogSummarizeAfterDays: logs are summarized after this many days.
-	LogSummarizeAfterDays int
+	LogSummarizeAfterDays int `json:"log_summarize_after_days" toml:"log_summarize_after_days"`
 	// LogDropAfterDays: raw logs are dropped after this many days.
-	LogDropAfterDays int
+	LogDropAfterDays int `json:"log_drop_after_days" toml:"log_drop_after_days"`
 	// ArchiveKeepDays: archived rows are kept for audit for this many days.
-	ArchiveKeepDays int
+	ArchiveKeepDays int `json:"archive_keep_days" toml:"archive_keep_days"`
 }
 
 // DefaultRetention returns the standard retention policy.
@@ -47,7 +50,7 @@ func DefaultRetention() Retention {
 }
 
 // Load reads config.toml (if it exists) and applies overrides from env variables:
-// CENTMEM_HOME, CENTMEM_DB, and CENTMEM_MODEL.
+// CENTMEM_HOME, CENTMEM_DB, CENTMEM_MODEL, CENTMEM_RETENTION_*, and CENTMEM_CAPTURE_*.
 func Load() (Config, error) {
 	// 1. Establish defaults
 	homeDir, err := os.UserHomeDir()
@@ -56,23 +59,26 @@ func Load() (Config, error) {
 	}
 	defaultHome := filepath.Join(homeDir, ".centmem")
 
-	cfg := Config{
-		Home:   defaultHome,
-		DBPath: "", // Will be computed after Home is final
-		Model: ModelConfig{
-			Name: "bge-small-en-v1.5",
-			Path: "", // Will be computed after Home/Model.Name are final
-			Dims: 384,
-		},
-		Retention: DefaultRetention(),
+	// 2. Apply env overrides for Home
+	home := defaultHome
+	if envHome := os.Getenv("CENTMEM_HOME"); envHome != "" {
+		home = envHome
 	}
 
-	// TODO/Future Phase: In M1/M4 we load a config.toml file if it exists.
-	// For Phase 0 / baseline M1, we proceed with defaults + env overrides.
+	// 3. Load from config.toml if it exists
+	cfg, err := LoadTOML(filepath.Join(home, "config.toml"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Home = home
 
-	// 2. Apply env overrides
-	if envHome := os.Getenv("CENTMEM_HOME"); envHome != "" {
-		cfg.Home = envHome
+	// Load categories from home directory if custom file exists
+	catFile := filepath.Join(cfg.Home, "capture-categories.json")
+	if data, err := os.ReadFile(catFile); err == nil {
+		var cats []string
+		if err := json.Unmarshal(data, &cats); err == nil && len(cats) > 0 {
+			cfg.Capture.Categories = cats
+		}
 	}
 
 	if envDB := os.Getenv("CENTMEM_DB"); envDB != "" {
@@ -110,8 +116,74 @@ func Load() (Config, error) {
 		cfg.Retention.ArchiveKeepDays, _ = strconv.Atoi(v)
 	}
 
-	// 4. Validate retention values (negative days are nonsensical).
+	// 4. Apply capture env overrides (CENTMEM_CAPTURE_*).
+	if v := os.Getenv("CENTMEM_CAPTURE_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Capture.Enabled = b
+		}
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_HARNESS"); v != "" {
+		cfg.Capture.Harness = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_SCOPE"); v != "" {
+		cfg.Capture.Scope = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_TRANSCRIPT_PATH"); v != "" {
+		cfg.Capture.TranscriptPath = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_BACKEND"); v != "" {
+		cfg.Capture.Backend = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_LOCAL_LLM_ENDPOINT"); v != "" {
+		cfg.Capture.LocalLLMEndpoint = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_LOCAL_LLM_MODEL"); v != "" {
+		cfg.Capture.LocalLLMModel = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_API_BASE_URL"); v != "" {
+		cfg.Capture.APIBaseURL = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_API_KEY_ENV"); v != "" {
+		cfg.Capture.APIKeyEnv = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_API_MODEL"); v != "" {
+		cfg.Capture.APIModel = v
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_CONFIDENCE_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Capture.ConfidenceThreshold = f
+		}
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_CATEGORIES"); v != "" {
+		cats := strings.Split(v, ",")
+		var cleaned []string
+		for _, cat := range cats {
+			if trimmed := strings.TrimSpace(cat); trimmed != "" {
+				cleaned = append(cleaned, trimmed)
+			}
+		}
+		if len(cleaned) > 0 {
+			cfg.Capture.Categories = cleaned
+		}
+	}
+	if v := os.Getenv("CENTMEM_CAPTURE_TRIGGERS"); v != "" {
+		trigs := strings.Split(v, ",")
+		var cleaned []string
+		for _, trig := range trigs {
+			if trimmed := strings.TrimSpace(trig); trimmed != "" {
+				cleaned = append(cleaned, trimmed)
+			}
+		}
+		if len(cleaned) > 0 {
+			cfg.Capture.Triggers = cleaned
+		}
+	}
+
+	// 5. Validate retention and capture values.
 	if err := validateRetention(cfg.Retention); err != nil {
+		return Config{}, err
+	}
+	if err := ValidateCaptureConfig(cfg.Capture); err != nil {
 		return Config{}, err
 	}
 

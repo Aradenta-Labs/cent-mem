@@ -194,6 +194,74 @@ of the current DB, then replaces the live DB. Output: `{"ok": true, "restored_fr
 
 ---
 
+### 3.14 `capture`
+Automatic transcript capture, session summaries, category management, and format normalization.
+
+```
+centmem capture run [--transcript <path>] [--scope <scope>] [--harness <name>]
+centmem capture summary [--session <id>]
+centmem capture categories [--list] [--add <c>] [--remove <c>]
+centmem capture convert --harness <name> --input <path> [--output <path>]
+```
+
+- `run`: processes a transcript file or stdin pipe, classifies items, deduplicates, writes to store, and outputs `CaptureSummary` JSON.
+- `summary`: prints the last (or specified session's) capture summary as JSON. Exit 2 if not found.
+- `categories`: inspects or updates the active capture categories list.
+- `convert`: normalizes a harness transcript file into standard `.centmem.jsonl` format.
+
+**Output (`capture run` / `capture summary`):**
+```json
+{
+  "ok": true,
+  "session_id": "abc123",
+  "harness": "claude-code",
+  "started_at": "2026-09-02T10:00:00Z",
+  "ended_at": "2026-09-02T11:00:00Z",
+  "total_messages": 42,
+  "captured": 7,
+  "skipped_duplicate": 3,
+  "skipped_low_confidence": 2,
+  "items": [
+    {"category": "decision", "content": "We use SQLite-vec for local embeddings", "tags": ["decision", "db"], "confidence": 0.92}
+  ]
+}
+```
+
+**Output (`capture convert`):**
+```json
+{"ok": true, "output": "/path/to/normalized.jsonl", "messages": 42, "harness": "cursor"}
+```
+
+**Output (`capture categories`):**
+```json
+{"ok": true, "categories": ["decision", "fact", "preference", "code", "log", "error", "dependency"]}
+```
+
+---
+
+### 3.15 `config`
+Read or update configuration in `~/.centmem/config.toml`.
+
+```
+centmem config set <key> <value>
+centmem config get [key]
+```
+
+- `set`: updates a dot-notation config key in `config.toml` (e.g. `capture.harness`, `capture.categories`, `retention.note_summarize_after_days`).
+- `get`: retrieves the value of a specific key (or full configuration if no key specified). Exit 2 if key not found.
+
+**Output (`config set` / `config get <key>`):**
+```json
+{"ok": true, "key": "capture.harness", "value": "claude-code"}
+```
+
+**Output (`config get` full dump):**
+```json
+{"ok": true, "config": {"home": "/Users/x/.centmem", "model": {"name": "bge-small-en-v1.5", "dims": 384}, "capture": {"enabled": true, "harness": "claude-code"}}}
+```
+
+---
+
 ## 4. Scope Grammar
 
 ```

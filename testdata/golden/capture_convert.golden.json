@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "output": "<OUTPUT_PATH>",
+  "messages": 2,
+  "harness": "cursor"
+}
