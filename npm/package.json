@@ -1,6 +1,6 @@
 {
   "name": "@aradenta.labs/centmem-skills",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Cross-platform installer for cent-mem shared memory skills and slash commands",
   "bin": {
     "centmem-skills": "./bin/install.js",
