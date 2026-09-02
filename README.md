@@ -95,6 +95,12 @@ go install github.com/aradenta-labs/cent-mem/cmd/centmem@latest
 
 Requires Go ≥ 1.22.
 
+> **Note:** If your terminal says `command not found: centmem` after running `go install`, your Go `bin` directory is not in your system's `PATH`. To fix this (on macOS/Linux), run:
+> ```bash
+> echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.zshrc
+> source ~/.zshrc
+> ```
+
 ### Pre-built binaries
 
 Download the binary for your platform from [Releases](https://github.com/aradenta-labs/cent-mem/releases/latest):
