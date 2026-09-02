@@ -55,8 +55,10 @@ npx @aradenta.labs/centmem-skills
 
 When you run `npx @aradenta.labs/centmem-skills`:
 
-1. **Installs Skill Definitions:** Auto-discovers and installs `SKILL.md` into supported AI harnesses on your system:
-   - **Claude Code** (`~/.claude/skills/centmem`, `./.claude/skills/centmem`)
+1. **Installs Detailed Skill Artifacts:** Auto-discovers and installs `SKILL.md`, comprehensive references, workflow examples, and helper scripts into standard AI skill locations:
+   - **Project-Level Agents Skills** (`./.agents/skills/centmem`)
+   - **User-Level Global Agents Skills** (`~/.agents/skills/centmem`)
+   - **Claude Code** (`./.claude/skills/centmem`, `~/.claude/skills/centmem`)
    - **Cursor** (`~/.cursor/rules/centmem`)
    - **Google Antigravity** (`~/.gemini/antigravity/skills/centmem`)
    - **OpenAI Codex** (`~/.codex/skills/centmem`)
@@ -65,8 +67,8 @@ When you run `npx @aradenta.labs/centmem-skills`:
    - **DeepSeek Harness** (`~/.deepseek/skills/centmem`)
    - **Global Config** (`~/.config/skills/centmem`)
 
-2. **Automated Memory Loop Injection:**
-   Detects existing project rule files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.github/copilot-instructions.md`) or creates `AGENTS.md` to establish the standard memory loop:
+2. **Automated Memory Loop Injection in `AGENTS.md`:**
+   Guarantees that `AGENTS.md` is updated (or created) in your project root, and injects into any existing rule files (`CLAUDE.md`, `.cursorrules`, `.github/copilot-instructions.md`) to establish the standard memory loop:
    - **READ**: Run `centmem recall "<task context>"` to load prior context.
    - **DO**: Execute the task.
    - **UPDATE**: Run `centmem put` or `centmem set` to persist decisions and learnings.

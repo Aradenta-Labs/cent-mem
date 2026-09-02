@@ -118,10 +118,19 @@ centmem recall "architecture decisions" --scope project:cent-mem --top 5
 
 <!-- centmem:start -->
 ## cent-mem Workflow
-Whenever you start a task, follow this loop:
-1. **READ**: Run `centmem recall "<task context>"` to load prior context.
+All agents working on this project share persistent memory via `centmem`. Detailed skill artifacts and reference guides are located in `.agents/skills/centmem/`.
+
+Whenever you start a task, follow this 3-step loop:
+1. **READ**: Run `centmem recall "<task context>"` to load prior decisions, conventions, and learnings.
 2. **DO**: Execute the user's prompt.
-3. **UPDATE**: Run `centmem put` or `centmem set` to store new learnings, decisions, or endpoints before ending.
+3. **UPDATE**: Run `centmem put` or `centmem set` to store new learnings, decisions, conventions, or checkpoints before finishing.
+
+### Essential Commands
+- **Recall Context**: `centmem recall "<query>" --scope "project:$CENTMEM_PROJ" --top 5`
+- **Save Decision / Note**: `centmem put --scope "project:$CENTMEM_PROJ" --type note --content "<decision>" --tags decision`
+- **Save Key/Value Fact**: `centmem set --scope "project:$CENTMEM_PROJ" --key "<key>" --value '<json>'`
+- **Recent Activity Timeline**: `centmem timeline --scope "project:$CENTMEM_PROJ" --since 24h`
+- **Check Health**: `centmem doctor`
 <!-- centmem:end -->
 
 <!-- centmem-command:start -->

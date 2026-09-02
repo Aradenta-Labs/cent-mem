@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-09-03
+
+Skill installer enhancements: standard `.agents/skills` directory support, comprehensive bundled skill artifacts, guaranteed `AGENTS.md` memory loop injection, and script permission preservation.
+
+### Added
+
+- **Standard `.agents/skills` target support**: `@aradenta.labs/centmem-skills` now automatically installs the skill into `.agents/skills/centmem` (at project level) and `~/.agents/skills/centmem` (at user home level), matching modern AI agent skill conventions across Google Antigravity, Claude Code, Trae, Cursor, and Codex.
+- **Detailed bundled skill artifacts**:
+  - `references/cli-commands.md`: Exhaustive reference of every `centmem` CLI command with all flags, options, exit codes, and JSON response shapes.
+  - `references/architecture-and-scoping.md`: Deep dive on 4-tier scoping (`global -> project -> agent -> session`), inheritance semantics, and RRF $k=60$ hybrid search (SQLite FTS5 + vector embeddings).
+  - `references/capture-hooks.md`: Technical documentation on auto-capture file watchers, exit traps, and 3-tier classification backends.
+  - `examples/agent-workflow-examples.md`: Practical end-to-end conversation walkthroughs of an agent reading, executing, and updating shared memory.
+  - `examples/recipes.sh`: Ready-to-use copy-pasteable bash recipes for common memory queries and maintenance.
+  - `scripts/centmem-helper.sh`: Executable diagnostic utility to verify binary presence, detect active project scope, and run health checks.
+- **Automated release notes workflow**: Enhanced `.github/workflows/release.yml` to automatically extract the relevant section from `CHANGELOG.md` and publish it directly to the GitHub Release body.
+
+### Changed
+
+- **Guaranteed `AGENTS.md` injection**: In addition to detecting existing instruction files (`CLAUDE.md`, `.cursorrules`, `.github/copilot-instructions.md`), the installer now always updates (or creates) `AGENTS.md` in the project root with the 3-step loop (`READ -> DO -> UPDATE`), essential commands cheatsheet, and the `/centmem` smart routing command.
+- **Executable permissions preservation**: The skill installer recursively sets `0755` executable permissions on all bundled shell scripts (`.sh`, `.js`, `.mjs`) during deployment.
+- **Tracked npm bin files**: Fixed `.gitignore` root `/bin/` pathing so `npm/bin/install.js` is properly version-controlled and packaged.
+
 ## [1.3.0] - 2026-09-02
 
 Auto-capture from agent transcripts: automatic extraction and storage of durable knowledge (decisions, facts, preferences, code, logs, errors, dependencies) directly from AI agent conversations with zero mandatory effort after setup.
@@ -103,6 +125,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[1.3.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.3.1
 [1.3.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.3.0
 [1.2.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.2.0
 [1.1.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.1.0

@@ -129,6 +129,33 @@ test('injectWorkflowAndCommands preserves existing content and is idempotent', (
   }
 });
 
+test('detectInstructionFiles always includes AGENTS.md even if missing', () => {
+  const tmpDir = createTempDir();
+  try {
+    fs.writeFileSync(path.join(tmpDir, '.cursorrules'), '# Cursor rules');
+
+    const found = detectInstructionFiles(tmpDir);
+    assert.strictEqual(found.length, 2);
+    assert(found.some(f => f.endsWith('AGENTS.md')));
+    assert(found.some(f => f.endsWith('.cursorrules')));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('getSkillTargets includes .agents/skills in project cwd and user home', () => {
+  const tmpHome = createTempDir('home-');
+  const tmpCwd = createTempDir('cwd-');
+  try {
+    const targets = getSkillTargets(tmpHome, tmpCwd, 'centmem');
+    assert(targets.includes(path.join(tmpCwd, '.agents', 'skills', 'centmem')));
+    assert(targets.includes(path.join(tmpHome, '.agents', 'skills', 'centmem')));
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
 test('Full E2E install and uninstall workflow', () => {
   const tmpHome = createTempDir('centmem-home-');
   const tmpCwd = createTempDir('centmem-cwd-');
@@ -144,12 +171,24 @@ test('Full E2E install and uninstall workflow', () => {
       assert(fs.existsSync(path.join(target, 'SKILL.md')), `Missing SKILL.md at ${target}`);
     }
 
-    // Verify AGENTS.md was created in project root
+    // Verify detailed skill artifacts in project .agents/skills/centmem
+    const agentsSkillDir = path.join(tmpCwd, '.agents', 'skills', 'centmem');
+    assert(fs.existsSync(path.join(agentsSkillDir, 'SKILL.md')), 'Missing SKILL.md in .agents/skills/centmem');
+    assert(fs.existsSync(path.join(agentsSkillDir, 'references', 'cli-commands.md')), 'Missing cli-commands.md');
+    assert(fs.existsSync(path.join(agentsSkillDir, 'references', 'architecture-and-scoping.md')), 'Missing architecture-and-scoping.md');
+    assert(fs.existsSync(path.join(agentsSkillDir, 'references', 'capture-hooks.md')), 'Missing capture-hooks.md');
+    assert(fs.existsSync(path.join(agentsSkillDir, 'examples', 'agent-workflow-examples.md')), 'Missing agent-workflow-examples.md');
+    assert(fs.existsSync(path.join(agentsSkillDir, 'examples', 'recipes.sh')), 'Missing recipes.sh');
+    assert(fs.existsSync(path.join(agentsSkillDir, 'scripts', 'centmem-helper.sh')), 'Missing centmem-helper.sh');
+
+    // Verify AGENTS.md was created in project root with enriched instructions
     const agentsPath = path.join(tmpCwd, 'AGENTS.md');
     assert(fs.existsSync(agentsPath));
     const agentsContent = fs.readFileSync(agentsPath, 'utf8');
     assert(agentsContent.includes('## cent-mem Workflow'));
+    assert(agentsContent.includes('.agents/skills/centmem/'));
     assert(agentsContent.includes('## /centmem Command'));
+    assert(agentsContent.includes('centmem recall'));
 
     // 2. Run uninstall
     const uninstExit = run(['node', 'install.js', 'uninstall', '--home', tmpHome, '--cwd', tmpCwd]);
