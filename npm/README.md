@@ -9,9 +9,41 @@
 
 ---
 
-## Quickstart
+## Prerequisites: Install `centmem` CLI
 
-Run the installer directly from any project root:
+Before connecting your AI agents, ensure the `centmem` Go binary is installed and initialized on your machine.
+
+### 1. Install `centmem`
+
+**Option A: Pre-built Binary (macOS & Linux)**
+Download the latest release for your OS and architecture from [GitHub Releases](https://github.com/aradenta-labs/cent-mem/releases/latest):
+
+```bash
+# Example for macOS (Apple Silicon):
+curl -fsSL -o centmem https://github.com/aradenta-labs/cent-mem/releases/latest/download/centmem-darwin-arm64
+chmod +x centmem
+sudo mv centmem /usr/local/bin/
+```
+
+*(Pre-built binaries available for `darwin-arm64`, `darwin-amd64`, `linux-amd64`, and `linux-arm64`.)*
+
+**Option B: Install with Go (Go 1.22+)**
+```bash
+go install github.com/aradenta-labs/cent-mem/cmd/centmem@latest
+```
+
+### 2. Initialize `centmem` (Run once per machine)
+
+```bash
+centmem init
+```
+*This creates the local database (`~/.centmem/`) and downloads the local ONNX embedding model (~100 MB).*
+
+---
+
+## Quickstart: Install Agent Skills
+
+Run the installer directly from your project root:
 
 ```bash
 npx @aradenta.labs/centmem-skills
