@@ -48,6 +48,7 @@ This re-extracts only changed files (AST-only, no API cost, ~seconds) to keep th
 5. [skill/SKILL.md](skill/SKILL.md) — the contract agents use at runtime
 6. [docs/implementation-plan.md](docs/implementation-plan.md) — milestones & ordering
 7. The **active phase plan** in [docs/plans/plan-phase-0.md](docs/plans/plan-phase-0.md) … [docs/plans/plan-phase-4.md](docs/plans/plan-phase-4.md) — detailed steps + tests for the current milestone
+8. **[docs/plans/plan-v1.4.0.md](docs/plans/plan-v1.4.0.md)** — Web UI Memory Browser (design direction + phased UI plan, when working on the UI)
 
 ## Ground rules
 

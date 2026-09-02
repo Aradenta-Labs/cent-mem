@@ -45,6 +45,9 @@ Roadmaps and per-phase specifications tracking project milestones from inception
 | [plans/tasks-phase-5.md](plans/tasks-phase-5.md) | Phase 5 Tasks | Completed | Multi-backend classification & prompt engine task checklist |
 | [plans/tasks-phase-6.md](plans/tasks-phase-6.md) | Phase 6 Tasks | Completed | Test harness, golden files, benchmarks & E2E verification |
 | [plans/tasks-phase-7.md](plans/tasks-phase-7.md) | Phase 7 Tasks | Completed | Documentation, release notes & governance task checklist |
+| [plan-v1.2.0.md](plan-v1.2.0.md) | v1.2.0 | Planned | Frictionless UX: npx installer, slash commands, instruction injection |
+| [plan-v1.3.0.md](plan-v1.3.0.md) | v1.3.0 | Completed | Auto-capture from agent transcripts (hooks) |
+| [plans/plan-v1.4.0.md](plans/plan-v1.4.0.md) | v1.4.0 | Planned | **Web UI Memory Browser Dashboard** (design + phased plan) |
 
 ---
 

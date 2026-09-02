@@ -197,6 +197,7 @@ Full documentation map: [docs/README.md](docs/README.md).
 | [docs/cli-contract.md](docs/cli-contract.md) | CLI surface & JSON contract (stable within v1.x) |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones & ordering |
 | [docs/plans/plan-phase-0.md](docs/plans/plan-phase-0.md) … [plan-phase-4.md](docs/plans/plan-phase-4.md) | Detailed per-phase plans + tests |
+| [docs/plans/plan-v1.4.0.md](docs/plans/plan-v1.4.0.md) | v1.4.0 Web UI Memory Browser (design + plan) |
 | [docs/release-plan.md](docs/release-plan.md) | Release & QA process |
 | [AGENTS.md](AGENTS.md) | Rules for any AI agent editing this repo |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
@@ -233,7 +234,7 @@ Benchmarks live in `internal/search/search_bench_test.go` and are recorded in [`
 - [x] **v1.0** — Core store, hybrid search, skill, compaction, polish
 - [x] **v1.2** — Frictionless UX (npx installer, workflow loop injection, /centmem slash command)
 - [x] **v1.3** — Auto-capture from agent transcripts (hooks & multi-backend classification)
-- [ ] **v1.4** — TUI browser (`centmem ui`)
+- [ ] **v1.4** — Web UI Memory Browser dashboard (`centmem ui`, embedded server)
 - [ ] **v2.0** — Sync server (`centmemd`), multi-machine replication via `events` log, per-agent RBAC, remote embedding providers
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) and [docs/PRD.md § Open Questions](docs/PRD.md#10-open-questions).
