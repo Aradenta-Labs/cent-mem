@@ -115,3 +115,21 @@ Once M1 is complete, this repo should use centmem to store its own development d
 export CENTMEM_PROJ=cent-mem CENTMEM_AGENT=<your-agent>
 centmem recall "architecture decisions" --scope project:cent-mem --top 5
 ```
+
+<!-- centmem:start -->
+## cent-mem Workflow
+Whenever you start a task, follow this loop:
+1. **READ**: Run `centmem recall "<task context>"` to load prior context.
+2. **DO**: Execute the user's prompt.
+3. **UPDATE**: Run `centmem put` or `centmem set` to store new learnings, decisions, or endpoints before ending.
+<!-- centmem:end -->
+
+<!-- centmem-command:start -->
+## /centmem Command
+When the user types `/centmem <input>`, act as the Memory Manager. Analyze the intent:
+- **Recall / Context**: If asking a question or looking for context, run `centmem recall "<input>" --scope "project:$CENTMEM_PROJ" --top 5` or `centmem timeline`.
+- **Save Decisions / Facts**: If stating a decision, convention, preference, or learning to save, run `centmem put --scope "project:$CENTMEM_PROJ" --type note --content "<input>"` or `centmem set --scope "project:$CENTMEM_PROJ" --key "<key>" --value '<json>'`.
+- **Maintenance / Health**: If requesting maintenance, health checks, or statistics, run `centmem doctor`, `centmem stats`, or `centmem compact`.
+
+Always verify execution results from stdout JSON and report them clearly to the user.
+<!-- centmem-command:end -->
