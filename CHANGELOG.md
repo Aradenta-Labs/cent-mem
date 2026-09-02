@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0] - 2026-08-31
 
-Frictionless UX release: `npx @aradenta-labs/centmem-skills` standalone installer, automated project workflow loop injection, and smart routing `/centmem` slash command integration across major AI agent harnesses.
+Frictionless UX release: `npx @aradenta.labs/centmem-skills` standalone installer, automated project workflow loop injection, and smart routing `/centmem` slash command integration across major AI agent harnesses.
 
 ### Added
 
-- **NPM installer package** (`@aradenta-labs/centmem-skills`): Zero-dependency Node installer executable via `npx @aradenta-labs/centmem-skills` (or `npx @aradenta-labs/centmem-skills add <url>`), supporting cross-platform target discovery across macOS, Linux, and Windows.
+- **NPM installer package** (`@aradenta.labs/centmem-skills`): Zero-dependency Node installer executable via `npx @aradenta.labs/centmem-skills` (or `npx @aradenta.labs/centmem-skills add <url>`), supporting cross-platform target discovery across macOS, Linux, and Windows.
 - **Automated workflow injection**: Automatically detects project instruction files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.github/copilot-instructions.md`) and injects the **Read → Do → Update** memory loop (using `<!-- centmem:start -->` tags for idempotency). Automatically creates `AGENTS.md` at the project root if no instruction files exist.
 - **Smart routing `/centmem` slash command**: Built-in slash command integrations and templates for Google Antigravity, Trae, Claude Code, Cursor, OpenAI Codex, DeepSeek, and Hermes. Automatically routes between recall, put/set, and maintenance operations.
 - **Node.js test suite**: Automated testing with `node:test` covering arguments parsing, idempotent block injections, and end-to-end multi-target installations.

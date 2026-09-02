@@ -106,7 +106,7 @@ export CENTMEM_RETENTION_LOG_SUMMARIZE_AFTER_DAYS=21
 Install the skill and `/centmem` smart routing slash command into your agent harnesses:
 
 ```bash
-npx @aradenta-labs/centmem-skills
+npx @aradenta.labs/centmem-skills
 ```
 
 This installs the skill definitions for Antigravity, Claude Code, Cursor, Codex, Trae, Hermes, DeepSeek, and other harnesses, and sets up the **Read → Do → Update** memory loop in your project's `AGENTS.md`.
