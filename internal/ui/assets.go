@@ -26,28 +26,7 @@ func FileServerHandler() (http.Handler, error) {
 
 	fileServer := http.FileServer(http.FS(dist))
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Do not intercept API requests
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			http.NotFound(w, r)
-			return
-		}
-
-		// Normalize path
-		cleanPath := strings.TrimPrefix(r.URL.Path, "/")
-		if cleanPath == "" {
-			cleanPath = "index.html"
-		}
-
-		// Check if file exists in dist
-		f, err := dist.Open(cleanPath)
-		if err == nil {
-			_ = f.Close()
-			fileServer.ServeHTTP(w, r)
-			return
-		}
-
-		// Fallback to index.html for SPA routes (e.g. /ui/design-system)
+	serveIndex := func(w http.ResponseWriter, r *http.Request) {
 		indexFile, err := dist.Open("index.html")
 		if err != nil {
 			http.Error(w, "index.html not found", http.StatusNotFound)
@@ -65,5 +44,34 @@ func FileServerHandler() (http.Handler, error) {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		http.ServeContent(w, r, "index.html", stat.ModTime(), indexFile.(io.ReadSeeker))
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Do not intercept API requests
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Normalize path
+		cleanPath := strings.TrimPrefix(r.URL.Path, "/")
+		if cleanPath == "" || cleanPath == "index.html" {
+			serveIndex(w, r)
+			return
+		}
+
+		// Check if file exists in dist
+		f, err := dist.Open(cleanPath)
+		if err == nil {
+			_ = f.Close()
+			if strings.HasPrefix(cleanPath, "assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// Fallback to index.html for SPA routes (e.g. /ui/design-system)
+		serveIndex(w, r)
 	}), nil
 }

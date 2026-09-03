@@ -26,12 +26,12 @@
   --text-muted: #64748b;
   --text-inverse: #ffffff;
 
-  /* Primary Accent: Calm Teal (Restrained) */
+  /* Primary Accent: Calm Teal (Restrained, 5.47:1 WCAG AA contrast) */
   --accent-lightest: #f0fdfa;
   --accent-light: #ccfbf1;
-  --accent-primary: #0d9488;
-  --accent-hover: #0f766e;
-  --accent-active: #115e59;
+  --accent-primary: #0f766e;
+  --accent-hover: #115e59;
+  --accent-active: #134e4a;
   --accent-contrast: #ffffff;
   --accent-border: #5eead4;
 
