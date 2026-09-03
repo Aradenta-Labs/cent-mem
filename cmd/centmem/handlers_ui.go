@@ -11,6 +11,7 @@ import (
 
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 	"github.com/aradenta-labs/cent-mem/internal/ui"
 )
 
@@ -22,6 +23,12 @@ func cmdUI(args []string) int {
 	fs.Bool("no-open", false, "do not open the browser automatically")
 
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		st, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("ui store open: %v", err)
+		}
+		defer st.Close()
+
 		port := 4231
 		if pStr := os.Getenv("CENTMEM_UI_PORT"); pStr != "" {
 			if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
@@ -52,6 +59,7 @@ func cmdUI(args []string) int {
 			Port:    port,
 			NoOpen:  noOpen,
 			Version: "1.4.0",
+			Store:   st,
 		})
 		if err != nil {
 			return cli.Internalf("ui server init: %v", err)

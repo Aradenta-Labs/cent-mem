@@ -307,6 +307,110 @@ func (s *Store) ResolveScopeIDs(ctx context.Context, sc scope.Scope, inherit, ch
 	return ids, nil
 }
 
+// ListScopeTree returns all registered scopes arranged hierarchically into a tree,
+// populated with direct active memory counts and recursive total counts.
+func (s *Store) ListScopeTree(ctx context.Context) ([]*ScopeNode, error) {
+	// First ensure global exists if not already present.
+	gScope, _ := scope.Parse("global")
+	if _, err := s.EnsureScope(ctx, gScope); err != nil {
+		return nil, fmt.Errorf("ensure global scope: %w", err)
+	}
+
+	query := `
+		SELECT s.id, s.path, COALESCE(s.parent_path, ''), s.kind, s.name,
+		       COALESCE(m.cnt, 0) AS direct_count
+		  FROM scopes s
+		  LEFT JOIN (
+		      SELECT scope_id, COUNT(*) AS cnt
+		        FROM memories
+		       WHERE status = 'active'
+		       GROUP BY scope_id
+		  ) m ON m.scope_id = s.id
+		 ORDER BY s.path ASC`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query scopes: %w", err)
+	}
+	defer rows.Close()
+
+	nodesByPath := make(map[string]*ScopeNode)
+	var allNodes []*ScopeNode
+
+	for rows.Next() {
+		var (
+			id         int64
+			path       string
+			parentPath string
+			kind       string
+			name       string
+			count      int64
+		)
+		if err := rows.Scan(&id, &path, &parentPath, &kind, &name, &count); err != nil {
+			return nil, fmt.Errorf("scan scope row: %w", err)
+		}
+		node := &ScopeNode{
+			ID:         id,
+			Path:       path,
+			ParentPath: parentPath,
+			Kind:       kind,
+			Name:       name,
+			Count:      count,
+			TotalCount: count,
+			Children:   []*ScopeNode{},
+		}
+		nodesByPath[path] = node
+		allNodes = append(allNodes, node)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Link children and identify root nodes.
+	var roots []*ScopeNode
+	for _, node := range allNodes {
+		if node.ParentPath != "" {
+			if parent, exists := nodesByPath[node.ParentPath]; exists {
+				parent.Children = append(parent.Children, node)
+				continue
+			}
+		}
+		// If no parent or parent not found, it is a root.
+		roots = append(roots, node)
+	}
+
+	// Recursive helper to calculate total_count and sort children.
+	var finalize func(node *ScopeNode) int64
+	finalize = func(node *ScopeNode) int64 {
+		total := node.Count
+		sort.Slice(node.Children, func(i, j int) bool {
+			return node.Children[i].Name < node.Children[j].Name
+		})
+		for _, child := range node.Children {
+			total += finalize(child)
+		}
+		node.TotalCount = total
+		return total
+	}
+
+	for _, root := range roots {
+		finalize(root)
+	}
+
+	// Sort roots: "global" first, then alphabetically by path.
+	sort.Slice(roots, func(i, j int) bool {
+		if roots[i].Path == "global" {
+			return true
+		}
+		if roots[j].Path == "global" {
+			return false
+		}
+		return roots[i].Path < roots[j].Path
+	})
+
+	return roots, nil
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------

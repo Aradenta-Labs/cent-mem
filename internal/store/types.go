@@ -88,3 +88,16 @@ type FactInput struct {
 	Tags        []string
 	SourceAgent string
 }
+
+// ScopeNode represents a node in the hierarchical scope tree with direct
+// and recursive memory counts.
+type ScopeNode struct {
+	ID         int64        `json:"id"`
+	Path       string       `json:"path"`
+	ParentPath string       `json:"parent_path,omitempty"`
+	Kind       string       `json:"kind"`
+	Name       string       `json:"name"`
+	Count      int64        `json:"count"`       // direct active memories
+	TotalCount int64        `json:"total_count"` // direct + descendant active memories
+	Children   []*ScopeNode `json:"children"`
+}

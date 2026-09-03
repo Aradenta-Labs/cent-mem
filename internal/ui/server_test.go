@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 func TestServer_HealthAndStaticServing(t *testing.T) {
@@ -96,5 +100,117 @@ func TestServer_HealthAndStaticServing(t *testing.T) {
 
 	if respMissing.StatusCode != http.StatusNotFound {
 		t.Errorf("GET /api/nonexistent status = %d, want 404", respMissing.StatusCode)
+	}
+}
+
+func TestServer_ScopesAPI(t *testing.T) {
+	dir := t.TempDir()
+	stCfg := config.Config{DBPath: dir + "/centmem.db"}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	// Seed store with memories
+	ctx := context.Background()
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:myapp",
+		Type:    "note",
+		Content: "test note in myapp",
+	})
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.0",
+		Store:   st,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. GET /api/health with store connected
+	healthResp, err := client.Get(srv.URL() + "/api/health")
+	if err != nil {
+		t.Fatalf("GET /api/health error: %v", err)
+	}
+	defer healthResp.Body.Close()
+	var healthData map[string]any
+	_ = json.NewDecoder(healthResp.Body).Decode(&healthData)
+	if healthData["store"] != "connected" {
+		t.Errorf("expected store 'connected', got %v", healthData["store"])
+	}
+
+	// 2. GET /api/scopes
+	scopesResp, err := client.Get(srv.URL() + "/api/scopes")
+	if err != nil {
+		t.Fatalf("GET /api/scopes error: %v", err)
+	}
+	defer scopesResp.Body.Close()
+
+	if scopesResp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/scopes status = %d, want 200", scopesResp.StatusCode)
+	}
+
+	var scopesData struct {
+		OK     bool               `json:"ok"`
+		Scopes []*store.ScopeNode `json:"scopes"`
+	}
+	if err := json.NewDecoder(scopesResp.Body).Decode(&scopesData); err != nil {
+		t.Fatalf("decode scopes json: %v", err)
+	}
+	if !scopesData.OK || len(scopesData.Scopes) == 0 {
+		t.Fatalf("expected non-empty scopes list, got: %+v", scopesData)
+	}
+	// Check global root node
+	g := scopesData.Scopes[0]
+	if g.Path != "global" {
+		t.Errorf("expected root 'global', got %q", g.Path)
+	}
+	if g.TotalCount != 1 {
+		t.Errorf("expected global total_count 1, got %d", g.TotalCount)
+	}
+
+	// 3. POST /api/scopes with valid scope
+	createPayload := []byte(`{"path": "project:newapp"}`)
+	postResp, err := client.Post(srv.URL()+"/api/scopes", "application/json", bytes.NewReader(createPayload))
+	if err != nil {
+		t.Fatalf("POST /api/scopes error: %v", err)
+	}
+	defer postResp.Body.Close()
+
+	if postResp.StatusCode != http.StatusCreated {
+		t.Errorf("POST /api/scopes status = %d, want 201", postResp.StatusCode)
+	}
+	var postData map[string]any
+	_ = json.NewDecoder(postResp.Body).Decode(&postData)
+	if postData["ok"] != true {
+		t.Errorf("expected ok=true, got %+v", postData)
+	}
+
+	// 4. POST /api/scopes with invalid scope
+	badPayload := []byte(`{"path": "invalid::syntax"}`)
+	badResp, err := client.Post(srv.URL()+"/api/scopes", "application/json", bytes.NewReader(badPayload))
+	if err != nil {
+		t.Fatalf("POST /api/scopes invalid error: %v", err)
+	}
+	defer badResp.Body.Close()
+
+	if badResp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /api/scopes with invalid path status = %d, want 400", badResp.StatusCode)
 	}
 }

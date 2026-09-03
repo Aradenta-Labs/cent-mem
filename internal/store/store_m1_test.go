@@ -347,3 +347,86 @@ func TestResolveScopeIDs_Children(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestListScopeTree(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	// Put memories in different hierarchical scopes
+	// 1 memory in global
+	if _, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "global note"}); err != nil {
+		t.Fatal(err)
+	}
+	// 2 memories in project:alpha
+	if _, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha", Type: "note", Content: "alpha note 1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha", Type: "note", Content: "alpha note 2"}); err != nil {
+		t.Fatal(err)
+	}
+	// 1 memory in project:alpha/agent:bot
+	if _, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha/agent:bot", Type: "note", Content: "bot note"}); err != nil {
+		t.Fatal(err)
+	}
+	// Also ensure project:beta (0 memories)
+	betaSc, _ := scope.Parse("project:beta")
+	if _, err := s.EnsureScope(ctx, betaSc); err != nil {
+		t.Fatal(err)
+	}
+
+	roots, err := s.ListScopeTree(ctx)
+	if err != nil {
+		t.Fatalf("ListScopeTree: %v", err)
+	}
+
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 root (global), got %d", len(roots))
+	}
+
+	g := roots[0]
+	if g.Path != "global" {
+		t.Errorf("root path = %q, want 'global'", g.Path)
+	}
+	if g.Count != 1 {
+		t.Errorf("global direct count = %d, want 1", g.Count)
+	}
+	// Total count for global: 1 (global) + 2 (alpha) + 1 (bot) + 0 (beta) = 4
+	if g.TotalCount != 4 {
+		t.Errorf("global total_count = %d, want 4", g.TotalCount)
+	}
+
+	// Children of global should be project:alpha and project:beta
+	if len(g.Children) != 2 {
+		t.Fatalf("global children count = %d, want 2", len(g.Children))
+	}
+
+	alpha := g.Children[0]
+	if alpha.Path != "project:alpha" {
+		t.Errorf("child 0 = %q, want 'project:alpha'", alpha.Path)
+	}
+	if alpha.Count != 2 {
+		t.Errorf("alpha direct count = %d, want 2", alpha.Count)
+	}
+	if alpha.TotalCount != 3 { // 2 + 1 child
+		t.Errorf("alpha total_count = %d, want 3", alpha.TotalCount)
+	}
+
+	if len(alpha.Children) != 1 {
+		t.Fatalf("alpha children count = %d, want 1", len(alpha.Children))
+	}
+	bot := alpha.Children[0]
+	if bot.Path != "project:alpha/agent:bot" {
+		t.Errorf("bot path = %q, want 'project:alpha/agent:bot'", bot.Path)
+	}
+	if bot.Count != 1 || bot.TotalCount != 1 {
+		t.Errorf("bot count = %d, total = %d, want 1, 1", bot.Count, bot.TotalCount)
+	}
+
+	beta := g.Children[1]
+	if beta.Path != "project:beta" {
+		t.Errorf("child 1 = %q, want 'project:beta'", beta.Path)
+	}
+	if beta.Count != 0 || beta.TotalCount != 0 {
+		t.Errorf("beta count = %d, total = %d, want 0, 0", beta.Count, beta.TotalCount)
+	}
+}

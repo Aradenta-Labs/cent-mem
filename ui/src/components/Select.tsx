@@ -12,6 +12,7 @@ export interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectE
   options: SelectOption[];
   size?: 'sm' | 'md';
   error?: string;
+  helperText?: string;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(({
@@ -19,6 +20,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(({
   options,
   size = 'md',
   error,
+  helperText,
   disabled,
   id,
   className = '',
@@ -84,9 +86,14 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(({
           <ChevronDown size={14} />
         </span>
       </div>
-      {error && (
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error-icon)' }}>
-          {error}
+      {(error || helperText) && (
+        <span
+          style={{
+            fontSize: 'var(--text-xs)',
+            color: error ? 'var(--color-error-icon)' : 'var(--text-muted)',
+          }}
+        >
+          {error || helperText}
         </span>
       )}
     </div>
