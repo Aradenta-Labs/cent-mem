@@ -102,15 +102,13 @@ Legend: `[S]` small (~few hours), `[M]` medium (~a day), `[L]` large (multi-day)
 
 ---
 
-## v1.1+ (post-release backlog)
+## Post-v1.0 Milestones
 
-- Auto-capture: hooks that auto-log sessions into `centmem` without explicit calls.
-- TUI browser (`centmem ui`).
-- Sync server (v2): `internal/sync` tailing `events` table; gRPC + API key.
-- Remote embedding provider option.
-- Memory quality scoring / feedback loop.
+- [x] **v1.2 (Frictionless UX)**: Standalone `@aradenta.labs/centmem-skills` installer, auto-instruction injection (`AGENTS.md`), and smart-routing `/centmem` slash command.
+- [x] **v1.3 (Auto-capture)**: File watchers, exit traps, and 3-tier classification backends extracting durable knowledge from agent transcripts.
+- [x] **v1.4 (Web UI Dashboard)**: Browser-based memory browser and management UI (`centmem ui`) served by single binary via `go:embed`.
 
-## v2 (server sync)
+## Backlog / v2 (server sync)
 
 - `centmemd` daemon: gRPC, API-key auth, owns embedder loop.
 - Multi-machine replication via logical replication of `events`.

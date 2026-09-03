@@ -140,6 +140,7 @@ centmem capture categories --list      # list/manage capture categories
 centmem capture convert --harness <h>  # normalize transcript to JSONL
 centmem config set <k> <v>             # configure settings in config.toml
 centmem stats                          # store summary
+centmem ui [--port N] [--no-open]      # web UI memory browser dashboard
 ```
 
 ### Scope grammar
@@ -180,6 +181,7 @@ Full documentation map: [docs/README.md](docs/README.md).
 | Doc | Purpose |
 |-----|---------|
 | [docs/guides/getting-started.md](docs/guides/getting-started.md) | Step-by-step install for first-time users |
+| [docs/ui.md](docs/ui.md) | Web UI Memory Browser dashboard guide (`centmem ui`) |
 | [docs/guides/capture-hooks.md](docs/guides/capture-hooks.md) | Comprehensive guide for auto-capture & transcript hooks |
 | [docs/guides/troubleshooting.md](docs/guides/troubleshooting.md) | Common issues & fixes |
 | [skill/SKILL.md](skill/SKILL.md) | The contract your agent reads at runtime |
@@ -234,7 +236,7 @@ Benchmarks live in `internal/search/search_bench_test.go` and are recorded in [`
 - [x] **v1.0** — Core store, hybrid search, skill, compaction, polish
 - [x] **v1.2** — Frictionless UX (npx installer, workflow loop injection, /centmem slash command)
 - [x] **v1.3** — Auto-capture from agent transcripts (hooks & multi-backend classification)
-- [ ] **v1.4** — Web UI Memory Browser dashboard (`centmem ui`, embedded server)
+- [x] **v1.4** — Web UI Memory Browser dashboard (`centmem ui`, embedded server)
 - [ ] **v2.0** — Sync server (`centmemd`), multi-machine replication via `events` log, per-agent RBAC, remote embedding providers
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) and [docs/PRD.md § Open Questions](docs/PRD.md#10-open-questions).

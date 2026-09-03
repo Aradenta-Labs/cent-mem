@@ -5,6 +5,41 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-09-03
+
+Web UI Memory Browser Dashboard (`centmem ui`): A fast, local-first browser interface served directly from the `centmem` single binary via an embedded HTTP server and REST API, enabling visual browsing, hybrid recall search, and safe management of AI agent memories.
+
+### Added
+
+- **Embedded Web UI Server & CLI command** (`centmem ui`):
+  - Subcommand `centmem ui [--port <port>] [--host <host>] [--no-open]` launching an embedded HTTP server serving compiled React/Vite/TypeScript assets via `go:embed`.
+  - Automatic browser launching on startup (configurable via `--no-open` or `CENTMEM_UI_NO_OPEN=1`), and configurable listening port via `--port` or `CENTMEM_UI_PORT`.
+  - Local-first JSON REST API bound strictly to `127.0.0.1` exposing `/api/scopes`, `/api/memories`, `/api/memories/:id`, `/api/stats`, `/api/health`, `/api/memories/:id/forget`, and `/api/export`.
+- **Impeccable & Antislop-UI Design System** (`ui/`):
+  - Crafted for **Operate mode**: high-density, calm, scannable layout with tabular data views and zero generic AI slop (no generic blue-purple gradients, no glassmorphism stacking, no zero-offset halo glows).
+  - Restrained color strategy with calm teal primary accent (`#0f766e` in light mode, `#14b8a6` in dark mode) meeting WCAG AA contrast standards.
+  - Fully persistent light/dark theme toggle (`localStorage` + `prefers-color-scheme` initial detection).
+  - Complete component state coverage (default, hover, focus, active, disabled, skeleton loading, and informative teaching empty states with copy-pasteable CLI commands).
+- **Hierarchical Scope Tree Navigation**:
+  - Expandable/collapsible tree sidebar showing live memory counts across the 4-tier hierarchy (`global -> project -> agent -> session`).
+  - Deep-linking URL synchronization (`?scope=...&q=...`) with breadcrumb navigation.
+  - Responsive layout reflowing the sidebar into a mobile-friendly slide-over drawer on narrow viewports.
+- **Memory Browser & Hybrid Search**:
+  - High-density tabular memory list with sorting, pagination, and instant detail inspection drawer.
+  - Global hybrid search input (`/` or `Cmd+K`) leveraging Reciprocal Rank Fusion (FTS5 bm25 + ONNX vector embeddings).
+  - Advanced filters panel: filtering by memory type (`note`, `fact`, `log`), tags, date ranges (`24h`, `7d`, `30d`, custom), agent name, and session ID.
+- **Safety & Actions**:
+  - Memory deletion modal (`ForgetConfirmDialog`) clearly articulating consequences before removal.
+  - Floating 8-second undo toast allowing instantaneous memory restoration.
+  - Scoped data export supporting both JSON and CSV downloads.
+- **Diagnostics & Health**:
+  - Live Doctor Status popover in the top bar reporting store connectivity, schema version, sqlite-vec extensions, ONNX model presence, and file permissions.
+  - High-density system metrics panel (`OverviewPanel`) reporting totals by memory type and recent write activity.
+  - Comprehensive keyboard navigation (`/`, `J`, `K`, `Enter`, `Del`, `Esc`, `?` shortcut modal).
+- **Comprehensive Documentation**:
+  - New [Web UI Guide](docs/ui.md) with complete architecture details, CLI options, REST API reference, and keyboard shortcuts table.
+  - Updated CI and release workflows to build frontend assets from source and package with binary releases.
+
 ## [1.3.1] - 2026-09-03
 
 Skill installer enhancements: standard `.agents/skills` directory support, comprehensive bundled skill artifacts, guaranteed `AGENTS.md` memory loop injection, and script permission preservation.

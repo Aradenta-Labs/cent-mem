@@ -1,0 +1,135 @@
+# Web UI Memory Browser Dashboard (`centmem ui`)
+
+A fast, local-first browser dashboard for exploring, searching, and managing all memories stored in `centmem`.
+
+Served directly from the single `centmem` binary via an embedded HTTP server—zero npm or Node.js runtime dependencies on user machines.
+
+---
+
+## 1. Quick Start
+
+Launch the dashboard in your default browser:
+
+```bash
+centmem ui
+```
+
+```json
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.0"}
+```
+
+The browser will open automatically to `http://127.0.0.1:4231`. To stop the server, press `Ctrl+C` in your terminal.
+
+### CLI Flags & Environment Variables
+
+| Flag | Env Variable | Default | Description |
+|---|---|---|---|
+| `--port <number>` | `CENTMEM_UI_PORT` | `4231` | Port to listen on |
+| `--host <ip>` | — | `127.0.0.1` | Local IP to bind to (strictly localhost) |
+| `--no-open` | `CENTMEM_UI_NO_OPEN` | `false` | Start server without auto-launching browser |
+
+Examples:
+```bash
+# Start on custom port without opening browser
+centmem ui --port 8080 --no-open
+
+# Run in background via environment variables
+CENTMEM_UI_PORT=5000 CENTMEM_UI_NO_OPEN=1 centmem ui
+```
+
+---
+
+## 2. Design Principles
+
+The centmem dashboard is crafted under two strict design directives:
+- **impeccable (Operate Mode)**: High density, scannable tabular typography, calm and focused interface. Components ship with complete states (default, hover, focus, active, disabled, skeleton loading, and informative empty states).
+- **antislop-ui**: Zero generic AI gradients or purple glows; restrained single-accent palette (calm teal `#0f766e` in light mode, `#14b8a6` in dark mode); shadows with real offsets; 100% real SQLite data (no filler or invented metrics); and full keyboard accessibility.
+
+---
+
+## 3. Interface Anatomy
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│ [centmem]  | 🔍 Hybrid search (/ or ⌘K) | [Export ▾] [Doctor ●] [Theme ☼] │
+├──────────────┬────────────────────────────────────────────────────────────┤
+│              │ Breadcrumb: global > project:cent-mem > agent:antigravity  │
+│  SCOPES      │ ┌────────────────────────────────────────────────────────┐ │
+│  ──────────  │ │ Filters: [Type ▾] [Tags] [Date ▾] [Agent ▾]   [Reset]  │ │
+│  ▸ global (42│ └────────────────────────────────────────────────────────┘ │
+│  ▾ project:A │                                                            │
+│    ▸ agent:1 │ Memory List (J/K to navigate, Enter to inspect)            │
+│    ▸ agent:2 │ ┌──────┬───────────────────────────────┬──────┬──────────┐ │
+│  ▸ project:B │ │ TYPE │ CONTENT PREVIEW               │ TAGS │ MODIFIED │ │
+│              │ ├──────┼───────────────────────────────┼──────┼──────────┤ │
+│  ──────────  │ │ note │ Architecture: SQLite + FTS5   │ arch │ 2m ago   │ │
+│  + New Scope │ │ fact │ port=4231                     │ cfg  │ 1h ago   │ │
+│              │ └──────┴───────────────────────────────┴──────┴──────────┘ │
+│              │ Showing 1-20 of 84 memories                 [< Prev] [Next >]│
+└──────────────┴────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4. Key Capabilities
+
+### 4.1 Hierarchical Scope Navigation
+The sidebar renders the full 4-tier memory hierarchy (`global -> project -> agent -> session`).
+- Displays live memory counts per scope node.
+- Expand or collapse scope branches.
+- Click any scope to instantly filter the memory browser and update the deep-linkable URL.
+- Responsive design collapses the sidebar into a slide-over drawer on mobile or narrow viewports.
+
+### 4.2 Hybrid Recall Search & Advanced Filters
+- **Global Search**: Type `/` or `Cmd+K` anywhere to focus the search input. Searches using hybrid Reciprocal Rank Fusion (RRF $k=60$), fusing SQLite FTS5 bm25 keyword scoring with local ONNX vector embeddings.
+- **Filters Panel**: Filter by memory type (`note`, `fact`, `log`), tags, date ranges (`24h`, `7d`, `30d`, or custom timestamps), agent name, and session ID.
+- **Teaching Empty States**: If a scope or query has no memories, the empty state displays the exact copy-pasteable `centmem put` CLI command with a one-click copy button.
+
+### 4.3 Detail Drawer & Inspector
+- Click any memory row or press `Enter` on a keyboard-selected row to open the side drawer.
+- View raw content, formatted timestamps, scope path, tags, and internal IDs.
+- Easily copy content to clipboard with one click.
+
+### 4.4 Actions, Safety & Exports
+- **Memory Deletion**: Click the trash icon or press `Del`/`Backspace` on a selected memory. An explicit confirmation dialog explains consequences before deletion.
+- **Undo Toast**: Forgetting a memory triggers an 8-second floating toast with an **Undo** action that instantly restores the memory.
+- **Scoped Exports**: Export memories in the active scope as JSON or CSV directly from the top bar dropdown.
+
+### 4.5 System Health & Doctor Diagnostics
+- The top bar displays a real-time status pill (`Healthy`, `Warning`, or `Degraded`).
+- Click the pill to open the interactive **Doctor Diagnostics Popover**, displaying the results of store integrity, schema migrations, vector extensions, embedding model files, and database permissions.
+
+---
+
+## 5. Keyboard Shortcuts
+
+Press `?` anywhere in the dashboard to toggle the keyboard shortcuts overlay.
+
+| Shortcut | Action |
+|---|---|
+| `/` or `Cmd/Ctrl + K` | Focus memory search input |
+| `J` or `↓` | Select next memory row |
+| `K` or `↑` | Select previous memory row |
+| `Enter` | Open selected memory detail drawer |
+| `Backspace` or `Del` | Forget selected memory (with confirmation) |
+| `Esc` | Close drawer, modal dialog, or popover |
+| `?` | Toggle keyboard shortcuts modal |
+
+---
+
+## 6. Embedded REST API Reference
+
+The dashboard communicates with `centmem` via a local-only REST API:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/scopes` | `GET` | Returns full scope hierarchy tree with memory counts |
+| `/api/scopes` | `POST` | Create a new scope (`{"path": "..."}`) |
+| `/api/memories` | `GET` | List/filter memories (`scope`, `type`, `tags`, `agent`, `session`, `since`, `until`, `q`, `page`, `page_size`) |
+| `/api/memories/:id` | `GET` | Retrieve full memory details by integer ID |
+| `/api/memories/:id/forget` | `POST` | Delete memory by ID |
+| `/api/memories` | `POST` | Restore or insert memory (used by Undo) |
+| `/api/export` | `GET` | Download scoped memories (`format=json` or `format=csv`) |
+| `/api/stats` | `GET` | Retrieve database metrics (counts by type, size, pending embeddings) |
+| `/api/health` | `GET` | Run comprehensive `centmem doctor` checks |
+| `/ui/design-system` | `GET` | Interactive component gallery and token reference |

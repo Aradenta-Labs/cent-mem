@@ -12,7 +12,7 @@ import (
 
 // version is the current release version, set at build/release time.
 // Kept in sync with the git tag (vX.Y.Z) and CHANGELOG.md.
-const version = "1.3.1"
+const version = "1.4.0"
 
 // globalConfig holds global flags shared across subcommands.
 type globalFlags struct {
@@ -52,7 +52,7 @@ func run(args []string) int {
 
 func printUsage(w *os.File) {
 	fmt.Fprintln(w, "Usage: centmem <command> [flags]")
-	fmt.Fprintln(w, "Commands: init, put, set, get, recall, timeline, list, forget, stats, compact, doctor, backup, restore, capture, config")
+	fmt.Fprintln(w, "Commands: init, put, set, get, recall, timeline, list, forget, stats, compact, doctor, backup, restore, capture, config, ui")
 }
 
 // loadConfig builds a config.Config applying global overrides.

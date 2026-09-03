@@ -46,6 +46,18 @@ jobs:
           go-version: "1.22.x"
           cache: true
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "ui/package-lock.json"
+
+      - name: Build frontend
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
       # Derive the real GOOS/GOARCH from the build toolchain and build with it,
       # so the artifact name (and SHA256SUMS) always match the binary arch.
       - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
