@@ -25,6 +25,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ 
     { key: 'J / ↓', description: 'Select next memory row' },
     { key: 'K / ↑', description: 'Select previous memory row' },
     { key: 'Enter', description: 'Open selected memory detail' },
+    { key: 'Backspace / Del', description: 'Forget selected memory (with confirmation)' },
     { key: 'Esc', description: 'Close detail drawer, modal, or health popover' },
     { key: '?', description: 'Toggle this keyboard shortcuts dialog' },
   ];

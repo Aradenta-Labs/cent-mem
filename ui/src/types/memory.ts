@@ -53,3 +53,39 @@ export interface MemoryDetailResponse {
     message: string;
   };
 }
+
+export interface ForgetMemoryResponse {
+  ok: boolean;
+  deleted: number;
+  id?: number;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface RestoreMemoryInput {
+  scope: string;
+  type: string;
+  content: string;
+  key?: string;
+  value_json?: string;
+  tags?: string[];
+  source_agent?: string;
+  source_session?: string;
+}
+
+export interface RestoreMemoryResponse {
+  ok: boolean;
+  id?: number;
+  status?: string;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface ExportFilters extends MemoryFilters {
+  format?: 'json' | 'csv';
+}
+

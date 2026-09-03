@@ -48,10 +48,15 @@ export const MemorySkeleton: React.FC<MemorySkeletonProps> = ({ rows = 5 }) => {
           </td>
 
           {/* Updated Time */}
-          <td style={{ padding: 'var(--space-3) var(--space-4)', textAlign: 'right' }}>
+          <td style={{ padding: 'var(--space-3) var(--space-3)', textAlign: 'right' }}>
             <div style={{ display: 'inline-block' }}>
               <Skeleton width="56px" height="14px" variant="text" />
             </div>
+          </td>
+
+          {/* Actions */}
+          <td style={{ padding: 'var(--space-3) var(--space-2)', textAlign: 'center' }}>
+            <Skeleton width="14px" height="14px" variant="rect" />
           </td>
         </tr>
       ))}

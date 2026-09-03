@@ -10,6 +10,7 @@ export interface MemoryTableProps {
   onSelectMemory: (memory: Memory) => void;
   onSelectTag?: (tag: string) => void;
   onSelectScope?: (scope: string) => void;
+  onForgetMemory?: (memory: Memory) => void;
   isLoading: boolean;
   isFiltered: boolean;
   scopePath: string;
@@ -24,6 +25,7 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
   onSelectMemory,
   onSelectTag,
   onSelectScope,
+  onForgetMemory,
   isLoading,
   isFiltered,
   scopePath,
@@ -111,13 +113,21 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
               <th style={{ padding: 'var(--space-2) var(--space-4)', width: '110px' }}>Agent</th>
               <th
                 style={{
-                  padding: 'var(--space-2) var(--space-4)',
-                  width: '100px',
+                  padding: 'var(--space-2) var(--space-3)',
+                  width: '90px',
                   textAlign: 'right',
                 }}
               >
                 Time
               </th>
+              <th
+                style={{
+                  padding: 'var(--space-2) var(--space-2)',
+                  width: '36px',
+                  textAlign: 'center',
+                }}
+                aria-label="Actions"
+              />
             </tr>
           </thead>
           <tbody>
@@ -132,6 +142,7 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
                   onSelect={onSelectMemory}
                   onSelectTag={onSelectTag}
                   onSelectScope={onSelectScope}
+                  onForget={onForgetMemory}
                 />
               ))
             )}

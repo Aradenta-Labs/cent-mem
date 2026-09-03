@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,7 +69,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.Host == "" {
 		cfg.Host = "127.0.0.1"
 	}
-	if cfg.Port == 0 {
+	if cfg.Port < 0 {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
@@ -694,6 +695,325 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// API Endpoints: Memories (Forget/Delete memory by ID)
+	mux.HandleFunc("POST /api/memories/{id}/forget", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		idStr := r.PathValue("id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_id",
+					"message": "invalid memory id",
+				},
+			})
+			return
+		}
+
+		n, err := cfg.Store.Forget(r.Context(), []int64{id}, nil, nil, nil)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		if n == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": fmt.Sprintf("memory %d not found or already forgotten", id),
+				},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":      true,
+			"deleted": n,
+			"id":      id,
+		})
+	})
+
+	// API Endpoints: Memories (Create or Restore memory)
+	mux.HandleFunc("POST /api/memories", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		var in struct {
+			Scope         string   `json:"scope"`
+			Type          string   `json:"type"`
+			Content       string   `json:"content"`
+			Key           string   `json:"key,omitempty"`
+			ValueJSON     string   `json:"value_json,omitempty"`
+			Tags          []string `json:"tags,omitempty"`
+			SourceAgent   string   `json:"source_agent,omitempty"`
+			SourceSession string   `json:"source_session,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_json",
+					"message": "invalid request JSON body",
+				},
+			})
+			return
+		}
+
+		if strings.TrimSpace(in.Scope) == "" {
+			in.Scope = "global"
+		}
+		if strings.TrimSpace(in.Type) == "" {
+			in.Type = "note"
+		}
+
+		memInput := store.MemoryInput{
+			Scope:         in.Scope,
+			Type:          in.Type,
+			Content:       in.Content,
+			Key:           in.Key,
+			ValueJSON:     in.ValueJSON,
+			Tags:          in.Tags,
+			SourceAgent:   in.SourceAgent,
+			SourceSession: in.SourceSession,
+		}
+
+		id, status, err := cfg.Store.PutMemory(r.Context(), memInput)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":     true,
+			"id":     id,
+			"status": status,
+		})
+	})
+
+	// API Endpoints: Export (Download JSON or CSV)
+	mux.HandleFunc("GET /api/export", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Store == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		queryVals := r.URL.Query()
+		scopePath := strings.TrimSpace(queryVals.Get("scope"))
+		if scopePath == "" {
+			scopePath = "global"
+		}
+		format := strings.ToLower(strings.TrimSpace(queryVals.Get("format")))
+		if format == "" {
+			format = "json"
+		}
+		if format != "json" && format != "csv" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_format",
+					"message": "format must be 'json' or 'csv'",
+				},
+			})
+			return
+		}
+
+		typ := strings.TrimSpace(queryVals.Get("type"))
+		agent := strings.TrimSpace(queryVals.Get("agent"))
+		session := strings.TrimSpace(queryVals.Get("session"))
+		sinceStr := strings.TrimSpace(queryVals.Get("since"))
+		untilStr := strings.TrimSpace(queryVals.Get("until"))
+
+		children := true
+		if cVal := queryVals.Get("children"); cVal != "" {
+			children = (cVal == "true" || cVal == "1")
+		}
+
+		inherit := false
+		if iVal := queryVals.Get("inherit"); iVal != "" {
+			inherit = (iVal == "true" || iVal == "1")
+		}
+
+		var tags []string
+		if tagsStr := queryVals.Get("tags"); tagsStr != "" {
+			for _, t := range strings.Split(tagsStr, ",") {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					tags = append(tags, t)
+				}
+			}
+		}
+
+		now := time.Now()
+		var sinceTime, untilTime time.Time
+		if sinceStr != "" {
+			if st, err := parseTimeOrDuration(sinceStr, now); err == nil {
+				sinceTime = st
+			}
+		}
+		if untilStr != "" {
+			if ut, err := parseTimeOrDuration(untilStr, now); err == nil {
+				untilTime = ut
+			}
+		}
+
+		sc, err := scope.Parse(scopePath)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_scope",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		scopeIDs, err := cfg.Store.ResolveScopeIDs(r.Context(), sc, inherit, children)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		var mems []store.Memory
+		if len(scopeIDs) > 0 {
+			lq := store.ListQuery{
+				ScopeIDs:      scopeIDs,
+				Type:          typ,
+				Tags:          tags,
+				SourceAgent:   agent,
+				SourceSession: session,
+				Since:         sinceTime,
+				Until:         untilTime,
+				Status:        "active",
+				Limit:         10000,
+				Offset:        0,
+			}
+			mems, err = cfg.Store.List(r.Context(), lq)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "store_error",
+						"message": err.Error(),
+					},
+				})
+				return
+			}
+		}
+
+		safeScope := sanitizeFilename(scopePath)
+		timeSuffix := now.UTC().Format("20060102T150405Z")
+
+		if format == "csv" {
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+			filename := fmt.Sprintf("centmem-export-%s-%s.csv", safeScope, timeSuffix)
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+			cw := csv.NewWriter(w)
+			_ = cw.Write([]string{"id", "scope", "type", "content", "key", "value_json", "tags", "source_agent", "source_session", "created_at", "updated_at"})
+			for _, m := range mems {
+				_ = cw.Write([]string{
+					strconv.FormatInt(m.ID, 10),
+					m.ScopePath,
+					m.Type,
+					m.Content,
+					m.Key,
+					m.ValueJSON,
+					strings.Join(m.Tags, ","),
+					m.SourceAgent,
+					m.SourceSession,
+					time.Unix(m.CreatedAt.Unix(), 0).UTC().Format(time.RFC3339),
+					time.Unix(m.UpdatedAt.Unix(), 0).UTC().Format(time.RFC3339),
+				})
+			}
+			cw.Flush()
+			return
+		}
+
+		// JSON format
+		w.Header().Set("Content-Type", "application/json")
+		filename := fmt.Sprintf("centmem-export-%s-%s.json", safeScope, timeSuffix)
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+
+		out := make([]UIMemory, 0, len(mems))
+		for _, m := range mems {
+			out = append(out, toUIMemory(&m))
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(map[string]any{
+			"ok":          true,
+			"scope":       scopePath,
+			"total":       len(out),
+			"exported_at": now.UTC().Format(time.RFC3339),
+			"memories":    out,
+		})
+	})
+
+
 	// Embedded Static File Server with SPA Fallback
 	staticHandler, err := FileServerHandler()
 	if err != nil {
@@ -869,4 +1189,22 @@ func sha256File(path string) (string, error) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
+
+// sanitizeFilename strips characters unsuitable for filenames.
+func sanitizeFilename(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '.' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	res := b.String()
+	if res == "" {
+		return "export"
+	}
+	return res
+}
+
 

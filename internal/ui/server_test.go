@@ -629,3 +629,262 @@ func TestServer_HealthAPI_DoctorChecks(t *testing.T) {
 		}
 	}
 }
+
+func TestServer_ForgetMemory(t *testing.T) {
+	dir := t.TempDir()
+	stCfg := config.Config{DBPath: dir + "/centmem.db"}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	id, _, err := st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:actions",
+		Type:    "note",
+		Content: "temporary secret to forget",
+	})
+	if err != nil {
+		t.Fatalf("put memory: %v", err)
+	}
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.0",
+		Store:   st,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. Invalid ID -> 400
+	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/memories/invalid/forget", srv.URL()), nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST forget invalid id: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid id, got %d", resp.StatusCode)
+	}
+
+	// 2. Forget valid ID -> 200
+	req, _ = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/memories/%d/forget", srv.URL(), id), nil)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("POST forget valid id: %v", err)
+	}
+	var forgetData map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&forgetData)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for forget, got %d", resp.StatusCode)
+	}
+	if forgetData["ok"] != true || int(forgetData["deleted"].(float64)) != 1 {
+		t.Errorf("unexpected forget payload: %+v", forgetData)
+	}
+
+	// 3. Forget already deleted ID -> 404
+	req, _ = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/memories/%d/forget", srv.URL(), id), nil)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("POST forget already deleted: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 on re-forget, got %d", resp.StatusCode)
+	}
+
+	// 4. Verify memory is gone from store
+	_, err = st.GetMemory(ctx, id)
+	if err != store.ErrNotFound {
+		t.Errorf("expected ErrNotFound from store, got %v", err)
+	}
+}
+
+func TestServer_RestoreMemory(t *testing.T) {
+	dir := t.TempDir()
+	stCfg := config.Config{DBPath: dir + "/centmem.db"}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.0",
+		Store:   st,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	body := []byte(`{"scope":"project:undo","type":"note","content":"restored content","tags":["undo-tag"],"source_agent":"agent-test"}`)
+	resp, err := client.Post(srv.URL()+"/api/memories", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /api/memories error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201 Created, got %d", resp.StatusCode)
+	}
+
+	var res map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&res)
+	if res["ok"] != true || res["id"] == nil {
+		t.Errorf("unexpected restore response: %+v", res)
+	}
+
+	id := int64(res["id"].(float64))
+	m, err := st.GetMemory(context.Background(), id)
+	if err != nil {
+		t.Fatalf("failed to retrieve created memory %d: %v", id, err)
+	}
+	if m.Content != "restored content" || m.ScopePath != "project:undo" {
+		t.Errorf("mismatched restored memory: %+v", m)
+	}
+}
+
+func TestServer_ExportAPI_JSON_and_CSV(t *testing.T) {
+	dir := t.TempDir()
+	stCfg := config.Config{DBPath: dir + "/centmem.db"}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:export/agent:crawler",
+		Type:    "note",
+		Content: "crawler note",
+		Tags:    []string{"scrape", "data"},
+	})
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{
+		Scope:     "project:export/agent:crawler",
+		Type:      "fact",
+		Key:       "endpoint.url",
+		ValueJSON: `{"url":"https://example.com"}`,
+		Tags:      []string{"config"},
+	})
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.0",
+		Store:   st,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. Test JSON export
+	respJSON, err := client.Get(srv.URL() + "/api/export?scope=project:export&format=json")
+	if err != nil {
+		t.Fatalf("GET /api/export json error: %v", err)
+	}
+	defer respJSON.Body.Close()
+
+	if respJSON.StatusCode != http.StatusOK {
+		t.Errorf("export JSON status = %d, want 200", respJSON.StatusCode)
+	}
+	cd := respJSON.Header.Get("Content-Disposition")
+	if !strings.Contains(cd, "attachment") || !strings.Contains(cd, ".json") {
+		t.Errorf("expected Content-Disposition attachment with .json, got: %q", cd)
+	}
+
+	var jsonExport struct {
+		OK       bool       `json:"ok"`
+		Total    int        `json:"total"`
+		Memories []UIMemory `json:"memories"`
+	}
+	if err := json.NewDecoder(respJSON.Body).Decode(&jsonExport); err != nil {
+		t.Fatalf("decode json export: %v", err)
+	}
+	if !jsonExport.OK || jsonExport.Total != 2 || len(jsonExport.Memories) != 2 {
+		t.Errorf("unexpected json export total: %d (expected 2)", jsonExport.Total)
+	}
+
+	// 2. Test CSV export
+	respCSV, err := client.Get(srv.URL() + "/api/export?scope=project:export&format=csv")
+	if err != nil {
+		t.Fatalf("GET /api/export csv error: %v", err)
+	}
+	defer respCSV.Body.Close()
+
+	if respCSV.StatusCode != http.StatusOK {
+		t.Errorf("export CSV status = %d, want 200", respCSV.StatusCode)
+	}
+	cdCSV := respCSV.Header.Get("Content-Disposition")
+	if !strings.Contains(cdCSV, "attachment") || !strings.Contains(cdCSV, ".csv") {
+		t.Errorf("expected Content-Disposition attachment with .csv, got: %q", cdCSV)
+	}
+
+	csvBody, _ := io.ReadAll(respCSV.Body)
+	csvLines := strings.Split(strings.TrimSpace(string(csvBody)), "\n")
+	if len(csvLines) != 3 { // 1 header + 2 rows
+		t.Errorf("expected 3 CSV lines, got %d:\n%s", len(csvLines), string(csvBody))
+	}
+	if !strings.HasPrefix(csvLines[0], "id,scope,type,content,key,value_json,tags") {
+		t.Errorf("unexpected CSV header: %s", csvLines[0])
+	}
+
+	// 3. Test filter by type on export
+	respFiltered, err := client.Get(srv.URL() + "/api/export?scope=project:export&type=fact&format=json")
+	if err != nil {
+		t.Fatalf("GET /api/export filtered error: %v", err)
+	}
+	defer respFiltered.Body.Close()
+
+	var filteredExport struct {
+		Total    int        `json:"total"`
+		Memories []UIMemory `json:"memories"`
+	}
+	_ = json.NewDecoder(respFiltered.Body).Decode(&filteredExport)
+	if filteredExport.Total != 1 || filteredExport.Memories[0].Type != "fact" {
+		t.Errorf("expected 1 fact memory, got %d", filteredExport.Total)
+	}
+}

@@ -1,5 +1,14 @@
 import { ScopeNode, ScopesResponse, HealthResponse, CreateScopeResponse } from '../types/scope';
-import { Memory, MemoryFilters, MemoriesResponse, MemoryDetailResponse } from '../types/memory';
+import {
+  Memory,
+  MemoryFilters,
+  MemoriesResponse,
+  MemoryDetailResponse,
+  ForgetMemoryResponse,
+  RestoreMemoryInput,
+  RestoreMemoryResponse,
+  ExportFilters,
+} from '../types/memory';
 import { StoreStats, StatsResponse } from '../types/stats';
 
 /**
@@ -92,3 +101,46 @@ export async function fetchMemoryDetail(id: number): Promise<Memory> {
   }
   return data.memory;
 }
+
+export async function forgetMemory(id: number): Promise<ForgetMemoryResponse> {
+  const res = await fetch(`/api/memories/${id}/forget`, {
+    method: 'POST',
+  });
+  const data: ForgetMemoryResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to forget memory ${id}: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function restoreMemory(input: RestoreMemoryInput): Promise<RestoreMemoryResponse> {
+  const res = await fetch('/api/memories', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+  const data: RestoreMemoryResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to restore memory: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export function getExportUrl(filters: ExportFilters = {}): string {
+  const params = new URLSearchParams();
+  if (filters.scope) params.set('scope', filters.scope);
+  if (filters.format) params.set('format', filters.format);
+  if (filters.type && filters.type !== 'all') params.set('type', filters.type);
+  if (filters.tags) params.set('tags', filters.tags);
+  if (filters.agent) params.set('agent', filters.agent);
+  if (filters.session) params.set('session', filters.session);
+  if (filters.since) params.set('since', filters.since);
+  if (filters.until) params.set('until', filters.until);
+  if (filters.children !== undefined) params.set('children', String(filters.children));
+
+  const query = params.toString();
+  return `/api/export${query ? `?${query}` : ''}`;
+}
+

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Trash2 } from 'lucide-react';
 import { Memory } from '../types/memory';
 import { Badge } from './Badge';
 
@@ -9,6 +9,7 @@ export interface MemoryRowProps {
   onSelect: (memory: Memory) => void;
   onSelectTag?: (tag: string) => void;
   onSelectScope?: (scope: string) => void;
+  onForget?: (memory: Memory) => void;
 }
 
 export const MemoryRow: React.FC<MemoryRowProps> = ({
@@ -17,6 +18,7 @@ export const MemoryRow: React.FC<MemoryRowProps> = ({
   onSelect,
   onSelectTag,
   onSelectScope,
+  onForget,
 }) => {
   // Format relative time
   const formatRelativeTime = (seconds: number): string => {
@@ -268,7 +270,7 @@ export const MemoryRow: React.FC<MemoryRowProps> = ({
       <td
         className="tabular-nums"
         style={{
-          padding: 'var(--space-2) var(--space-4)',
+          padding: 'var(--space-2) var(--space-3)',
           textAlign: 'right',
           whiteSpace: 'nowrap',
           fontSize: 'var(--text-xs)',
@@ -277,6 +279,50 @@ export const MemoryRow: React.FC<MemoryRowProps> = ({
         title={`Created: ${isoTime}`}
       >
         {formatRelativeTime(memory.created_at)}
+      </td>
+
+      {/* Action Column */}
+      <td
+        style={{
+          padding: 'var(--space-2) var(--space-2)',
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
+          width: '36px',
+        }}
+      >
+        {onForget && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onForget(memory);
+            }}
+            aria-label={`Forget memory #${memory.id}`}
+            title="Forget memory"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 'var(--radius-xs)',
+              padding: '4px',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'color var(--transition-fast), background-color var(--transition-fast)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--color-error-text)';
+              e.currentTarget.style.backgroundColor = 'var(--color-error-bg)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--text-muted)';
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </td>
     </tr>
   );

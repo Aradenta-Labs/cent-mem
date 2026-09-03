@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useTransition } from 'react';
-import { Copy, Check, Sparkles, X, Database } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useTransition, useRef } from 'react';
+import { Copy, Check, Sparkles, X, Database, Download } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { Memory, MemoryFilters } from '../types/memory';
 import { StoreStats } from '../types/stats';
-import { fetchMemories, fetchStats } from '../services/api';
+import { fetchMemories, fetchStats, forgetMemory, restoreMemory, getExportUrl } from '../services/api';
 import { Badge } from './Badge';
 import { Button } from './Button';
 import { FiltersPanel } from './FiltersPanel';
@@ -11,6 +11,8 @@ import { MemoryTable } from './MemoryTable';
 import { Pagination } from './Pagination';
 import { MemoryDetailDrawer } from './MemoryDetailDrawer';
 import { OverviewPanel } from './OverviewPanel';
+import { ForgetConfirmDialog } from './ForgetConfirmDialog';
+import { Toast } from './Toast';
 
 export interface MemoryBrowserProps {
   node: ScopeNode | null;
@@ -50,6 +52,36 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
 
   // Inspector States
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
+
+  // Actions & Safety States
+  const [pendingForgetMemory, setPendingForgetMemory] = useState<Memory | null>(null);
+  const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
+  const [toast, setToast] = useState<{
+    id: string;
+    title: string;
+    message?: string;
+    variant?: 'info' | 'success' | 'warning' | 'error';
+    action?: { label: string; onClick: () => void };
+  } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback(
+    (t: {
+      title: string;
+      message?: string;
+      variant?: 'info' | 'success' | 'warning' | 'error';
+      action?: { label: string; onClick: () => void };
+    }) => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      setToast({ ...t, id: String(Date.now()) });
+      toastTimerRef.current = setTimeout(() => {
+        setToast(null);
+      }, 8000);
+    },
+    []
+  );
 
   // Copy scope path feedback
   const [pathCopied, setPathCopied] = useState(false);
@@ -160,6 +192,97 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     setOffset(0);
     setSelectedMemory(null);
   }, [selectedScope]);
+
+  // Confirm deletion and trigger undoable toast
+  const handleConfirmForget = async (memory: Memory) => {
+    await forgetMemory(memory.id);
+    setMemories((prev) => prev.filter((m) => m.id !== memory.id));
+    setTotal((prev) => Math.max(0, prev - 1));
+    if (selectedMemory?.id === memory.id) {
+      setSelectedMemory(null);
+    }
+    showToast({
+      title: `Memory #${memory.id} forgotten`,
+      message: 'Removed from database and search indexing.',
+      variant: 'info',
+      action: {
+        label: 'Undo',
+        onClick: () => handleUndo(memory),
+      },
+    });
+  };
+
+  // Restore memory on Undo action
+  const handleUndo = async (memory: Memory) => {
+    try {
+      await restoreMemory({
+        scope: memory.scope,
+        type: memory.type,
+        content: memory.content,
+        key: memory.key,
+        value_json: memory.value_json,
+        tags: memory.tags,
+        source_agent: memory.source_agent,
+        source_session: memory.source_session,
+      });
+      await loadMemories();
+      showToast({
+        title: 'Memory restored',
+        variant: 'success',
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to restore memory';
+      showToast({
+        title: 'Failed to restore memory',
+        message: msg,
+        variant: 'error',
+      });
+    }
+  };
+
+  // Export handler
+  const handleExport = (format: 'json' | 'csv') => {
+    setIsExportOpen(false);
+    const url = getExportUrl({
+      scope: selectedScope,
+      format,
+      type: typeFilter !== 'all' ? typeFilter : undefined,
+      tags: tagFilter || undefined,
+      agent: agentFilter || undefined,
+      since: sinceFilter || undefined,
+      children: childrenFilter,
+    });
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  // Keyboard shortcut: Backspace or Delete to forget selected memory
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput =
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable;
+      if (isInput) return;
+
+      if (
+        (e.key === 'Backspace' || e.key === 'Delete') &&
+        selectedMemory &&
+        !pendingForgetMemory
+      ) {
+        e.preventDefault();
+        setPendingForgetMemory(selectedMemory);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedMemory, pendingForgetMemory]);
 
   const directCount = node ? node.count : 0;
   const totalCount = node ? node.total_count : 0;
@@ -280,6 +403,100 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
                 {totalCount}
               </span>
             </div>
+
+            {/* Export Dropdown */}
+            <div style={{ position: 'relative' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Download size={13} />}
+                onClick={() => setIsExportOpen((prev) => !prev)}
+                aria-label="Export memories"
+                aria-expanded={isExportOpen}
+              >
+                Export
+              </Button>
+              {isExportOpen && (
+                <>
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 30 }}
+                    onClick={() => setIsExportOpen(false)}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 'calc(100% + 4px)',
+                      backgroundColor: 'var(--surface-primary)',
+                      border: '1px solid var(--border-default)',
+                      borderRadius: 'var(--radius-md)',
+                      boxShadow: 'var(--shadow-md)',
+                      zIndex: 35,
+                      minWidth: '160px',
+                      padding: '4px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleExport('json')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        width: '100%',
+                        padding: 'var(--space-2) var(--space-3)',
+                        fontSize: 'var(--text-xs)',
+                        color: 'var(--text-primary)',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: 'var(--radius-xs)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'var(--surface-hover)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <span>Export as JSON</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>.json</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExport('csv')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        width: '100%',
+                        padding: 'var(--space-2) var(--space-3)',
+                        fontSize: 'var(--text-xs)',
+                        color: 'var(--text-primary)',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: 'var(--radius-xs)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'var(--surface-hover)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <span>Export as CSV</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>.csv</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -360,6 +577,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
         onSelectMemory={setSelectedMemory}
         onSelectTag={(t) => handleTagChange(t)}
         onSelectScope={(sc) => onSelectScope(sc)}
+        onForgetMemory={setPendingForgetMemory}
         isLoading={isLoading}
         isFiltered={isFiltered}
         scopePath={selectedScope}
@@ -394,7 +612,37 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
           onSelectScope(sc);
           setSelectedMemory(null);
         }}
+        onForget={setPendingForgetMemory}
       />
+
+      {/* Forget Confirmation Modal */}
+      <ForgetConfirmDialog
+        isOpen={Boolean(pendingForgetMemory)}
+        onClose={() => setPendingForgetMemory(null)}
+        onConfirm={handleConfirmForget}
+        memory={pendingForgetMemory}
+      />
+
+      {/* Floating Action / Undo Toast */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 'var(--space-6)',
+            right: 'var(--space-6)',
+            zIndex: 70,
+            animation: 'slideInRight var(--transition-fast)',
+          }}
+        >
+          <Toast
+            variant={toast.variant}
+            title={toast.title}
+            message={toast.message}
+            action={toast.action}
+            onDismiss={() => setToast(null)}
+          />
+        </div>
+      )}
     </div>
   );
 };

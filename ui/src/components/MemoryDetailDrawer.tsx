@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Terminal, Clock, User, Tag, Hash, Sparkles } from 'lucide-react';
+import { X, Copy, Check, Terminal, Clock, User, Tag, Hash, Sparkles, Trash2 } from 'lucide-react';
 import { Memory } from '../types/memory';
 import { Badge } from './Badge';
 import { Button } from './Button';
@@ -9,6 +9,7 @@ export interface MemoryDetailDrawerProps {
   onClose: () => void;
   onSelectTag?: (tag: string) => void;
   onSelectScope?: (scope: string) => void;
+  onForget?: (memory: Memory) => void;
 }
 
 export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
@@ -16,6 +17,7 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
   onClose,
   onSelectTag,
   onSelectScope,
+  onForget,
 }) => {
   const [copiedContent, setCopiedContent] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -486,9 +488,21 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
             backgroundColor: 'var(--surface-primary)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
           }}
         >
+          {onForget ? (
+            <Button
+              variant="danger"
+              size="sm"
+              leftIcon={<Trash2 size={13} />}
+              onClick={() => onForget(memory)}
+            >
+              Forget
+            </Button>
+          ) : (
+            <div />
+          )}
           <Button variant="secondary" size="sm" onClick={onClose}>
             Close
           </Button>
