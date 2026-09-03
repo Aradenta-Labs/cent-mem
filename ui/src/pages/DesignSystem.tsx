@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Trash2, Check, RefreshCw, Terminal, Activity, Layers } from 'lucide-react';
+import { Search, Plus, Trash2, Check, RefreshCw, Terminal, Activity, Layers, Sliders } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { Select } from '../components/Select';
@@ -9,6 +9,13 @@ import { Skeleton } from '../components/Skeleton';
 import { Dialog } from '../components/Dialog';
 import { Toast } from '../components/Toast';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { Switch } from '../components/Switch';
+import { Stepper } from '../components/Stepper';
+import { Slider } from '../components/Slider';
+import { SegmentedControl } from '../components/SegmentedControl';
+import { TagInput } from '../components/TagInput';
+import { RetentionLifecycle } from '../components/settings/RetentionLifecycle';
+import { SettingsModal } from '../components/settings/SettingsModal';
 
 interface HealthResponse {
   ok: boolean;
@@ -19,10 +26,18 @@ interface HealthResponse {
 export const DesignSystemPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(true);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+
+  // Settings & Form demo states
+  const [demoSwitch, setDemoSwitch] = useState(true);
+  const [demoStepper, setDemoStepper] = useState(30);
+  const [demoSlider, setDemoSlider] = useState(0.7);
+  const [demoBackend, setDemoBackend] = useState('heuristic');
+  const [demoTags, setDemoTags] = useState(['decision', 'convention', 'security']);
 
   const fetchHealth = async () => {
     setIsCheckingHealth(true);
@@ -89,6 +104,9 @@ export const DesignSystemPage: React.FC = () => {
               {isCheckingHealth ? 'Checking...' : health?.ok ? `Backend OK (v${health.version})` : healthError ? 'Backend Disconnected' : 'Offline'}
             </span>
           </div>
+          <Button variant="secondary" size="sm" onClick={() => setIsSettingsOpen(true)} leftIcon={<Sliders size={13} />}>
+            Settings (Cmd+,)
+          </Button>
           <ThemeToggle />
         </div>
       </header>
@@ -324,7 +342,140 @@ export const DesignSystemPage: React.FC = () => {
             </div>
           </Card>
         </section>
+
+        {/* Section 8: Settings & Form Controls (Operate Mode) */}
+        <section style={{ marginBottom: 'var(--space-8)' }}>
+          <h2>Settings & Form Controls (Operate Mode)</h2>
+          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 'var(--space-4)' }}>
+            High information density, state-complete accessible form primitives with calm teal accent tokens.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            {/* Row 1: Switch & Stepper */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 'var(--space-3)' }}>
+              <Card>
+                <h3 style={{ fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>
+                  Toggle Switch Primitive
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                  <Switch
+                    label="Background Auto-Capture"
+                    description="Automatically extract memories from session hooks"
+                    checked={demoSwitch}
+                    onChange={setDemoSwitch}
+                  />
+                  <Switch
+                    label="Disabled Switch State"
+                    description="Non-interactive state with reduced opacity"
+                    checked={false}
+                    disabled={true}
+                    onChange={() => {}}
+                  />
+                </div>
+              </Card>
+
+              <Card>
+                <h3 style={{ fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>
+                  Tactile Number Stepper
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                  <Stepper
+                    label="Note Summarize Window"
+                    helperText="Days before notes are consolidated"
+                    value={demoStepper}
+                    min={1}
+                    max={365}
+                    unit="days"
+                    onChange={setDemoStepper}
+                  />
+                  <Stepper
+                    label="Fact Keep Days"
+                    helperText="0 keeps facts indefinitely"
+                    value={0}
+                    min={0}
+                    unit="days"
+                    zeroSpecialLabel="(indefinite)"
+                    onChange={() => {}}
+                  />
+                </div>
+              </Card>
+            </div>
+
+            {/* Row 2: Slider & Segmented Control */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 'var(--space-3)' }}>
+              <Card>
+                <h3 style={{ fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>
+                  Range Slider with Monospace Badge
+                </h3>
+                <Slider
+                  label="Classifier Confidence Cutoff"
+                  helperText="Minimum score required to persist a candidate memory"
+                  value={demoSlider}
+                  min={0.10}
+                  max={1.00}
+                  step={0.05}
+                  minLabel="0.10 (Permissive)"
+                  maxLabel="1.00 (Strict)"
+                  onChange={setDemoSlider}
+                />
+              </Card>
+
+              <Card>
+                <h3 style={{ fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>
+                  Segmented Radio Cards
+                </h3>
+                <SegmentedControl
+                  label="Classification Backend"
+                  options={[
+                    { value: 'heuristic', label: 'Heuristic', description: 'Zero external calls', badge: 'Offline' },
+                    { value: 'local-llm', label: 'Local LLM', description: 'Ollama endpoint', badge: 'Private' },
+                    { value: 'openai-compatible', label: 'OpenAI API', description: 'Remote endpoint', badge: 'Remote' },
+                  ]}
+                  value={demoBackend}
+                  onChange={setDemoBackend}
+                />
+              </Card>
+            </div>
+
+            {/* Row 3: Tag Input */}
+            <Card>
+              <h3 style={{ fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>
+                Tag Chip Input with Presets
+              </h3>
+              <TagInput
+                label="Capture Whitelist Categories"
+                helperText="Click + to add presets, type to add custom tags, or click x to remove"
+                tags={demoTags}
+                onChange={setDemoTags}
+                presets={['decision', 'convention', 'preference', 'learning', 'checkpoint', 'security', 'api', 'arch']}
+                placeholder="Type tag name and press Enter..."
+              />
+            </Card>
+
+            {/* Row 4: Retention Lifecycle Diagram */}
+            <Card>
+              <h3 style={{ fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>
+                Visual Retention Lifecycle Diagram
+              </h3>
+              <RetentionLifecycle
+                retention={{
+                  fact_keep_days: 0,
+                  note_summarize_after_days: demoStepper,
+                  log_summarize_after_days: 14,
+                  log_drop_after_days: 30,
+                  archive_keep_days: 365,
+                }}
+              />
+            </Card>
+          </div>
+        </section>
       </main>
+
+      {/* Embedded Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </div>
   );
 };

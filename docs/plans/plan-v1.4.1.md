@@ -204,31 +204,31 @@ Maps all 19 configuration keys defined in `internal/config/keys.go`:
 - [x] Add unsaved changes prompt if user tries to close while `isDirty`.
 
 ### Phase 6.3: Tab Panels Implementation
-- [ ] **General Tab**:
+- [x] **General Tab**:
   - Read-only embedding model display (`bge-small-en-v1.5`, 384 dims).
   - Storage location (`CENTMEM_HOME`), database size, and permissions check.
-- [ ] **Retention Tab**:
+- [x] **Retention Tab**:
   - Steppers for `fact_keep_days`, `note_summarize_after_days`, `log_summarize_after_days`, `log_drop_after_days`, `archive_keep_days`.
   - Inline explanation for each threshold and visual lifecycle progression.
-- [ ] **Auto-Capture Tab**:
+- [x] **Auto-Capture Tab**:
   - Master switch for `capture.enabled`.
   - Target harness select (`auto`, `claude-code`, `cursor`, `antigravity`, `trae`, `codex`, `generic`).
   - Checkbox group for triggers (`session-end`, `per-message`, `on-demand`).
   - Default capture scope text input with validation.
-- [ ] **Classifier Tab**:
+- [x] **Classifier Tab**:
   - Radio segment control for backend: `heuristic` vs `local-llm` vs `openai-compatible`.
   - Conditional input fields based on selected backend (Endpoint URL, Model name, API key env var).
   - Confidence threshold slider (`0.00` to `1.00`) with live numeric badge.
   - "Test Connection" button with status badge (Testing spinner, Success checkmark + latency, or Error message).
-- [ ] **Categories Tab**:
+- [x] **Categories Tab**:
   - Interactive tag pills displaying current whitelist categories.
   - Input field to add custom category.
   - "Suggested Categories" quick-add chips (`security`, `bug`, `arch`, `api`, `dependency`).
 
 ### Phase 6.4: Design System Gallery & Antislop-UI Polish Pass
-- [ ] Update `ui/src/pages/DesignSystem.tsx` to include the new Settings components (stepper, switch, slider, tag input).
-- [ ] Run Impeccable Operate-mode audit: ensure all form inputs have proper focus rings, contrast checks (WCAG AA), and keyboard navigation (`Tab`, `Enter`, `Esc`).
-- [ ] Run Antislop-UI checklist: verify zero generic gradients, dose-capped shadows, and no decorative emojis.
+- [x] Update `ui/src/pages/DesignSystem.tsx` to include the new Settings components (stepper, switch, slider, tag input).
+- [x] Run Impeccable Operate-mode audit: ensure all form inputs have proper focus rings, contrast checks (WCAG AA), and keyboard navigation (`Tab`, `Enter`, `Esc`).
+- [x] Run Antislop-UI checklist: verify zero generic gradients, dose-capped shadows, and no decorative emojis.
 
 ### Phase 6.5: Build, Test & Release v1.4.1
 - [ ] Run full frontend test and build: `npm --prefix ui run build`.

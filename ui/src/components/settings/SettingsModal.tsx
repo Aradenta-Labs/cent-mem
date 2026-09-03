@@ -11,13 +11,15 @@ import {
   RefreshCw,
   AlertTriangle,
   FileText,
-  Activity,
-  CheckCircle2,
-  XCircle,
 } from 'lucide-react';
 import { useConfig } from '../../hooks/useConfig';
 import { SettingsTabId } from '../../types/config';
 import { Button } from '../Button';
+import { GeneralTab } from './GeneralTab';
+import { RetentionTab } from './RetentionTab';
+import { CaptureTab } from './CaptureTab';
+import { ClassifierTab } from './ClassifierTab';
+import { CategoriesTab } from './CategoriesTab';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -37,7 +39,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const [activeTab, setActiveTab] = useState<SettingsTabId>('general');
   const [showDiscardConfirm, setShowDiscardConfirm] = useState<boolean>(false);
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
-  const [newCategoryInput, setNewCategoryInput] = useState<string>('');
 
   const {
     meta,
@@ -101,36 +102,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
     } else {
       onToast?.(error || 'Failed to save settings', 'error');
     }
-  };
-
-  const handleAddCategory = () => {
-    if (!draft) return;
-    const cat = newCategoryInput.trim().toLowerCase();
-    if (!cat) return;
-    if (draft.capture.categories.includes(cat)) {
-      setNewCategoryInput('');
-      return;
-    }
-    updateField('capture', 'categories', [...draft.capture.categories, cat]);
-    setNewCategoryInput('');
-  };
-
-  const handleRemoveCategory = (catToRemove: string) => {
-    if (!draft) return;
-    updateField(
-      'capture',
-      'categories',
-      draft.capture.categories.filter((c) => c !== catToRemove)
-    );
-  };
-
-  const handleToggleTrigger = (trigger: string) => {
-    if (!draft) return;
-    const current = draft.capture.triggers;
-    const next = current.includes(trigger)
-      ? current.filter((t) => t !== trigger)
-      : [...current, trigger];
-    updateField('capture', 'triggers', next);
   };
 
   return (
@@ -270,7 +241,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
           >
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
-              const hasDirtyTabFields = dirtyKeys.some((k) => k.startsWith(tab.id === 'capture' ? 'capture' : tab.id));
+              const hasDirtyTabFields = dirtyKeys.some((k) =>
+                tab.id === 'capture'
+                  ? k.startsWith('capture.') && !k.startsWith('capture.backend') && !k.startsWith('capture.local_llm') && !k.startsWith('capture.api_') && !k.startsWith('capture.confidence_threshold') && !k.startsWith('capture.categories')
+                  : tab.id === 'classifier'
+                  ? k.startsWith('capture.backend') || k.startsWith('capture.local_llm') || k.startsWith('capture.api_') || k.startsWith('capture.confidence_threshold')
+                  : tab.id === 'categories'
+                  ? k.startsWith('capture.categories')
+                  : k.startsWith(tab.id)
+              );
+
               return (
                 <button
                   key={tab.id}
@@ -316,7 +296,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
 
             <div style={{ flex: 1 }} />
 
-            {/* Config meta summary in sidebar */}
+            {/* Config source metadata summary in sidebar */}
             {meta && (
               <div
                 style={{
@@ -428,824 +408,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                   </div>
                 )}
 
-                {/* GENERAL TAB */}
+                {/* MODULAR TAB PANELS */}
                 {activeTab === 'general' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div>
-                      <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        Embedding Model & Storage
-                      </h3>
-                      <p style={{ margin: '2px 0 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                        Core embedding parameters and local storage locations.
-                      </p>
-                    </div>
-
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(2, 1fr)',
-                        gap: 'var(--space-3)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          padding: 'var(--space-3)',
-                          backgroundColor: 'var(--surface-secondary)',
-                          borderRadius: 'var(--radius-md)',
-                          border: '1px solid var(--border-subtle)',
-                        }}
-                      >
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                          Model Name
-                        </div>
-                        <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>
-                          {draft.model.name}
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                          Fast local ONNX embeddings
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          padding: 'var(--space-3)',
-                          backgroundColor: 'var(--surface-secondary)',
-                          borderRadius: 'var(--radius-md)',
-                          border: '1px solid var(--border-subtle)',
-                        }}
-                      >
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                          Vector Dimensions
-                        </div>
-                        <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>
-                          {draft.model.dims} dimensions
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                          Standard BGE vector space
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        padding: 'var(--space-3)',
-                        backgroundColor: 'var(--surface-secondary)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--border-subtle)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 'var(--space-2)',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Storage Home Directory</div>
-                        <div
-                          style={{
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 'var(--text-xs)',
-                            color: 'var(--text-primary)',
-                            marginTop: '2px',
-                          }}
-                        >
-                          {meta?.home || '~/.centmem'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Active Config File</div>
-                        <div
-                          style={{
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 'var(--text-xs)',
-                            color: 'var(--text-primary)',
-                            marginTop: '2px',
-                          }}
-                        >
-                          {meta?.config_path || '~/.centmem/config.toml'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <GeneralTab model={draft.model} meta={meta} />
                 )}
 
-                {/* RETENTION TAB */}
                 {activeTab === 'retention' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div>
-                      <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        Memory Retention & Compaction Policy
-                      </h3>
-                      <p style={{ margin: '2px 0 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                        Control the lifecycle windows for notes, raw logs, facts, and consolidated summaries.
-                      </p>
-                    </div>
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 'var(--space-3)',
-                      }}
-                    >
-                      {/* Fact keep days */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: 'var(--space-3)',
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: 'var(--radius-md)',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 500, fontSize: 'var(--text-xs)' }}>Fact Keep Duration (Days)</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Days before facts are archived (0 = retain indefinitely)
-                          </div>
-                        </div>
-                        <input
-                          type="number"
-                          min="0"
-                          value={draft.retention.fact_keep_days}
-                          onChange={(e) =>
-                            updateField('retention', 'fact_keep_days', parseInt(e.target.value, 10) || 0)
-                          }
-                          style={{
-                            width: '80px',
-                            padding: '4px 8px',
-                            border: '1px solid var(--border-default)',
-                            borderRadius: 'var(--radius-sm)',
-                            textAlign: 'right',
-                            fontSize: 'var(--text-xs)',
-                            backgroundColor: 'var(--surface-primary)',
-                            color: 'var(--text-primary)',
-                          }}
-                        />
-                      </div>
-
-                      {/* Note summarize after days */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: 'var(--space-3)',
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: 'var(--radius-md)',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 500, fontSize: 'var(--text-xs)' }}>Note Summarize Window (Days)</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Days before individual notes are merged into summaries
-                          </div>
-                        </div>
-                        <input
-                          type="number"
-                          min="1"
-                          value={draft.retention.note_summarize_after_days}
-                          onChange={(e) =>
-                            updateField('retention', 'note_summarize_after_days', parseInt(e.target.value, 10) || 1)
-                          }
-                          style={{
-                            width: '80px',
-                            padding: '4px 8px',
-                            border: '1px solid var(--border-default)',
-                            borderRadius: 'var(--radius-sm)',
-                            textAlign: 'right',
-                            fontSize: 'var(--text-xs)',
-                            backgroundColor: 'var(--surface-primary)',
-                            color: 'var(--text-primary)',
-                          }}
-                        />
-                      </div>
-
-                      {/* Log summarize after days */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: 'var(--space-3)',
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: 'var(--radius-md)',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 500, fontSize: 'var(--text-xs)' }}>Log Summarize Window (Days)</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Days before activity logs are compacted into summaries
-                          </div>
-                        </div>
-                        <input
-                          type="number"
-                          min="1"
-                          value={draft.retention.log_summarize_after_days}
-                          onChange={(e) =>
-                            updateField('retention', 'log_summarize_after_days', parseInt(e.target.value, 10) || 1)
-                          }
-                          style={{
-                            width: '80px',
-                            padding: '4px 8px',
-                            border: '1px solid var(--border-default)',
-                            borderRadius: 'var(--radius-sm)',
-                            textAlign: 'right',
-                            fontSize: 'var(--text-xs)',
-                            backgroundColor: 'var(--surface-primary)',
-                            color: 'var(--text-primary)',
-                          }}
-                        />
-                      </div>
-
-                      {/* Log drop after days */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: 'var(--space-3)',
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: 'var(--radius-md)',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 500, fontSize: 'var(--text-xs)' }}>Log Pruning (Days)</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Days before raw activity logs are permanently dropped
-                          </div>
-                        </div>
-                        <input
-                          type="number"
-                          min="1"
-                          value={draft.retention.log_drop_after_days}
-                          onChange={(e) =>
-                            updateField('retention', 'log_drop_after_days', parseInt(e.target.value, 10) || 1)
-                          }
-                          style={{
-                            width: '80px',
-                            padding: '4px 8px',
-                            border: '1px solid var(--border-default)',
-                            borderRadius: 'var(--radius-sm)',
-                            textAlign: 'right',
-                            fontSize: 'var(--text-xs)',
-                            backgroundColor: 'var(--surface-primary)',
-                            color: 'var(--text-primary)',
-                          }}
-                        />
-                      </div>
-
-                      {/* Archive keep days */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: 'var(--space-3)',
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: 'var(--radius-md)',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 500, fontSize: 'var(--text-xs)' }}>Archive Retention (Days)</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Retention window for compacted historical archive memories
-                          </div>
-                        </div>
-                        <input
-                          type="number"
-                          min="1"
-                          value={draft.retention.archive_keep_days}
-                          onChange={(e) =>
-                            updateField('retention', 'archive_keep_days', parseInt(e.target.value, 10) || 1)
-                          }
-                          style={{
-                            width: '80px',
-                            padding: '4px 8px',
-                            border: '1px solid var(--border-default)',
-                            borderRadius: 'var(--radius-sm)',
-                            textAlign: 'right',
-                            fontSize: 'var(--text-xs)',
-                            backgroundColor: 'var(--surface-primary)',
-                            color: 'var(--text-primary)',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  <RetentionTab
+                    retention={draft.retention}
+                    onChange={(k, v) => updateField('retention', k, v)}
+                  />
                 )}
 
-                {/* AUTO-CAPTURE TAB */}
                 {activeTab === 'capture' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div>
-                      <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        Auto-Capture Engine
-                      </h3>
-                      <p style={{ margin: '2px 0 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                        Configure automated extraction hooks from coding agent sessions and transcripts.
-                      </p>
-                    </div>
-
-                    {/* Master enable switch */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: 'var(--space-3)',
-                        backgroundColor: 'var(--surface-secondary)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--border-subtle)',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 'var(--text-xs)' }}>
-                          Enable Background Auto-Capture
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          Extract decisions, learnings, and conventions from session hooks
-                        </div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={draft.capture.enabled}
-                        onChange={(e) => updateField('capture', 'enabled', e.target.checked)}
-                        style={{ cursor: 'pointer', width: '18px', height: '18px' }}
-                      />
-                    </div>
-
-                    {/* Harness selector */}
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                        Target Agent Harness
-                      </label>
-                      <select
-                        value={draft.capture.harness}
-                        onChange={(e) => updateField('capture', 'harness', e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '6px 10px',
-                          border: '1px solid var(--border-default)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--surface-primary)',
-                          color: 'var(--text-primary)',
-                          fontSize: 'var(--text-xs)',
-                        }}
-                      >
-                        <option value="auto">auto (detect active environment)</option>
-                        <option value="claude-code">claude-code</option>
-                        <option value="cursor">cursor</option>
-                        <option value="antigravity">antigravity</option>
-                        <option value="trae">trae</option>
-                        <option value="codex">codex</option>
-                        <option value="generic">generic</option>
-                      </select>
-                    </div>
-
-                    {/* Triggers multi-check */}
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px' }}>
-                        Capture Triggers
-                      </div>
-                      <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
-                        {['session-end', 'per-message', 'on-demand'].map((trigger) => (
-                          <label
-                            key={trigger}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              fontSize: 'var(--text-xs)',
-                              cursor: 'pointer',
-                              padding: '4px 8px',
-                              backgroundColor: draft.capture.triggers.includes(trigger)
-                                ? 'var(--accent-lightest)'
-                                : 'var(--surface-secondary)',
-                              border: `1px solid ${
-                                draft.capture.triggers.includes(trigger)
-                                  ? 'var(--accent-border)'
-                                  : 'var(--border-subtle)'
-                              }`,
-                              borderRadius: 'var(--radius-sm)',
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={draft.capture.triggers.includes(trigger)}
-                              onChange={() => handleToggleTrigger(trigger)}
-                            />
-                            <span>{trigger}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Default scope */}
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                        Default Fallback Scope
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. project:my-project"
-                        value={draft.capture.scope}
-                        onChange={(e) => updateField('capture', 'scope', e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '6px 10px',
-                          border: '1px solid var(--border-default)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--surface-primary)',
-                          color: 'var(--text-primary)',
-                          fontSize: 'var(--text-xs)',
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                  </div>
+                  <CaptureTab
+                    capture={draft.capture}
+                    onChange={(k, v) => updateField('capture', k, v)}
+                  />
                 )}
 
-                {/* CLASSIFIER TAB */}
                 {activeTab === 'classifier' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div>
-                      <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        Classifier Engine & Connection Probe
-                      </h3>
-                      <p style={{ margin: '2px 0 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                        Select the classification engine used to parse and categorize agent transcripts.
-                      </p>
-                    </div>
-
-                    {/* Backend radio group */}
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px' }}>
-                        Classification Backend
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-2)' }}>
-                        {[
-                          { id: 'heuristic', title: 'Heuristic', desc: 'Zero external calls' },
-                          { id: 'local-llm', title: 'Local LLM', desc: 'Ollama / llama.cpp' },
-                          { id: 'openai-compatible', title: 'OpenAI API', desc: 'Custom endpoints' },
-                        ].map((b) => {
-                          const isSelected = draft.capture.backend === b.id;
-                          return (
-                            <div
-                              key={b.id}
-                              onClick={() => updateField('capture', 'backend', b.id)}
-                              style={{
-                                padding: 'var(--space-2) var(--space-3)',
-                                borderRadius: 'var(--radius-md)',
-                                border: `1px solid ${isSelected ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
-                                backgroundColor: isSelected ? 'var(--accent-lightest)' : 'var(--surface-secondary)',
-                                cursor: 'pointer',
-                                transition: 'all var(--transition-fast)',
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, fontSize: 'var(--text-xs)', color: isSelected ? 'var(--accent-primary)' : 'var(--text-primary)' }}>
-                                {b.title}
-                              </div>
-                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                {b.desc}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Conditional fields based on backend */}
-                    {draft.capture.backend === 'local-llm' && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                            Local LLM Endpoint URL
-                          </label>
-                          <input
-                            type="text"
-                            value={draft.capture.local_llm_endpoint}
-                            onChange={(e) => updateField('capture', 'local_llm_endpoint', e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '6px 10px',
-                              border: '1px solid var(--border-default)',
-                              borderRadius: 'var(--radius-md)',
-                              backgroundColor: 'var(--surface-primary)',
-                              color: 'var(--text-primary)',
-                              fontSize: 'var(--text-xs)',
-                              boxSizing: 'border-box',
-                            }}
-                          />
-                        </div>
-
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                            Model Tag / Name
-                          </label>
-                          <input
-                            type="text"
-                            value={draft.capture.local_llm_model}
-                            onChange={(e) => updateField('capture', 'local_llm_model', e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '6px 10px',
-                              border: '1px solid var(--border-default)',
-                              borderRadius: 'var(--radius-md)',
-                              backgroundColor: 'var(--surface-primary)',
-                              color: 'var(--text-primary)',
-                              fontSize: 'var(--text-xs)',
-                              boxSizing: 'border-box',
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {draft.capture.backend === 'openai-compatible' && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                            API Base URL
-                          </label>
-                          <input
-                            type="text"
-                            value={draft.capture.api_base_url}
-                            onChange={(e) => updateField('capture', 'api_base_url', e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '6px 10px',
-                              border: '1px solid var(--border-default)',
-                              borderRadius: 'var(--radius-md)',
-                              backgroundColor: 'var(--surface-primary)',
-                              color: 'var(--text-primary)',
-                              fontSize: 'var(--text-xs)',
-                              boxSizing: 'border-box',
-                            }}
-                          />
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-3)' }}>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                              API Key Env Var Name
-                            </label>
-                            <input
-                              type="text"
-                              value={draft.capture.api_key_env}
-                              onChange={(e) => updateField('capture', 'api_key_env', e.target.value)}
-                              style={{
-                                width: '100%',
-                                padding: '6px 10px',
-                                border: '1px solid var(--border-default)',
-                                borderRadius: 'var(--radius-md)',
-                                backgroundColor: 'var(--surface-primary)',
-                                color: 'var(--text-primary)',
-                                fontSize: 'var(--text-xs)',
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                          </div>
-
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                              Remote Model Name
-                            </label>
-                            <input
-                              type="text"
-                              value={draft.capture.api_model}
-                              onChange={(e) => updateField('capture', 'api_model', e.target.value)}
-                              style={{
-                                width: '100%',
-                                padding: '6px 10px',
-                                border: '1px solid var(--border-default)',
-                                borderRadius: 'var(--radius-md)',
-                                backgroundColor: 'var(--surface-primary)',
-                                color: 'var(--text-primary)',
-                                fontSize: 'var(--text-xs)',
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Confidence Threshold */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: 600 }}>
-                          Confidence Cutoff Threshold
-                        </label>
-                        <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                          {draft.capture.confidence_threshold.toFixed(2)}
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.10"
-                        max="1.00"
-                        step="0.05"
-                        value={draft.capture.confidence_threshold}
-                        onChange={(e) => updateField('capture', 'confidence_threshold', parseFloat(e.target.value))}
-                        style={{ width: '100%', accentColor: 'var(--accent-primary)' }}
-                      />
-                    </div>
-
-                    {/* Test Connection Probe */}
-                    <div
-                      style={{
-                        marginTop: 'var(--space-2)',
-                        padding: 'var(--space-3)',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: 'var(--surface-secondary)',
-                        border: '1px solid var(--border-subtle)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 'var(--space-2)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>
-                          <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600 }}>
-                            Live Connection Probe
-                          </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Verify endpoint reachability and credentials before saving
-                          </div>
-                        </div>
-
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => testClassifier()}
-                          disabled={isTesting}
-                        >
-                          {isTesting ? (
-                            <RefreshCw size={13} className="animate-spin" />
-                          ) : (
-                            <Activity size={13} />
-                          )}
-                          <span>{isTesting ? 'Probing...' : 'Test Connection'}</span>
-                        </Button>
-                      </div>
-
-                      {testResult && (
-                        <div
-                          style={{
-                            padding: 'var(--space-2) var(--space-3)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '11px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            backgroundColor: testResult.ok
-                              ? 'var(--color-success-bg)'
-                              : 'var(--color-error-bg)',
-                            color: testResult.ok
-                              ? 'var(--color-success-text)'
-                              : 'var(--color-error-text)',
-                            border: `1px solid ${
-                              testResult.ok
-                                ? 'var(--color-success-border)'
-                                : 'var(--color-error-border)'
-                            }`,
-                          }}
-                        >
-                          {testResult.ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-                          <span>
-                            {testResult.message || `Status: ${testResult.status}`}
-                            {testResult.latency_ms !== undefined && ` (${testResult.latency_ms}ms)`}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <ClassifierTab
+                    capture={draft.capture}
+                    onChange={(k, v) => updateField('capture', k, v)}
+                    isTesting={isTesting}
+                    testResult={testResult}
+                    onTest={testClassifier}
+                  />
                 )}
 
-                {/* CATEGORIES TAB */}
                 {activeTab === 'categories' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div>
-                      <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        Capture Whitelist Categories
-                      </h3>
-                      <p style={{ margin: '2px 0 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                        Categories that the classifier is permitted to extract and persist into memory.
-                      </p>
-                    </div>
-
-                    {/* Tag list */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '6px',
-                        padding: 'var(--space-3)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--border-subtle)',
-                        backgroundColor: 'var(--surface-secondary)',
-                        minHeight: '80px',
-                      }}
-                    >
-                      {draft.capture.categories.map((cat) => (
-                        <span
-                          key={cat}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '2px 8px',
-                            backgroundColor: 'var(--surface-primary)',
-                            border: '1px solid var(--border-default)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: 'var(--text-xs)',
-                            color: 'var(--text-primary)',
-                          }}
-                        >
-                          <span>{cat}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveCategory(cat)}
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              cursor: 'pointer',
-                              color: 'var(--text-muted)',
-                              padding: '1px',
-                              display: 'flex',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <X size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-
-                    {/* Add custom tag */}
-                    <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                      <input
-                        type="text"
-                        placeholder="Add category tag (e.g. security, bug, architecture)..."
-                        value={newCategoryInput}
-                        onChange={(e) => setNewCategoryInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddCategory();
-                          }
-                        }}
-                        style={{
-                          flex: 1,
-                          padding: '6px 10px',
-                          border: '1px solid var(--border-default)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--surface-primary)',
-                          color: 'var(--text-primary)',
-                          fontSize: 'var(--text-xs)',
-                        }}
-                      />
-                      <Button variant="secondary" size="sm" onClick={handleAddCategory}>
-                        Add Tag
-                      </Button>
-                    </div>
-
-                    {/* Preset categories */}
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                        Suggested Presets:
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {['decision', 'convention', 'preference', 'learning', 'checkpoint', 'security', 'api', 'architecture'].map(
-                          (preset) => {
-                            const isIncluded = draft.capture.categories.includes(preset);
-                            return (
-                              <button
-                                key={preset}
-                                type="button"
-                                disabled={isIncluded}
-                                onClick={() => {
-                                  updateField('capture', 'categories', [...draft.capture.categories, preset]);
-                                }}
-                                style={{
-                                  fontSize: '11px',
-                                  padding: '2px 8px',
-                                  borderRadius: 'var(--radius-xs)',
-                                  border: '1px dashed var(--border-default)',
-                                  backgroundColor: isIncluded ? 'transparent' : 'var(--surface-secondary)',
-                                  color: isIncluded ? 'var(--text-muted)' : 'var(--text-secondary)',
-                                  cursor: isIncluded ? 'default' : 'pointer',
-                                }}
-                              >
-                                + {preset}
-                              </button>
-                            );
-                          }
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <CategoriesTab
+                    categories={draft.capture.categories}
+                    onChange={(cats) => updateField('capture', 'categories', cats)}
+                  />
                 )}
               </>
             )}
