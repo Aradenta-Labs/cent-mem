@@ -5,6 +5,7 @@ import { TopBar } from '../components/TopBar';
 import { Sidebar } from '../components/Sidebar';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { MemoryBrowser } from '../components/MemoryBrowser';
+import { KeyboardShortcutsModal } from '../components/KeyboardShortcutsModal';
 
 export interface DashboardProps {
   activeView: 'dashboard' | 'design-system';
@@ -18,6 +19,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [isLoadingScopes, setIsLoadingScopes] = useState<boolean>(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
 
   // Initialize from URL search parameters
   useEffect(() => {
@@ -103,6 +105,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
         activeView={activeView}
         onViewChange={onViewChange}
+        onRefreshHealth={loadData}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
       />
 
       <div style={{ display: 'flex', flex: 1, position: 'relative' }}>
@@ -159,6 +163,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
           </div>
         </main>
       </div>
+
+      <KeyboardShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
+      />
     </div>
   );
 };

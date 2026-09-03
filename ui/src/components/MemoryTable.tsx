@@ -31,6 +31,28 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
   onResetFilters,
   onRetry,
 }) => {
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      if (isInput || memories.length === 0) return;
+
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const currentIndex = memories.findIndex((m) => m.id === selectedMemoryId);
+        const nextIndex = currentIndex === -1 ? 0 : Math.min(currentIndex + 1, memories.length - 1);
+        onSelectMemory(memories[nextIndex]);
+      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const currentIndex = memories.findIndex((m) => m.id === selectedMemoryId);
+        const prevIndex = currentIndex === -1 ? 0 : Math.max(currentIndex - 1, 0);
+        onSelectMemory(memories[prevIndex]);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [memories, selectedMemoryId, onSelectMemory]);
   if (errorMessage) {
     return (
       <EmptyState

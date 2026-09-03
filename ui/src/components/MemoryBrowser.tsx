@@ -2,13 +2,15 @@ import React, { useState, useEffect, useCallback, useTransition } from 'react';
 import { Copy, Check, Sparkles, X, Database } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { Memory, MemoryFilters } from '../types/memory';
-import { fetchMemories } from '../services/api';
+import { StoreStats } from '../types/stats';
+import { fetchMemories, fetchStats } from '../services/api';
 import { Badge } from './Badge';
 import { Button } from './Button';
 import { FiltersPanel } from './FiltersPanel';
 import { MemoryTable } from './MemoryTable';
 import { Pagination } from './Pagination';
 import { MemoryDetailDrawer } from './MemoryDetailDrawer';
+import { OverviewPanel } from './OverviewPanel';
 
 export interface MemoryBrowserProps {
   node: ScopeNode | null;
@@ -43,6 +45,8 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
   const [total, setTotal] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
+  const [stats, setStats] = useState<StoreStats | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState<boolean>(true);
 
   // Inspector States
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
@@ -133,6 +137,23 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
   useEffect(() => {
     loadMemories();
   }, [loadMemories]);
+
+  // Fetch store statistics
+  const loadStats = useCallback(async () => {
+    setIsLoadingStats(true);
+    try {
+      const data = await fetchStats(selectedScope);
+      setStats(data);
+    } catch {
+      setStats(null);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, [selectedScope]);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
 
   // When scope changes, reset offset and clear selected memory
   useEffect(() => {
@@ -302,6 +323,18 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
             <span>Clear search</span>
           </button>
         </div>
+      )}
+
+      {/* Overview Panel: Visible on main view when no search or filters are active */}
+      {!isFiltered && (
+        <OverviewPanel
+          stats={stats}
+          recentMemories={memories}
+          isLoading={isLoadingStats}
+          selectedScope={selectedScope}
+          onSelectType={handleTypeChange}
+          onSelectMemory={setSelectedMemory}
+        />
       )}
 
       {/* Filters Toolbar */}

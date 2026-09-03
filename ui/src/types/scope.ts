@@ -20,11 +20,15 @@ export interface ScopesResponse {
   };
 }
 
+import { DoctorCheck } from './stats';
+
 export interface HealthResponse {
   ok: boolean;
-  status: string;
+  status: 'healthy' | 'degraded' | 'unhealthy';
   version: string;
   store: 'connected' | 'disconnected' | 'error';
+  checks?: DoctorCheck[];
+  warnings?: string[];
 }
 
 export interface CreateScopeResponse {

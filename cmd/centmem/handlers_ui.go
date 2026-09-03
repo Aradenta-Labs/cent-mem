@@ -66,6 +66,7 @@ func cmdUI(args []string) int {
 			Version:  "1.4.0",
 			Store:    st,
 			Searcher: searcher,
+			Config:   cfg,
 		})
 		if err != nil {
 			return cli.Internalf("ui server init: %v", err)

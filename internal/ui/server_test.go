@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -437,5 +438,194 @@ func TestServer_Memories(t *testing.T) {
 	defer respInvalidID.Body.Close()
 	if respInvalidID.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", respInvalidID.StatusCode)
+	}
+}
+
+func TestServer_StatsAPI(t *testing.T) {
+	dir := t.TempDir()
+	stCfg := config.Config{DBPath: dir + "/centmem.db"}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:backend",
+		Type:    "note",
+		Content: "Backend architecture note",
+	})
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:backend",
+		Type:    "log",
+		Content: "Deployment log",
+	})
+	_, _, _ = st.SetFact(ctx, store.FactInput{
+		Scope: "project:backend",
+		Key:   "port",
+		Value: `8080`,
+	})
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:frontend",
+		Type:    "note",
+		Content: "UI notes",
+	})
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.0",
+		Store:   st,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. GET /api/stats (overall)
+	resp, err := client.Get(srv.URL() + "/api/stats")
+	if err != nil {
+		t.Fatalf("GET /api/stats error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/stats status = %d, want 200", resp.StatusCode)
+	}
+
+	var statsData struct {
+		OK    bool `json:"ok"`
+		Stats struct {
+			Memories         int64            `json:"memories"`
+			ByType           map[string]int64 `json:"by_type"`
+			ByScope          map[string]int64 `json:"by_scope"`
+			PendingEmbedding int64            `json:"pending_embedding"`
+			DBSizeMB         float64          `json:"db_size_mb"`
+			LastCompactAt    *int64           `json:"last_compact_at"`
+		} `json:"stats"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&statsData); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+
+	if !statsData.OK || statsData.Stats.Memories != 4 {
+		t.Errorf("expected 4 memories, got %+v", statsData)
+	}
+	if statsData.Stats.ByType["note"] != 2 || statsData.Stats.ByType["fact"] != 1 || statsData.Stats.ByType["log"] != 1 {
+		t.Errorf("unexpected by_type counts: %+v", statsData.Stats.ByType)
+	}
+
+	// 2. GET /api/stats?scope=project:backend
+	respScoped, err := client.Get(srv.URL() + "/api/stats?scope=project:backend")
+	if err != nil {
+		t.Fatalf("GET /api/stats?scope=project:backend error: %v", err)
+	}
+	defer respScoped.Body.Close()
+
+	var scopedData struct {
+		OK    bool `json:"ok"`
+		Stats struct {
+			Memories       int64            `json:"memories"`
+			Scope          string           `json:"scope"`
+			ScopedMemories int64            `json:"scoped_memories"`
+			ScopedByType   map[string]int64 `json:"scoped_by_type"`
+		} `json:"stats"`
+	}
+	if err := json.NewDecoder(respScoped.Body).Decode(&scopedData); err != nil {
+		t.Fatalf("decode scoped stats: %v", err)
+	}
+	if scopedData.Stats.ScopedMemories != 3 {
+		t.Errorf("expected 3 scoped memories for project:backend, got %d", scopedData.Stats.ScopedMemories)
+	}
+	if scopedData.Stats.ScopedByType["note"] != 1 || scopedData.Stats.ScopedByType["fact"] != 1 || scopedData.Stats.ScopedByType["log"] != 1 {
+		t.Errorf("unexpected scoped_by_type: %+v", scopedData.Stats.ScopedByType)
+	}
+}
+
+func TestServer_HealthAPI_DoctorChecks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatalf("chmod test dir: %v", err)
+	}
+	stCfg := config.Config{
+		Home:   dir,
+		DBPath: dir + "/centmem.db",
+	}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.0",
+		Store:   st,
+		Config:  stCfg,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	resp, err := client.Get(srv.URL() + "/api/health")
+	if err != nil {
+		t.Fatalf("GET /api/health error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var healthData struct {
+		OK       bool          `json:"ok"`
+		Status   string        `json:"status"`
+		Store    string        `json:"store"`
+		Checks   []DoctorCheck `json:"checks"`
+		Warnings []string      `json:"warnings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&healthData); err != nil {
+		t.Fatalf("decode health data: %v", err)
+	}
+
+	if healthData.Store != "connected" {
+		t.Errorf("expected store 'connected', got %s", healthData.Store)
+	}
+	if len(healthData.Checks) == 0 {
+		t.Errorf("expected non-empty doctor checks list")
+	}
+
+	checkNames := map[string]string{}
+	for _, c := range healthData.Checks {
+		checkNames[c.Name] = c.Status
+	}
+
+	for _, reqCheck := range []string{"integrity", "schema_version", "extensions", "embed_queue", "permissions"} {
+		if status, exists := checkNames[reqCheck]; !exists || status != "ok" {
+			t.Errorf("expected check %q to be 'ok', got exists=%v status=%q", reqCheck, exists, status)
+		}
 	}
 }

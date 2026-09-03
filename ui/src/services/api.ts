@@ -1,5 +1,6 @@
 import { ScopeNode, ScopesResponse, HealthResponse, CreateScopeResponse } from '../types/scope';
 import { Memory, MemoryFilters, MemoriesResponse, MemoryDetailResponse } from '../types/memory';
+import { StoreStats, StatsResponse } from '../types/stats';
 
 /**
  * API service for communicating with embedded centmem server.
@@ -11,6 +12,19 @@ export async function fetchHealth(): Promise<HealthResponse> {
     throw new Error(`Health check failed: HTTP ${res.status}`);
   }
   return res.json();
+}
+
+export async function fetchStats(scope?: string): Promise<StoreStats> {
+  const url = scope && scope !== 'global' ? `/api/stats?scope=${encodeURIComponent(scope)}` : '/api/stats';
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load stats: HTTP ${res.status}`);
+  }
+  const data: StatsResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load stats');
+  }
+  return data.stats;
 }
 
 export async function fetchScopes(): Promise<ScopeNode[]> {

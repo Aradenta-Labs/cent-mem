@@ -67,7 +67,7 @@ export const MemoryRow: React.FC<MemoryRowProps> = ({
         cursor: 'pointer',
         backgroundColor: isSelected ? 'var(--accent-lightest)' : 'transparent',
         borderBottom: '1px solid var(--border-subtle)',
-        borderLeft: isSelected ? '3px solid var(--accent-primary)' : '3px solid transparent',
+        borderLeft: isSelected ? '1px solid var(--accent-primary)' : '1px solid transparent',
         transition: 'background-color var(--transition-fast), border-color var(--transition-fast)',
         outline: 'none',
       }}

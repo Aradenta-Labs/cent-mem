@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { Search, Menu, X, LayoutTemplate } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Menu, X, LayoutTemplate, Activity, CheckCircle2, AlertTriangle, XCircle, RotateCcw, HelpCircle } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { HealthResponse } from '../types/scope';
 
@@ -11,6 +11,8 @@ export interface TopBarProps {
   isSidebarOpen: boolean;
   activeView: 'dashboard' | 'design-system';
   onViewChange: (view: 'dashboard' | 'design-system') => void;
+  onRefreshHealth?: () => void;
+  onOpenShortcuts?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -21,11 +23,20 @@ export const TopBar: React.FC<TopBarProps> = ({
   isSidebarOpen,
   activeView,
   onViewChange,
+  onRefreshHealth,
+  onOpenShortcuts,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [isHealthOpen, setIsHealthOpen] = useState(false);
+  const healthDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Global keyboard shortcut: Cmd+K or Ctrl+K or / to focus search
+  // Close dropdown on outside click or Escape key
   useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (healthDropdownRef.current && !healthDropdownRef.current.contains(e.target as Node)) {
+        setIsHealthOpen(false);
+      }
+    };
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
@@ -36,14 +47,25 @@ export const TopBar: React.FC<TopBarProps> = ({
       } else if (e.key === '/' && !isInput) {
         e.preventDefault();
         searchInputRef.current?.focus();
+      } else if (e.key === '?' && !isInput && onOpenShortcuts) {
+        e.preventDefault();
+        onOpenShortcuts();
+      } else if (e.key === 'Escape' && isHealthOpen) {
+        setIsHealthOpen(false);
       }
     };
 
+    window.addEventListener('mousedown', handleOutsideClick);
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    return () => {
+      window.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isHealthOpen, onOpenShortcuts]);
 
-  const isHealthy = health?.ok && health?.store === 'connected';
+  const status = health?.status || (health?.store === 'connected' ? 'healthy' : 'unhealthy');
+  const isHealthy = status === 'healthy';
+  const isDegraded = status === 'degraded';
 
   return (
     <header
@@ -238,35 +260,270 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span>{activeView === 'dashboard' ? 'Design Tokens' : 'Dashboard'}</span>
         </button>
 
-        {/* Health status dot with tooltip */}
-        <div
-          title={
-            isHealthy
-              ? `Backend Connected (SQLite WAL active) - v${health?.version || '1.4.0'}`
-              : 'Backend Disconnected or Unreachable'
-          }
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            fontSize: 'var(--text-xs)',
-            color: isHealthy ? 'var(--color-success-text)' : 'var(--color-error-text)',
-            padding: '2px 6px',
-            backgroundColor: isHealthy ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
-            borderRadius: 'var(--radius-sm)',
-            border: `1px solid ${isHealthy ? 'var(--color-success-border)' : 'var(--color-error-border)'}`,
-            cursor: 'default',
-          }}
-        >
-          <div
+        {/* Keyboard shortcuts trigger */}
+        {onOpenShortcuts && (
+          <button
+            type="button"
+            onClick={onOpenShortcuts}
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
             style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: 'var(--radius-pill)',
-              backgroundColor: isHealthy ? 'var(--color-success-icon)' : 'var(--color-error-icon)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--text-secondary)',
+              padding: '4px',
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
             }}
-          />
-          <span style={{ fontWeight: 500 }}>{isHealthy ? 'Connected' : 'Offline'}</span>
+          >
+            <HelpCircle size={15} />
+          </button>
+        )}
+
+        {/* Doctor Health Popover Trigger & Dropdown */}
+        <div ref={healthDropdownRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setIsHealthOpen((prev) => !prev)}
+            aria-haspopup="dialog"
+            aria-expanded={isHealthOpen}
+            aria-label={`System health: ${status}. Click to view doctor checks.`}
+            title={`Doctor Health Status: ${status}. Click to inspect.`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: 'var(--text-xs)',
+              color: isHealthy
+                ? 'var(--color-success-text)'
+                : isDegraded
+                ? 'var(--color-warning-text)'
+                : 'var(--color-error-text)',
+              padding: '3px 8px',
+              backgroundColor: isHealthy
+                ? 'var(--color-success-bg)'
+                : isDegraded
+                ? 'var(--color-warning-bg)'
+                : 'var(--color-error-bg)',
+              borderRadius: 'var(--radius-sm)',
+              border: `1px solid ${
+                isHealthy
+                  ? 'var(--color-success-border)'
+                  : isDegraded
+                  ? 'var(--color-warning-border)'
+                  : 'var(--color-error-border)'
+              }`,
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <div
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: 'var(--radius-pill)',
+                backgroundColor: isHealthy
+                  ? 'var(--color-success-icon)'
+                  : isDegraded
+                  ? 'var(--color-warning-icon)'
+                  : 'var(--color-error-icon)',
+              }}
+            />
+            <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{status}</span>
+          </button>
+
+          {/* Doctor Checks Popover */}
+          {isHealthOpen && (
+            <div
+              role="dialog"
+              aria-label="Doctor Health Diagnostics"
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 'calc(100% + 8px)',
+                width: '320px',
+                backgroundColor: 'var(--surface-primary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-lg)',
+                boxShadow: 'var(--shadow-lg)',
+                padding: 'var(--space-4)',
+                zIndex: 50,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-3)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                  <Activity size={16} color="var(--accent-primary)" />
+                  <span style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    Doctor Diagnostics
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+                  {onRefreshHealth && (
+                    <button
+                      type="button"
+                      onClick={onRefreshHealth}
+                      title="Re-run health checks"
+                      aria-label="Re-run doctor checks"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        display: 'flex',
+                      }}
+                    >
+                      <RotateCcw size={13} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsHealthOpen(false)}
+                    aria-label="Close diagnostics"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      display: 'flex',
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Status summary banner */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: 'var(--space-2) var(--space-3)',
+                  backgroundColor: isHealthy
+                    ? 'var(--color-success-bg)'
+                    : isDegraded
+                    ? 'var(--color-warning-bg)'
+                    : 'var(--color-error-bg)',
+                  border: `1px solid ${
+                    isHealthy
+                      ? 'var(--color-success-border)'
+                      : isDegraded
+                      ? 'var(--color-warning-border)'
+                      : 'var(--color-error-border)'
+                  }`,
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    fontWeight: 600,
+                    color: isHealthy
+                      ? 'var(--color-success-text)'
+                      : isDegraded
+                      ? 'var(--color-warning-text)'
+                      : 'var(--color-error-text)',
+                  }}
+                >
+                  {isHealthy
+                    ? 'All system checks pass'
+                    : isDegraded
+                    ? 'Non-critical issues detected'
+                    : 'System requires attention'}
+                </span>
+                <span className="tabular-nums" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  v{health?.version || '1.4.0'}
+                </span>
+              </div>
+
+              {/* Checks checklist */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {health?.checks && health.checks.length > 0 ? (
+                  health.checks.map((c) => (
+                    <div
+                      key={c.name}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'space-between',
+                        fontSize: '11px',
+                        padding: '4px 6px',
+                        borderRadius: 'var(--radius-xs)',
+                        backgroundColor: 'var(--surface-secondary)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {c.status === 'ok' ? (
+                          <CheckCircle2 size={13} color="var(--color-success-icon)" />
+                        ) : (
+                          <XCircle size={13} color="var(--color-error-icon)" />
+                        )}
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
+                          {c.name.replace('_', ' ')}
+                        </span>
+                      </div>
+                      {c.detail && (
+                        <span
+                          style={{
+                            color: 'var(--text-muted)',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '10px',
+                            maxWidth: '140px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={c.detail}
+                        >
+                          {c.detail}
+                        </span>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Store: {health?.store || 'disconnected'}
+                  </span>
+                )}
+              </div>
+
+              {/* Warnings list if any */}
+              {health?.warnings && health.warnings.length > 0 && (
+                <div
+                  style={{
+                    backgroundColor: 'var(--color-warning-bg)',
+                    border: '1px solid var(--color-warning-border)',
+                    borderRadius: 'var(--radius-xs)',
+                    padding: 'var(--space-2)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <AlertTriangle size={12} color="var(--color-warning-icon)" />
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-warning-text)' }}>
+                      Warnings
+                    </span>
+                  </div>
+                  {health.warnings.map((w, idx) => (
+                    <span key={idx} style={{ fontSize: '10px', color: 'var(--color-warning-text)' }}>
+                      {w}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <ThemeToggle />

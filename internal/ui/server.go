@@ -13,10 +13,24 @@ import (
 	"strings"
 	"time"
 
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"os"
+
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
 	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
+
+// DoctorCheck represents a single health check result.
+type DoctorCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // "ok" | "fail"
+	Detail string `json:"detail,omitempty"`
+}
 
 // ServerConfig configures the embedded UI web server.
 type ServerConfig struct {
@@ -26,6 +40,7 @@ type ServerConfig struct {
 	Version  string
 	Store    *store.Store
 	Searcher *search.Searcher
+	Config   config.Config
 }
 
 // DefaultServerConfig returns the standard localhost:4231 config.
@@ -66,22 +81,223 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 	mux := http.NewServeMux()
 
-	// API Endpoints: Health
+	// API Endpoints: Health (Comprehensive Doctor status)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		storeStatus := "disconnected"
-		if cfg.Store != nil {
-			if err := cfg.Store.DB().PingContext(r.Context()); err == nil {
-				storeStatus = "connected"
+		if cfg.Store == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":       true,
+				"status":   "healthy",
+				"version":  cfg.Version,
+				"store":    "disconnected",
+				"checks":   []DoctorCheck{},
+				"warnings": []string{},
+			})
+			return
+		}
+
+		checks := []DoctorCheck{}
+		var warnings []string
+		storeStatus := "connected"
+
+		// 1. DB opens + integrity.
+		var integrity string
+		if err := cfg.Store.DB().QueryRowContext(r.Context(), "PRAGMA integrity_check").Scan(&integrity); err != nil {
+			storeStatus = "error"
+			checks = append(checks, DoctorCheck{Name: "integrity", Status: "fail", Detail: err.Error()})
+		} else if integrity != "ok" {
+			storeStatus = "error"
+			checks = append(checks, DoctorCheck{Name: "integrity", Status: "fail", Detail: integrity})
+		} else {
+			checks = append(checks, DoctorCheck{Name: "integrity", Status: "ok"})
+		}
+
+		// 2. Schema version matches binary.
+		cur, _ := cfg.Store.SchemaVersion()
+		want := store.LatestSchemaVersion()
+		if cur == "" || cur != want {
+			checks = append(checks, DoctorCheck{
+				Name:   "schema_version",
+				Status: "fail",
+				Detail: fmt.Sprintf("db=%q binary=%q (run init to migrate)", cur, want),
+			})
+		} else {
+			checks = append(checks, DoctorCheck{Name: "schema_version", Status: "ok", Detail: cur})
+		}
+
+		// 3. Extensions present (sqlite_vec + fts5).
+		var vecTable int
+		_ = cfg.Store.DB().QueryRowContext(r.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories_vec'`).Scan(&vecTable)
+		fts5 := false
+		if rows, err := cfg.Store.DB().QueryContext(r.Context(), `PRAGMA compile_options`); err == nil {
+			for rows.Next() {
+				var opt string
+				if rows.Scan(&opt) == nil && strings.Contains(opt, "ENABLE_FTS5") {
+					fts5 = true
+				}
+			}
+			rows.Close()
+		}
+		extsOK := vecTable == 1 && fts5
+		detail := fmt.Sprintf("sqlite_vec=%v fts5=%v", vecTable == 1, fts5)
+		if !extsOK {
+			checks = append(checks, DoctorCheck{Name: "extensions", Status: "fail", Detail: detail})
+		} else {
+			checks = append(checks, DoctorCheck{Name: "extensions", Status: "ok", Detail: detail})
+		}
+
+		// 4. Model file exists + sha256 matches catalog.
+		if cfg.Config.Model.Name != "" {
+			model, known := embed.ModelCatalog[cfg.Config.Model.Name]
+			modelOK := true
+			modelDetail := "model=" + cfg.Config.Model.Name
+			if !known {
+				modelOK = false
+				modelDetail += " unknown model in catalog"
+			} else if _, err := os.Stat(cfg.Config.Model.Path); err != nil {
+				modelOK = false
+				modelDetail += " missing (run: centmem init)"
+			} else if sum, err := sha256File(cfg.Config.Model.Path); err != nil {
+				modelOK = false
+				modelDetail += " sha256 error: " + err.Error()
+			} else if sum != model.SHA256 {
+				modelDetail += " sha256 mismatch (re-run: centmem init --force)"
+				warnings = append(warnings, modelDetail)
+			}
+			if !modelOK {
+				checks = append(checks, DoctorCheck{Name: "model", Status: "fail", Detail: modelDetail})
 			} else {
-				storeStatus = "error"
+				checks = append(checks, DoctorCheck{Name: "model", Status: "ok", Detail: modelDetail})
 			}
 		}
+
+		// 5. Embed queue backlog.
+		var pending int64
+		_ = cfg.Store.DB().QueryRowContext(r.Context(), `SELECT COUNT(*) FROM embed_queue WHERE claimed_at IS NULL`).Scan(&pending)
+		checks = append(checks, DoctorCheck{Name: "embed_queue", Status: "ok", Detail: fmt.Sprintf("pending=%d", pending)})
+		if pending > 1000 {
+			warnings = append(warnings, fmt.Sprintf("embed queue backlog: %d pending embeddings", pending))
+		}
+
+		// 6. Permissions: home dir 0700, DB 0600.
+		if cfg.Config.Home != "" {
+			homeOK, homeDetail := checkPerm(cfg.Config.Home, 0700)
+			if !homeOK {
+				checks = append(checks, DoctorCheck{Name: "permissions", Status: "fail", Detail: homeDetail})
+			} else if cfg.Config.DBPath != "" {
+				dbOK, dbDetail := checkPerm(cfg.Config.DBPath, 0600)
+				if !dbOK {
+					checks = append(checks, DoctorCheck{Name: "permissions", Status: "fail", Detail: dbDetail})
+				} else {
+					checks = append(checks, DoctorCheck{Name: "permissions", Status: "ok", Detail: homeDetail + "; " + dbDetail})
+				}
+			}
+		}
+
+		// Determine composite status
+		allOK := true
+		for _, c := range checks {
+			if c.Status != "ok" {
+				allOK = false
+				break
+			}
+		}
+
+		status := "healthy"
+		if !allOK || storeStatus != "connected" {
+			status = "unhealthy"
+		} else if len(warnings) > 0 {
+			status = "degraded"
+		}
+
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":      true,
-			"status":  "healthy",
-			"version": cfg.Version,
-			"store":   storeStatus,
+			"ok":       allOK,
+			"status":   status,
+			"version":  cfg.Version,
+			"store":    storeStatus,
+			"checks":   checks,
+			"warnings": warnings,
+		})
+	})
+
+	// API Endpoints: Stats (Overview metrics)
+	mux.HandleFunc("GET /api/stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"stats": map[string]any{
+					"memories":          0,
+					"by_type":           map[string]int64{},
+					"by_scope":          map[string]int64{},
+					"pending_embedding": 0,
+					"db_size_mb":        0.0,
+					"db_path":           "",
+					"last_compact_at":   nil,
+				},
+			})
+			return
+		}
+
+		st, err := cfg.Store.Stats(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		respStats := map[string]any{
+			"memories":          st.Memories,
+			"by_type":           st.ByType,
+			"by_scope":          st.ByScope,
+			"pending_embedding": st.PendingEmbedding,
+			"db_size_mb":        st.DBSizeMB,
+			"db_path":           st.DBPath,
+			"last_compact_at":   st.LastCompactAt,
+		}
+
+		scopeParam := strings.TrimSpace(r.URL.Query().Get("scope"))
+		if scopeParam != "" && scopeParam != "global" {
+			if sc, err := scope.Parse(scopeParam); err == nil {
+				scopeIDs, err := cfg.Store.ResolveScopeIDs(r.Context(), sc, false, true)
+				if err == nil && len(scopeIDs) > 0 {
+					placeholders := make([]string, len(scopeIDs))
+					args := make([]any, len(scopeIDs))
+					for i, id := range scopeIDs {
+						placeholders[i] = "?"
+						args[i] = id
+					}
+
+					q := fmt.Sprintf(`SELECT type, COUNT(*) FROM memories WHERE scope_id IN (%s) AND status = 'active' GROUP BY type`, strings.Join(placeholders, ","))
+					if rows, err := cfg.Store.DB().QueryContext(r.Context(), q, args...); err == nil {
+						scopedByType := map[string]int64{}
+						var scopedTotal int64
+						for rows.Next() {
+							var typ string
+							var cnt int64
+							if rows.Scan(&typ, &cnt) == nil {
+								scopedByType[typ] = cnt
+								scopedTotal += cnt
+							}
+						}
+						rows.Close()
+						respStats["scope"] = scopeParam
+						respStats["scoped_memories"] = scopedTotal
+						respStats["scoped_by_type"] = scopedByType
+					}
+				}
+			}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":    true,
+			"stats": respStats,
 		})
 	})
 
@@ -625,5 +841,32 @@ func parseTimeOrDuration(s string, now time.Time) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return now.Add(-d), nil
+}
+
+// checkPerm returns ok if path exists with at least the given permission bits
+func checkPerm(path string, want os.FileMode) (bool, string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, path + " not accessible: " + err.Error()
+	}
+	mode := info.Mode().Perm()
+	if mode != want {
+		return false, fmt.Sprintf("%s mode=%o want=%o", path, mode, want)
+	}
+	return true, fmt.Sprintf("%s mode=%o", path, mode)
+}
+
+// sha256File returns the hex sha256 of the file at path.
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
