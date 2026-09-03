@@ -10,6 +10,12 @@ import {
   ExportFilters,
 } from '../types/memory';
 import { StoreStats, StatsResponse } from '../types/stats';
+import {
+  ConfigResponse,
+  UpdateConfigPayload,
+  TestClassifierParams,
+  TestClassifierResponse,
+} from '../types/config';
 
 /**
  * API service for communicating with embedded centmem server.
@@ -142,5 +148,69 @@ export function getExportUrl(filters: ExportFilters = {}): string {
 
   const query = params.toString();
   return `/api/export${query ? `?${query}` : ''}`;
+}
+
+export async function fetchConfig(): Promise<ConfigResponse> {
+  const res = await fetch('/api/config');
+  const data: ConfigResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to load config: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function updateConfig(payload: UpdateConfigPayload): Promise<ConfigResponse> {
+  const res = await fetch('/api/config', {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data: ConfigResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    const err = new Error(data.error?.message || `Failed to update config: HTTP ${res.status}`) as Error & {
+      code?: string;
+      field?: string;
+    };
+    if (data.error) {
+      err.code = data.error.code;
+      err.field = data.error.field;
+    }
+    throw err;
+  }
+  return data;
+}
+
+export async function testClassifierEndpoint(params: TestClassifierParams): Promise<TestClassifierResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
+  try {
+    const res = await fetch('/api/config/test-classifier', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+      signal: controller.signal,
+    });
+    const data: TestClassifierResponse = await res.json();
+    return data;
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 'timeout',
+        message: 'Connectivity test timed out after 6 seconds.',
+      };
+    }
+    return {
+      ok: false,
+      status: 'error',
+      message: err.message || 'Network error during classifier probe.',
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 

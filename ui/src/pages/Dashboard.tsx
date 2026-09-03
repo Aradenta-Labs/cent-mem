@@ -6,6 +6,8 @@ import { Sidebar } from '../components/Sidebar';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { MemoryBrowser } from '../components/MemoryBrowser';
 import { KeyboardShortcutsModal } from '../components/KeyboardShortcutsModal';
+import { SettingsModal } from '../components/settings/SettingsModal';
+import { Toast } from '../components/Toast';
 
 export interface DashboardProps {
   activeView: 'dashboard' | 'design-system';
@@ -20,6 +22,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
   const [isLoadingScopes, setIsLoadingScopes] = useState<boolean>(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [toast, setToast] = useState<{ title: string; variant: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ title: message, variant: type });
+    setTimeout(() => {
+      setToast(null);
+    }, 4000);
+  }, []);
 
   // Initialize from URL search parameters
   useEffect(() => {
@@ -107,6 +118,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
         onViewChange={onViewChange}
         onRefreshHealth={loadData}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       <div style={{ display: 'flex', flex: 1, position: 'relative' }}>
@@ -168,6 +180,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
       />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onToast={showToast}
+      />
+
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 'var(--space-6)',
+            right: 'var(--space-6)',
+            zIndex: 80,
+          }}
+        >
+          <Toast
+            variant={toast.variant}
+            title={toast.title}
+            onDismiss={() => setToast(null)}
+          />
+        </div>
+      )}
     </div>
   );
 };

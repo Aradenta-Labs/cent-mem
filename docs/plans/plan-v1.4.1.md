@@ -179,29 +179,29 @@ Maps all 19 configuration keys defined in `internal/config/keys.go`:
 ## 5. Phased Implementation Plan
 
 ### Phase 6.0: Backend Endpoints & Test Suite
-- [ ] Implement `GET /api/config` in `internal/ui/server.go`.
-- [ ] Implement `PATCH /api/config` with validation and atomic write to `~/.centmem/config.toml`.
-- [ ] Implement `POST /api/config/test-classifier` probe handler.
-- [ ] Add comprehensive test suite in `internal/ui/server_test.go`:
+- [x] Implement `GET /api/config` in `internal/ui/server.go`.
+- [x] Implement `PATCH /api/config` with validation and atomic write to `~/.centmem/config.toml`.
+- [x] Implement `POST /api/config/test-classifier` probe handler.
+- [x] Add comprehensive test suite in `internal/ui/server_test.go`:
   - Test config fetch returns correct structure and defaults.
   - Test partial config update with validation errors on invalid values.
   - Test persistence to disk (verifying TOML content).
   - Test LLM connectivity probe with mocked HTTP responder.
 
 ### Phase 6.1: Frontend API Service & State Management
-- [ ] Create `ui/src/types/config.ts` with complete type definitions matching backend JSON shapes.
-- [ ] Add API methods to `ui/src/services/api.ts` (`fetchConfig`, `updateConfig`, `testClassifier`).
-- [ ] Build custom hook or state manager (`useConfig`) tracking:
+- [x] Create `ui/src/types/config.ts` with complete type definitions matching backend JSON shapes.
+- [x] Add API methods to `ui/src/services/api.ts` (`fetchConfig`, `updateConfig`, `testClassifier`).
+- [x] Build custom hook or state manager (`useConfig`) tracking:
   - Original server state vs current draft state.
   - `isDirty` flag and modified keys diff.
   - Loading, saving, testing, and error states.
 
 ### Phase 6.2: Settings Modal Shell & Navigation
-- [ ] Create `ui/src/components/settings/SettingsModal.tsx` using `<Dialog>` base component.
-- [ ] Implement vertical tab list with icons: General, Retention, Auto-Capture, Classifier, Categories.
-- [ ] Add sticky action footer: "Revert Changes", "Reset to Defaults", "Save Changes" (with dirty state dot).
-- [ ] Wire `TopBar.tsx` gear icon and `Cmd+,` shortcut.
-- [ ] Add unsaved changes prompt if user tries to close while `isDirty`.
+- [x] Create `ui/src/components/settings/SettingsModal.tsx` using `<Dialog>` base component.
+- [x] Implement vertical tab list with icons: General, Retention, Auto-Capture, Classifier, Categories.
+- [x] Add sticky action footer: "Revert Changes", "Reset to Defaults", "Save Changes" (with dirty state dot).
+- [x] Wire `TopBar.tsx` gear icon and `Cmd+,` shortcut.
+- [x] Add unsaved changes prompt if user tries to close while `isDirty`.
 
 ### Phase 6.3: Tab Panels Implementation
 - [ ] **General Tab**:

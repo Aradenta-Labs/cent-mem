@@ -9,9 +9,11 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"crypto/sha256"
@@ -58,10 +60,12 @@ func DefaultServerConfig() ServerConfig {
 
 // Server wraps http.Server with centmem UI routes.
 type Server struct {
-	cfg        ServerConfig
-	httpServer *http.Server
-	listener   net.Listener
-	addr       string
+	cfg         ServerConfig
+	httpServer  *http.Server
+	listener    net.Listener
+	addr        string
+	mu          sync.RWMutex
+	probeClient *http.Client
 }
 
 // NewServer creates a new centmem UI server.
@@ -78,6 +82,11 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 	if cfg.Searcher == nil && cfg.Store != nil {
 		cfg.Searcher = search.New(cfg.Store)
+	}
+
+	s := &Server{
+		cfg:         cfg,
+		probeClient: &http.Client{Timeout: 5 * time.Second},
 	}
 
 	mux := http.NewServeMux()
@@ -1013,6 +1022,435 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// API Endpoints: Config (Read configuration and environment metadata)
+	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		home := s.homeDir()
+		cfgPath := s.configPath()
+
+		loadedCfg, err := config.LoadTOML(cfgPath)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "CONFIG_READ_ERROR",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		loadedCfg.Home = home
+
+		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+			s.mu.RLock()
+			if s.cfg.Config.Model.Name != "" {
+				loadedCfg.Model = s.cfg.Config.Model
+			}
+			if s.cfg.Config.Retention != (config.Retention{}) {
+				loadedCfg.Retention = s.cfg.Config.Retention
+			}
+			if s.cfg.Config.Capture.Harness != "" {
+				loadedCfg.Capture = s.cfg.Config.Capture
+			}
+			s.mu.RUnlock()
+		}
+
+		catFile := filepath.Join(home, "capture-categories.json")
+		if data, err := os.ReadFile(catFile); err == nil {
+			var cats []string
+			if err := json.Unmarshal(data, &cats); err == nil && len(cats) > 0 {
+				loadedCfg.Capture.Categories = cats
+			}
+		}
+
+		writable := isPathWritable(cfgPath, home)
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"config": map[string]any{
+				"model":     loadedCfg.Model,
+				"retention": loadedCfg.Retention,
+				"capture":   loadedCfg.Capture,
+			},
+			"meta": map[string]any{
+				"home":        home,
+				"config_path": cfgPath,
+				"is_writable": writable,
+			},
+		})
+	})
+
+	// API Endpoints: Config (Update configuration with validation and atomic write)
+	mux.HandleFunc("PATCH /api/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		home := s.homeDir()
+		cfgPath := s.configPath()
+
+		var rawPayload map[string]any
+		dec := json.NewDecoder(r.Body)
+		dec.UseNumber()
+		if err := dec.Decode(&rawPayload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "INVALID_JSON",
+					"message": "invalid request JSON body: " + err.Error(),
+				},
+			})
+			return
+		}
+
+		flattened := make(map[string]string)
+		if err := flattenJSONMap("", rawPayload, flattened); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "INVALID_PAYLOAD",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		candidateConfig, err := config.LoadTOML(cfgPath)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "CONFIG_READ_ERROR",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		candidateConfig.Home = home
+
+		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+			s.mu.RLock()
+			if s.cfg.Config.Model.Name != "" {
+				candidateConfig.Model = s.cfg.Config.Model
+			}
+			if s.cfg.Config.Retention != (config.Retention{}) {
+				candidateConfig.Retention = s.cfg.Config.Retention
+			}
+			if s.cfg.Config.Capture.Harness != "" {
+				candidateConfig.Capture = s.cfg.Config.Capture
+			}
+			s.mu.RUnlock()
+		}
+
+		catFile := filepath.Join(home, "capture-categories.json")
+		if data, err := os.ReadFile(catFile); err == nil {
+			var cats []string
+			if err := json.Unmarshal(data, &cats); err == nil && len(cats) > 0 {
+				candidateConfig.Capture.Categories = cats
+			}
+		}
+
+		knownSet := make(map[string]bool, len(config.KnownConfigKeys))
+		for _, k := range config.KnownConfigKeys {
+			knownSet[k] = true
+		}
+
+		for k, v := range flattened {
+			if !knownSet[k] {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "INVALID_CONFIG",
+						"message": fmt.Sprintf("unknown config key %q", k),
+						"field":   k,
+					},
+				})
+				return
+			}
+			if err := config.SetConfigValue(&candidateConfig, k, v); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "INVALID_CONFIG",
+						"message": err.Error(),
+						"field":   k,
+					},
+				})
+				return
+			}
+		}
+
+		if err := config.SaveTOML(cfgPath, candidateConfig); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "PERSISTENCE_ERROR",
+					"message": fmt.Sprintf("failed to save config to %q: %v", cfgPath, err),
+				},
+			})
+			return
+		}
+
+		if data, err := json.MarshalIndent(candidateConfig.Capture.Categories, "", "  "); err == nil {
+			_ = os.WriteFile(catFile, data, 0600)
+		}
+
+		s.mu.Lock()
+		s.cfg.Config = candidateConfig
+		s.mu.Unlock()
+
+		writable := isPathWritable(cfgPath, home)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"config": map[string]any{
+				"model":     candidateConfig.Model,
+				"retention": candidateConfig.Retention,
+				"capture":   candidateConfig.Capture,
+			},
+			"meta": map[string]any{
+				"home":        home,
+				"config_path": cfgPath,
+				"is_writable": writable,
+			},
+		})
+	})
+
+	// API Endpoints: Config (Test classifier connectivity probe)
+	mux.HandleFunc("POST /api/config/test-classifier", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		var req struct {
+			Backend             string  `json:"backend"`
+			LocalLLMEndpoint    string  `json:"local_llm_endpoint"`
+			LocalLLMModel       string  `json:"local_llm_model"`
+			APIBaseURL          string  `json:"api_base_url"`
+			APIKeyEnv           string  `json:"api_key_env"`
+			APIModel            string  `json:"api_model"`
+			ConfidenceThreshold float64 `json:"confidence_threshold"`
+		}
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+
+		s.mu.RLock()
+		activeCapture := s.cfg.Config.Capture
+		s.mu.RUnlock()
+
+		backend := strings.ToLower(strings.TrimSpace(req.Backend))
+		if backend == "" {
+			backend = strings.ToLower(strings.TrimSpace(activeCapture.Backend))
+		}
+		if backend == "" {
+			backend = "heuristic"
+		}
+
+		switch backend {
+		case "heuristic":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":         true,
+				"status":     "connected",
+				"latency_ms": int64(0),
+				"model":      "heuristic",
+				"message":    "Heuristic classifier is built-in and active (no external endpoint required).",
+			})
+			return
+
+		case "local-llm":
+			endpoint := strings.TrimSpace(req.LocalLLMEndpoint)
+			if endpoint == "" {
+				endpoint = strings.TrimSpace(activeCapture.LocalLLMEndpoint)
+			}
+			if endpoint == "" {
+				endpoint = "http://localhost:11434/v1"
+			}
+
+			model := strings.TrimSpace(req.LocalLLMModel)
+			if model == "" {
+				model = strings.TrimSpace(activeCapture.LocalLLMModel)
+			}
+			if model == "" {
+				model = "llama3.2"
+			}
+
+			probeURL := strings.TrimSuffix(endpoint, "/") + "/models"
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			probeReq, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+			if err != nil {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         false,
+					"status":     "error",
+					"latency_ms": int64(0),
+					"model":      model,
+					"message":    fmt.Sprintf("Invalid local LLM probe URL %q: %v", probeURL, err),
+				})
+				return
+			}
+
+			start := time.Now()
+			client := s.probeClient
+			if client == nil {
+				client = &http.Client{Timeout: 5 * time.Second}
+			}
+
+			resp, err := client.Do(probeReq)
+			latencyMs := time.Since(start).Milliseconds()
+			if err != nil {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         false,
+					"status":     "unreachable",
+					"latency_ms": latencyMs,
+					"model":      model,
+					"message":    fmt.Sprintf("Failed to connect to local LLM: %v", err),
+				})
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         true,
+					"status":     "connected",
+					"latency_ms": latencyMs,
+					"model":      model,
+					"message":    "Local LLM endpoint is healthy and model is loaded.",
+				})
+				return
+			}
+
+			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":         false,
+				"status":     "error",
+				"latency_ms": latencyMs,
+				"model":      model,
+				"message":    fmt.Sprintf("Local LLM endpoint returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes))),
+			})
+			return
+
+		case "openai-compatible":
+			baseURL := strings.TrimSpace(req.APIBaseURL)
+			if baseURL == "" {
+				baseURL = strings.TrimSpace(activeCapture.APIBaseURL)
+			}
+			if baseURL == "" {
+				baseURL = "https://api.openai.com/v1"
+			}
+
+			keyEnv := strings.TrimSpace(req.APIKeyEnv)
+			if keyEnv == "" {
+				keyEnv = strings.TrimSpace(activeCapture.APIKeyEnv)
+			}
+			if keyEnv == "" {
+				keyEnv = "OPENAI_API_KEY"
+			}
+
+			model := strings.TrimSpace(req.APIModel)
+			if model == "" {
+				model = strings.TrimSpace(activeCapture.APIModel)
+			}
+			if model == "" {
+				model = "gpt-4o-mini"
+			}
+
+			apiKey := os.Getenv(keyEnv)
+			if apiKey == "" {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         false,
+					"status":     "missing_api_key",
+					"latency_ms": int64(0),
+					"model":      model,
+					"message":    fmt.Sprintf("Environment variable %q is not set or empty", keyEnv),
+				})
+				return
+			}
+
+			probeURL := strings.TrimSuffix(baseURL, "/") + "/models"
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			probeReq, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+			if err != nil {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         false,
+					"status":     "error",
+					"latency_ms": int64(0),
+					"model":      model,
+					"message":    fmt.Sprintf("Invalid probe URL %q: %v", probeURL, err),
+				})
+				return
+			}
+			probeReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+			start := time.Now()
+			client := s.probeClient
+			if client == nil {
+				client = &http.Client{Timeout: 5 * time.Second}
+			}
+
+			resp, err := client.Do(probeReq)
+			latencyMs := time.Since(start).Milliseconds()
+			if err != nil {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         false,
+					"status":     "unreachable",
+					"latency_ms": latencyMs,
+					"model":      model,
+					"message":    fmt.Sprintf("Failed to connect to OpenAI-compatible endpoint: %v", err),
+				})
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         false,
+					"status":     "unauthorized",
+					"latency_ms": latencyMs,
+					"model":      model,
+					"message":    fmt.Sprintf("Authentication failed with %s: invalid API key (HTTP %d)", keyEnv, resp.StatusCode),
+				})
+				return
+			}
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         true,
+					"status":     "connected",
+					"latency_ms": latencyMs,
+					"model":      model,
+					"message":    "OpenAI-compatible endpoint is authenticated and healthy.",
+				})
+				return
+			}
+
+			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":         false,
+				"status":     "error",
+				"latency_ms": latencyMs,
+				"model":      model,
+				"message":    fmt.Sprintf("Endpoint returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes))),
+			})
+			return
+
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "INVALID_BACKEND",
+					"message": fmt.Sprintf("unknown backend %q (expected heuristic, local-llm, or openai-compatible)", backend),
+				},
+			})
+			return
+		}
+	})
 
 	// Embedded Static File Server with SPA Fallback
 	staticHandler, err := FileServerHandler()
@@ -1021,14 +1459,11 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 	mux.Handle("/", staticHandler)
 
-	s := &Server{
-		cfg: cfg,
-		httpServer: &http.Server{
-			Handler:      mux,
-			ReadTimeout:  15 * time.Second,
-			WriteTimeout: 15 * time.Second,
-			IdleTimeout:  60 * time.Second,
-		},
+	s.httpServer = &http.Server{
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	return s, nil
@@ -1205,6 +1640,93 @@ func sanitizeFilename(s string) string {
 		return "export"
 	}
 	return res
+}
+
+// homeDir returns the active CENTMEM_HOME directory.
+func (s *Server) homeDir() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.Config.Home != "" {
+		return s.cfg.Config.Home
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".", ".centmem")
+	}
+	return filepath.Join(homeDir, ".centmem")
+}
+
+// configPath returns the path to config.toml.
+func (s *Server) configPath() string {
+	return filepath.Join(s.homeDir(), "config.toml")
+}
+
+// isPathWritable checks if the config file or its parent directory is writable.
+func isPathWritable(configPath, home string) bool {
+	if _, err := os.Stat(configPath); err == nil {
+		if f, err := os.OpenFile(configPath, os.O_WRONLY, 0600); err != nil {
+			return false
+		} else {
+			_ = f.Close()
+			return true
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.MkdirAll(home, 0700); err != nil {
+			return false
+		}
+		testFile := filepath.Join(home, fmt.Sprintf(".write_test_%d", time.Now().UnixNano()))
+		if err := os.WriteFile(testFile, []byte("test"), 0600); err != nil {
+			return false
+		}
+		_ = os.Remove(testFile)
+		return true
+	}
+	return false
+}
+
+// flattenJSONMap recursively flattens nested JSON maps into dot-notation string keys.
+func flattenJSONMap(prefix string, m map[string]any, out map[string]string) error {
+	for k, v := range m {
+		fullKey := k
+		if prefix != "" {
+			fullKey = prefix + "." + k
+		}
+		switch val := v.(type) {
+		case map[string]any:
+			if err := flattenJSONMap(fullKey, val, out); err != nil {
+				return err
+			}
+		case []any:
+			strList := make([]string, len(val))
+			for i, item := range val {
+				strList[i] = fmt.Sprintf("%v", item)
+			}
+			out[fullKey] = strings.Join(strList, ",")
+		case []string:
+			out[fullKey] = strings.Join(val, ",")
+		case bool:
+			out[fullKey] = strconv.FormatBool(val)
+		case json.Number:
+			out[fullKey] = val.String()
+		case float64:
+			if val == float64(int64(val)) {
+				out[fullKey] = strconv.FormatInt(int64(val), 10)
+			} else {
+				out[fullKey] = strconv.FormatFloat(val, 'f', -1, 64)
+			}
+		case int:
+			out[fullKey] = strconv.Itoa(val)
+		case int64:
+			out[fullKey] = strconv.FormatInt(val, 10)
+		case string:
+			out[fullKey] = val
+		case nil:
+			// ignore or empty string
+		default:
+			out[fullKey] = fmt.Sprintf("%v", val)
+		}
+	}
+	return nil
 }
 
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -886,5 +887,375 @@ func TestServer_ExportAPI_JSON_and_CSV(t *testing.T) {
 	_ = json.NewDecoder(respFiltered.Body).Decode(&filteredExport)
 	if filteredExport.Total != 1 || filteredExport.Memories[0].Type != "fact" {
 		t.Errorf("expected 1 fact memory, got %d", filteredExport.Total)
+	}
+}
+
+func TestServer_ConfigAPI_Get(t *testing.T) {
+	home := t.TempDir()
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.1",
+		Config: config.Config{
+			Home:   home,
+			DBPath: home + "/centmem.db",
+		},
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(srv.URL() + "/api/config")
+	if err != nil {
+		t.Fatalf("GET /api/config error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/config status = %d, want 200", resp.StatusCode)
+	}
+
+	var data struct {
+		OK     bool `json:"ok"`
+		Config struct {
+			Model     config.ModelConfig   `json:"model"`
+			Retention config.Retention     `json:"retention"`
+			Capture   config.CaptureConfig `json:"capture"`
+		} `json:"config"`
+		Meta struct {
+			Home       string `json:"home"`
+			ConfigPath string `json:"config_path"`
+			IsWritable bool   `json:"is_writable"`
+		} `json:"meta"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		t.Fatalf("decode /api/config json: %v", err)
+	}
+
+	if !data.OK {
+		t.Errorf("expected ok=true, got %v", data.OK)
+	}
+	if data.Config.Model.Name != "bge-small-en-v1.5" || data.Config.Model.Dims != 384 {
+		t.Errorf("unexpected model config: %+v", data.Config.Model)
+	}
+	if data.Config.Retention.NoteSummarizeAfterDays != 30 {
+		t.Errorf("expected default NoteSummarizeAfterDays 30, got %d", data.Config.Retention.NoteSummarizeAfterDays)
+	}
+	if data.Meta.Home != home {
+		t.Errorf("expected home %q, got %q", home, data.Meta.Home)
+	}
+	if !data.Meta.IsWritable {
+		t.Errorf("expected is_writable=true for temp dir")
+	}
+}
+
+func TestServer_ConfigAPI_Patch_ValidationAndPersistence(t *testing.T) {
+	home := t.TempDir()
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.1",
+		Config: config.Config{
+			Home:   home,
+			DBPath: home + "/centmem.db",
+		},
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. Valid nested patch
+	payload1 := []byte(`{
+		"retention": {
+			"note_summarize_after_days": 45,
+			"fact_keep_days": 10
+		},
+		"capture": {
+			"enabled": true,
+			"backend": "local-llm",
+			"confidence_threshold": 0.85,
+			"categories": ["decision", "fact", "custom-tag"]
+		}
+	}`)
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL()+"/api/config", bytes.NewReader(payload1))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /api/config error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 OK, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var patchResp struct {
+		OK     bool `json:"ok"`
+		Config struct {
+			Retention config.Retention     `json:"retention"`
+			Capture   config.CaptureConfig `json:"capture"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&patchResp); err != nil {
+		t.Fatalf("decode patch response: %v", err)
+	}
+
+	if patchResp.Config.Retention.NoteSummarizeAfterDays != 45 || patchResp.Config.Retention.FactKeepDays != 10 {
+		t.Errorf("unexpected retention response: %+v", patchResp.Config.Retention)
+	}
+	if !patchResp.Config.Capture.Enabled || patchResp.Config.Capture.Backend != "local-llm" || patchResp.Config.Capture.ConfidenceThreshold != 0.85 {
+		t.Errorf("unexpected capture response: %+v", patchResp.Config.Capture)
+	}
+
+	// Verify on disk (TOML content re-read)
+	diskCfg, err := config.LoadTOML(home + "/config.toml")
+	if err != nil {
+		t.Fatalf("failed to read persisted config.toml: %v", err)
+	}
+	if diskCfg.Retention.NoteSummarizeAfterDays != 45 || diskCfg.Capture.Backend != "local-llm" {
+		t.Errorf("mismatched persisted toml config: %+v", diskCfg)
+	}
+
+	// 2. Valid flat dot-notation patch
+	payload2 := []byte(`{
+		"retention.archive_keep_days": 180,
+		"capture.scope": "project:test-scope"
+	}`)
+	req2, _ := http.NewRequest(http.MethodPatch, srv.URL()+"/api/config", bytes.NewReader(payload2))
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, err := client.Do(req2)
+	if err != nil {
+		t.Fatalf("PATCH dot-notation error: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for dot-notation patch, got %d", resp2.StatusCode)
+	}
+
+	diskCfg2, _ := config.LoadTOML(home + "/config.toml")
+	if diskCfg2.Retention.ArchiveKeepDays != 180 || diskCfg2.Capture.Scope != "project:test-scope" {
+		t.Errorf("mismatched dot-notation update: %+v", diskCfg2)
+	}
+
+	// 3. Validation failure: Negative retention days
+	badPayload1 := []byte(`{"retention.fact_keep_days": -5}`)
+	reqBad1, _ := http.NewRequest(http.MethodPatch, srv.URL()+"/api/config", bytes.NewReader(badPayload1))
+	respBad1, err := client.Do(reqBad1)
+	if err != nil {
+		t.Fatalf("PATCH bad payload error: %v", err)
+	}
+	defer respBad1.Body.Close()
+	if respBad1.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for negative days, got %d", respBad1.StatusCode)
+	}
+	var errResp1 struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+			Field   string `json:"field"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(respBad1.Body).Decode(&errResp1)
+	if errResp1.Error.Code != "INVALID_CONFIG" || errResp1.Error.Field != "retention.fact_keep_days" {
+		t.Errorf("unexpected error payload: %+v", errResp1)
+	}
+
+	// 4. Validation failure: Unknown key
+	badPayload2 := []byte(`{"unknown.key": "val"}`)
+	reqBad2, _ := http.NewRequest(http.MethodPatch, srv.URL()+"/api/config", bytes.NewReader(badPayload2))
+	respBad2, err := client.Do(reqBad2)
+	if err != nil {
+		t.Fatalf("PATCH bad payload error: %v", err)
+	}
+	defer respBad2.Body.Close()
+	if respBad2.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for unknown key, got %d", respBad2.StatusCode)
+	}
+}
+
+func TestServer_ConfigAPI_TestClassifier(t *testing.T) {
+	home := t.TempDir()
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: "1.4.1",
+		Config: config.Config{
+			Home: home,
+		},
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. Test heuristic probe (built-in, always connected)
+	heurPayload := []byte(`{"backend": "heuristic"}`)
+	respHeur, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", bytes.NewReader(heurPayload))
+	if err != nil {
+		t.Fatalf("POST test-classifier heuristic error: %v", err)
+	}
+	defer respHeur.Body.Close()
+
+	if respHeur.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK for heuristic probe, got %d", respHeur.StatusCode)
+	}
+	var resHeur map[string]any
+	_ = json.NewDecoder(respHeur.Body).Decode(&resHeur)
+	if resHeur["ok"] != true || resHeur["status"] != "connected" {
+		t.Errorf("unexpected heuristic probe response: %+v", resHeur)
+	}
+
+	// 2. Test local-llm with mock server returning 200 OK for /models
+	mockLocalLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" || r.URL.Path == "/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"object": "list",
+				"data":   []map[string]any{{"id": "llama3.2"}},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockLocalLLM.Close()
+
+	localPayload := fmt.Sprintf(`{"backend": "local-llm", "local_llm_endpoint": %q, "local_llm_model": "llama3.2"}`, mockLocalLLM.URL)
+	respLocal, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(localPayload))
+	if err != nil {
+		t.Fatalf("POST test-classifier local-llm error: %v", err)
+	}
+	defer respLocal.Body.Close()
+
+	var resLocal map[string]any
+	_ = json.NewDecoder(respLocal.Body).Decode(&resLocal)
+	if resLocal["ok"] != true || resLocal["status"] != "connected" {
+		t.Errorf("unexpected local-llm probe response: %+v", resLocal)
+	}
+
+	// 3. Test local-llm unreachable endpoint
+	badLocalPayload := `{"backend": "local-llm", "local_llm_endpoint": "http://127.0.0.1:1"}`
+	respBadLocal, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(badLocalPayload))
+	if err != nil {
+		t.Fatalf("POST test-classifier bad local error: %v", err)
+	}
+	defer respBadLocal.Body.Close()
+
+	var resBadLocal map[string]any
+	_ = json.NewDecoder(respBadLocal.Body).Decode(&resBadLocal)
+	if resBadLocal["ok"] != false || resBadLocal["status"] != "unreachable" {
+		t.Errorf("expected unreachable status, got: %+v", resBadLocal)
+	}
+
+	// 4. Test openai-compatible with missing API key env
+	openAIPayloadNoKey := `{"backend": "openai-compatible", "api_key_env": "NONEXISTENT_TEST_KEY_12345"}`
+	respNoKey, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(openAIPayloadNoKey))
+	if err != nil {
+		t.Fatalf("POST test-classifier no key error: %v", err)
+	}
+	defer respNoKey.Body.Close()
+
+	var resNoKey map[string]any
+	_ = json.NewDecoder(respNoKey.Body).Decode(&resNoKey)
+	if resNoKey["ok"] != false || resNoKey["status"] != "missing_api_key" {
+		t.Errorf("expected missing_api_key status, got: %+v", resNoKey)
+	}
+
+	// 5. Test openai-compatible with mock server returning 401 Unauthorized
+	mockAuthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error": {"message": "Invalid API key"}}`))
+	}))
+	defer mockAuthServer.Close()
+
+	t.Setenv("TEST_OPENAI_KEY_FOR_UI", "sk-mock-key")
+	openAIPayloadAuthFail := fmt.Sprintf(`{"backend": "openai-compatible", "api_base_url": %q, "api_key_env": "TEST_OPENAI_KEY_FOR_UI"}`, mockAuthServer.URL)
+	respAuthFail, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(openAIPayloadAuthFail))
+	if err != nil {
+		t.Fatalf("POST test-classifier auth fail error: %v", err)
+	}
+	defer respAuthFail.Body.Close()
+
+	var resAuthFail map[string]any
+	_ = json.NewDecoder(respAuthFail.Body).Decode(&resAuthFail)
+	if resAuthFail["ok"] != false || resAuthFail["status"] != "unauthorized" {
+		t.Errorf("expected unauthorized status, got: %+v", resAuthFail)
+	}
+
+	// 6. Test openai-compatible with mock server returning 200 OK
+	mockSuccessServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer sk-mock-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data":   []map[string]any{{"id": "gpt-4o-mini"}},
+		})
+	}))
+	defer mockSuccessServer.Close()
+
+	openAIPayloadSuccess := fmt.Sprintf(`{"backend": "openai-compatible", "api_base_url": %q, "api_key_env": "TEST_OPENAI_KEY_FOR_UI"}`, mockSuccessServer.URL)
+	respSuccess, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(openAIPayloadSuccess))
+	if err != nil {
+		t.Fatalf("POST test-classifier success error: %v", err)
+	}
+	defer respSuccess.Body.Close()
+
+	var resSuccess map[string]any
+	_ = json.NewDecoder(respSuccess.Body).Decode(&resSuccess)
+	if resSuccess["ok"] != true || resSuccess["status"] != "connected" {
+		t.Errorf("expected connected status, got: %+v", resSuccess)
+	}
+
+	// 7. Test invalid backend
+	badBackendPayload := `{"backend": "quantum-llm"}`
+	respBadBackend, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(badBackendPayload))
+	if err != nil {
+		t.Fatalf("POST test-classifier bad backend error: %v", err)
+	}
+	defer respBadBackend.Body.Close()
+	if respBadBackend.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for unknown backend, got %d", respBadBackend.StatusCode)
 	}
 }

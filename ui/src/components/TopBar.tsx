@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Menu, X, LayoutTemplate, Activity, CheckCircle2, AlertTriangle, XCircle, RotateCcw, HelpCircle } from 'lucide-react';
+import { Search, Menu, X, LayoutTemplate, Activity, CheckCircle2, AlertTriangle, XCircle, RotateCcw, HelpCircle, Settings } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { HealthResponse } from '../types/scope';
 
@@ -13,6 +13,7 @@ export interface TopBarProps {
   onViewChange: (view: 'dashboard' | 'design-system') => void;
   onRefreshHealth?: () => void;
   onOpenShortcuts?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -25,6 +26,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onViewChange,
   onRefreshHealth,
   onOpenShortcuts,
+  onOpenSettings,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [isHealthOpen, setIsHealthOpen] = useState(false);
@@ -44,6 +46,9 @@ export const TopBar: React.FC<TopBarProps> = ({
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         searchInputRef.current?.focus();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === ',' && onOpenSettings) {
+        e.preventDefault();
+        onOpenSettings();
       } else if (e.key === '/' && !isInput) {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -61,7 +66,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       window.removeEventListener('mousedown', handleOutsideClick);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isHealthOpen, onOpenShortcuts]);
+  }, [isHealthOpen, onOpenShortcuts, onOpenSettings]);
 
   const status = health?.status || (health?.store === 'connected' ? 'healthy' : 'unhealthy');
   const isHealthy = status === 'healthy';
@@ -281,6 +286,30 @@ export const TopBar: React.FC<TopBarProps> = ({
             }}
           >
             <HelpCircle size={15} />
+          </button>
+        )}
+
+        {/* Settings dialog trigger */}
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            title="Settings (Cmd+,)"
+            aria-label="Settings"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--text-secondary)',
+              padding: '4px',
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <Settings size={15} />
           </button>
         )}
 
