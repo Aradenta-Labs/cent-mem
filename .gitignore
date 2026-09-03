@@ -49,3 +49,6 @@ Thumbs.db
 .impeccable/
 skills-lock.json
 graphify-out/
+
+# Node / Web dependencies
+node_modules/

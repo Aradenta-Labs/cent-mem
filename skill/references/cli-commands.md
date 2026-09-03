@@ -185,3 +185,4 @@ centmem config set <key> <value>
 - `centmem compact [--scope <s>] [--dry-run]`: Consolidates and archives expired notes and logs.
 - `centmem backup --to <path>`: Atomic snapshot backup of the SQLite database.
 - `centmem restore --from <path>`: Restores SQLite database with safety backup creation.
+- `centmem ui [--port <port>] [--host <host>] [--no-open]`: Launches the embedded local Web UI memory browser dashboard.

@@ -262,6 +262,24 @@ centmem config get [key]
 
 ---
 
+### 3.16 `ui` — Web UI Memory Browser dashboard
+Launch the embedded local web UI dashboard and health API.
+
+```
+centmem ui [--port <port>] [--host <host>] [--no-open]
+```
+
+- `--port`: port to listen on (default `4231`, or `CENTMEM_UI_PORT`).
+- `--host`: host IP to bind to (default `127.0.0.1`).
+- `--no-open`: do not automatically open the browser.
+
+**Output:**
+```json
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.0"}
+```
+
+---
+
 ## 4. Scope Grammar
 
 ```

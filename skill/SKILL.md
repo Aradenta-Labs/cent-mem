@@ -159,6 +159,7 @@ project:<name>/agent:<agent>/session:<id>
 | `restore` | `centmem restore --from <path>` | Restore database from backup snapshot |
 | `capture` | `centmem capture <run|summary|categories|convert> [flags]` | Auto-capture engine and session telemetry |
 | `config` | `centmem config <get|set> [key] [value]` | Manage configuration settings in `config.toml` |
+| `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open]` | Launch embedded Web UI dashboard |
 
 ---
 

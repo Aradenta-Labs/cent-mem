@@ -41,6 +41,7 @@ var commands = map[string]commandEntry{
 	"restore":  {cmdRestore, "restore --from <path>", []string{"--from"}},
 	"capture":  {cmdCapture, "capture <run|summary|categories|convert> [flags]", []string{"--transcript", "--scope", "--session", "--add", "--remove", "--list", "--harness", "--input", "--output", "--watch", "--interval", "--state-file", "--once"}},
 	"config":   {cmdConfig, "config <get|set> [key] [value]", nil},
+	"ui":       {cmdUI, "ui [--port <port>] [--host <host>] [--no-open]", []string{"--port", "--host", "--no-open"}},
 }
 
 // buildRegistry returns a *cli.Registry populated with every registered command

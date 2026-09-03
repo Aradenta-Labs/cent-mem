@@ -196,7 +196,7 @@ Full documentation map: [docs/README.md](docs/README.md).
 | [docs/data-model.md](docs/data-model.md) | Schema & tables |
 | [docs/cli-contract.md](docs/cli-contract.md) | CLI surface & JSON contract (stable within v1.x) |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones & ordering |
-| [docs/plans/plan-phase-0.md](docs/plans/plan-phase-0.md) … [plan-phase-4.md](docs/plans/plan-phase-4.md) | Detailed per-phase plans + tests |
+| [docs/plans/plan-v1.4.0.md](docs/plans/plan-v1.4.0.md) | Web UI Memory Browser Dashboard |
 | [docs/plans/plan-v1.4.0.md](docs/plans/plan-v1.4.0.md) | v1.4.0 Web UI Memory Browser (design + plan) |
 | [docs/release-plan.md](docs/release-plan.md) | Release & QA process |
 | [AGENTS.md](AGENTS.md) | Rules for any AI agent editing this repo |

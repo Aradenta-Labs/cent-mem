@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/badge.tsx","./src/components/button.tsx","./src/components/card.tsx","./src/components/dialog.tsx","./src/components/input.tsx","./src/components/select.tsx","./src/components/skeleton.tsx","./src/components/themetoggle.tsx","./src/components/toast.tsx","./src/pages/designsystem.tsx"],"version":"5.9.3"}
