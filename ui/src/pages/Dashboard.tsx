@@ -4,7 +4,7 @@ import { ScopeNode, HealthResponse } from '../types/scope';
 import { TopBar } from '../components/TopBar';
 import { Sidebar } from '../components/Sidebar';
 import { Breadcrumb } from '../components/Breadcrumb';
-import { ScopeOverview } from '../components/ScopeOverview';
+import { MemoryBrowser } from '../components/MemoryBrowser';
 
 export interface DashboardProps {
   activeView: 'dashboard' | 'design-system';
@@ -143,13 +143,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
           <div
             style={{
               padding: 'var(--space-6)',
-              maxWidth: '1100px',
+              maxWidth: '1200px',
               width: '100%',
               margin: '0 auto',
               boxSizing: 'border-box',
             }}
           >
-            <ScopeOverview node={activeNode} selectedScope={selectedScope} />
+            <MemoryBrowser
+              node={activeNode}
+              selectedScope={selectedScope}
+              searchQuery={searchQuery}
+              onSearchChange={handleSearchChange}
+              onSelectScope={handleSelectScope}
+            />
           </div>
         </main>
       </div>

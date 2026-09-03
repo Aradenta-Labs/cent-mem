@@ -47,13 +47,17 @@ type Event struct {
 
 // ListQuery parameterizes List().
 type ListQuery struct {
-	ScopePath string
-	ScopeIDs  []int64
-	Type      string
-	Tags      []string
-	Status    string // default "active"
-	Limit     int
-	Offset    int
+	ScopePath     string
+	ScopeIDs      []int64
+	Type          string
+	Tags          []string
+	Status        string // default "active"
+	SourceAgent   string
+	SourceSession string
+	Since         time.Time
+	Until         time.Time
+	Limit         int
+	Offset        int
 }
 
 // Stats aggregates store-wide counts.

@@ -1,4 +1,5 @@
 import { ScopeNode, ScopesResponse, HealthResponse, CreateScopeResponse } from '../types/scope';
+import { Memory, MemoryFilters, MemoriesResponse, MemoryDetailResponse } from '../types/memory';
 
 /**
  * API service for communicating with embedded centmem server.
@@ -38,4 +39,42 @@ export async function createScope(path: string): Promise<CreateScopeResponse> {
     throw new Error(data.error?.message || `Failed to create scope: HTTP ${res.status}`);
   }
   return data;
+}
+
+export async function fetchMemories(filters: MemoryFilters = {}): Promise<MemoriesResponse> {
+  const params = new URLSearchParams();
+  if (filters.scope) params.set('scope', filters.scope);
+  if (filters.q) params.set('q', filters.q);
+  if (filters.type && filters.type !== 'all') params.set('type', filters.type);
+  if (filters.tags) params.set('tags', filters.tags);
+  if (filters.agent) params.set('agent', filters.agent);
+  if (filters.session) params.set('session', filters.session);
+  if (filters.since) params.set('since', filters.since);
+  if (filters.until) params.set('until', filters.until);
+  if (filters.children !== undefined) params.set('children', String(filters.children));
+  if (filters.limit !== undefined) params.set('limit', String(filters.limit));
+  if (filters.offset !== undefined) params.set('offset', String(filters.offset));
+
+  const query = params.toString();
+  const res = await fetch(`/api/memories${query ? `?${query}` : ''}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load memories: HTTP ${res.status}`);
+  }
+  const data: MemoriesResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load memories');
+  }
+  return data;
+}
+
+export async function fetchMemoryDetail(id: number): Promise<Memory> {
+  const res = await fetch(`/api/memories/${id}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load memory detail: HTTP ${res.status}`);
+  }
+  const data: MemoryDetailResponse = await res.json();
+  if (!data.ok || !data.memory) {
+    throw new Error(data.error?.message || `Memory ${id} not found`);
+  }
+  return data.memory;
 }

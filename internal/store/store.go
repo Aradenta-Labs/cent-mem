@@ -284,8 +284,14 @@ func (s *Store) ResolveScopeIDs(ctx context.Context, sc scope.Scope, inherit, ch
 		}
 	}
 	if children && sc.Kind != scope.Session {
-		rows, err := s.db.QueryContext(ctx,
-			`SELECT id FROM scopes WHERE path LIKE ? AND path != ?`, scope.DescendantPrefix(sc), sc.Path)
+		var rows *sql.Rows
+		var err error
+		if sc.Kind == scope.Global {
+			rows, err = s.db.QueryContext(ctx, `SELECT id FROM scopes WHERE path != 'global'`)
+		} else {
+			rows, err = s.db.QueryContext(ctx,
+				`SELECT id FROM scopes WHERE path LIKE ? AND path != ?`, scope.DescendantPrefix(sc), sc.Path)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -615,12 +621,25 @@ func (s *Store) GetFact(ctx context.Context, scopePath, key string, inherit bool
 	return nil, ErrNotFound
 }
 
-// List returns memories for a query, sorted by created_at desc.
-func (s *Store) List(ctx context.Context, q ListQuery) ([]Memory, error) {
-	limit := q.Limit
-	if limit <= 0 {
-		limit = 20
+// GetMemory fetches a single memory by ID, joining scopes to resolve the canonical scope path.
+func (s *Store) GetMemory(ctx context.Context, id int64) (*Memory, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT m.id, m.scope_id, s.path, m.type, m.content, m.key, m.value_json, m.tags,
+		       m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at, m.created_at, m.updated_at
+		FROM memories m
+		JOIN scopes s ON s.id = m.scope_id
+		WHERE m.id = ?`, id)
+	m, err := scanMemory(row)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (s *Store) buildListWhere(q ListQuery) ([]string, []any) {
 	status := q.Status
 	if status == "" {
 		status = "active"
@@ -649,6 +668,42 @@ func (s *Store) List(ctx context.Context, q ListQuery) ([]Memory, error) {
 		}
 		where = append(where, "("+strings.Join(cond, " OR ")+")")
 	}
+	if q.SourceAgent != "" {
+		where = append(where, "m.source_agent = ?")
+		args = append(args, q.SourceAgent)
+	}
+	if q.SourceSession != "" {
+		where = append(where, "m.source_session = ?")
+		args = append(args, q.SourceSession)
+	}
+	if !q.Since.IsZero() {
+		where = append(where, "m.created_at >= ?")
+		args = append(args, q.Since.UnixMicro())
+	}
+	if !q.Until.IsZero() {
+		where = append(where, "m.created_at <= ?")
+		args = append(args, q.Until.UnixMicro())
+	}
+	return where, args
+}
+
+// Count returns the total number of memories matching a ListQuery without pagination limits.
+func (s *Store) Count(ctx context.Context, q ListQuery) (int64, error) {
+	where, args := s.buildListWhere(q)
+	query := `SELECT COUNT(*) FROM memories m JOIN scopes s ON s.id = m.scope_id WHERE ` + strings.Join(where, " AND ")
+	var count int64
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+// List returns memories for a query, sorted by created_at desc.
+func (s *Store) List(ctx context.Context, q ListQuery) ([]Memory, error) {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	where, args := s.buildListWhere(q)
 
 	query := `SELECT m.id, m.scope_id, s.path, m.type, m.content, m.key, m.value_json, m.tags,
 		m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at, m.created_at, m.updated_at

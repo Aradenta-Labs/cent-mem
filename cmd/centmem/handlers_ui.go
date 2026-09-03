@@ -11,6 +11,8 @@ import (
 
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 	"github.com/aradenta-labs/cent-mem/internal/ui"
 )
@@ -28,6 +30,9 @@ func cmdUI(args []string) int {
 			return cli.Internalf("ui store open: %v", err)
 		}
 		defer st.Close()
+
+		emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
+		searcher := search.New(st).WithEmbedder(emb)
 
 		port := 4231
 		if pStr := os.Getenv("CENTMEM_UI_PORT"); pStr != "" {
@@ -55,11 +60,12 @@ func cmdUI(args []string) int {
 		}
 
 		srv, err := ui.NewServer(ui.ServerConfig{
-			Host:    host,
-			Port:    port,
-			NoOpen:  noOpen,
-			Version: "1.4.0",
-			Store:   st,
+			Host:     host,
+			Port:     port,
+			NoOpen:   noOpen,
+			Version:  "1.4.0",
+			Store:    st,
+			Searcher: searcher,
 		})
 		if err != nil {
 			return cli.Internalf("ui server init: %v", err)
