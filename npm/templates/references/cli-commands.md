@@ -185,3 +185,20 @@ centmem config set <key> <value>
 - `centmem compact [--scope <s>] [--dry-run]`: Consolidates and archives expired notes and logs.
 - `centmem backup --to <path>`: Atomic snapshot backup of the SQLite database.
 - `centmem restore --from <path>`: Restores SQLite database with safety backup creation.
+
+---
+
+## 10. `centmem ui`
+Launches the embedded local web UI Memory Browser dashboard and REST API.
+
+```bash
+centmem ui [--port <port>] [--host <host>] [--no-open]
+```
+- `--port`: Port to listen on (default `4231`, or `CENTMEM_UI_PORT`).
+- `--host`: Host IP to bind to (default `127.0.0.1`).
+- `--no-open`: Do not automatically open the default browser.
+
+**Stdout JSON:**
+```json
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.0"}
+```

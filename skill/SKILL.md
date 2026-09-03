@@ -1,7 +1,7 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` CLI to recall prior context, store decisions, save facts, and inspect timeline so every agent shares one persistent brain. Use whenever you need to remember or retrieve project context, architecture decisions, user preferences, API conventions, or session checkpoints.
-version: 1.3.1
+version: 1.4.0
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 allowed-tools:
@@ -107,6 +107,15 @@ centmem capture categories --add "security"
 centmem capture convert --harness cursor --input .cursor/logs/session.json
 ```
 
+### 7. Web UI Memory Browser Dashboard
+```bash
+# Launch the embedded web UI memory browser dashboard in your browser
+centmem ui
+
+# Run on a custom port without automatically opening browser
+centmem ui --port 8080 --no-open
+```
+
 ---
 
 ## Scope Grammar & Hierarchy
@@ -159,7 +168,7 @@ project:<name>/agent:<agent>/session:<id>
 | `restore` | `centmem restore --from <path>` | Restore database from backup snapshot |
 | `capture` | `centmem capture <run|summary|categories|convert> [flags]` | Auto-capture engine and session telemetry |
 | `config` | `centmem config <get|set> [key] [value]` | Manage configuration settings in `config.toml` |
-| `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open]` | Launch embedded Web UI dashboard |
+| `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open]` | Launch embedded Web UI memory browser dashboard |
 
 ---
 

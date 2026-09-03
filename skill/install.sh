@@ -45,6 +45,8 @@ fi
 # Build the target list. $PWD is the project-level Claude Code location and is
 # only meaningful when run from a project; it is always included.
 targets=()
+targets+=("$PWD/.agents/skills/$SKILL_NAME")
+targets+=("$HOME/.agents/skills/$SKILL_NAME")
 targets+=("$PWD/.claude/skills/$SKILL_NAME")
 targets+=("$HOME/.claude/skills/$SKILL_NAME")
 targets+=("$HOME/.cursor/rules/$SKILL_NAME")
