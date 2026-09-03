@@ -199,7 +199,7 @@ Full documentation map: [docs/README.md](docs/README.md).
 | [docs/cli-contract.md](docs/cli-contract.md) | CLI surface & JSON contract (stable within v1.x) |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones & ordering |
 | [docs/plans/plan-v1.4.0.md](docs/plans/plan-v1.4.0.md) | Web UI Memory Browser Dashboard |
-| [docs/plans/plan-v1.4.0.md](docs/plans/plan-v1.4.0.md) | v1.4.0 Web UI Memory Browser (design + plan) |
+| [docs/plans/plan-v1.4.1.md](docs/plans/plan-v1.4.1.md) | v1.4.1 Web UI Settings & Configuration (design + plan) |
 | [docs/release-plan.md](docs/release-plan.md) | Release & QA process |
 | [AGENTS.md](AGENTS.md) | Rules for any AI agent editing this repo |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |

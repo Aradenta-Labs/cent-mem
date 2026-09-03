@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-09-03
+
+Web UI Configuration & Settings Panel: A dedicated, high-density settings dialog in `centmem ui` allowing users to configure retention rules, auto-capture parameters, classifier backends, and category whitelists with live connectivity probing and atomic persistence directly to `~/.centmem/config.toml`.
+
+### Added
+
+- **Settings & Configuration Modal (`Cmd+,`)**:
+  - Accessible two-pane dialog opened via `Cmd+,` (`Ctrl+,`) or the top-bar settings gear button.
+  - Full support for all 19 configuration keys across Model, Retention, Auto-Capture, Classifier, and Categories.
+  - Live dirty-state tracking with deep diffing, "Revert Changes", "Reset to Defaults" confirmation, and unsaved changes exit dialog.
+- **REST Configuration API Endpoints**:
+  - `GET /api/config`: Reads active configuration with home directory and file metadata.
+  - `PATCH /api/config`: Updates settings with dot-notation field validation and atomic write to `~/.centmem/config.toml`.
+  - `POST /api/config/test-classifier`: 5-second connectivity probe verifying model health, responsiveness, and latency for Local LLM and OpenAI-compatible backends.
+- **Modular Settings Tab Panels**:
+  - **General Tab**: Read-only display of embedding model (`bge-small-en-v1.5`, 384 dims), local directory permissions, and database sizing.
+  - **Retention Tab**: Number steppers for facts, note/log summarization, and log pruning, alongside a visual `RetentionLifecycle` progression diagram.
+  - **Auto-Capture Tab**: Master toggle, agent harness selector, triggers multi-select, and default scope validator.
+  - **Classifier Tab**: 3-tier backend selector (`heuristic`, `local-llm`, `openai-compatible`), endpoint URL/model/API key inputs, confidence threshold slider, and live "Test Connection" status badge.
+  - **Categories Tab**: Interactive tag chip input with presets for managing capture whitelists.
+- **Accessible Design System Primitives (`ui/src/components/`)**:
+  - `Switch`, `Stepper`, `Slider`, `SegmentedControl`, and `TagInput` built under Impeccable Operate-mode rules with zero generic AI slop and 100% keyboard accessibility.
+  - Interactive live demos added to `/ui/design-system`.
+
 ## [1.4.0] - 2026-09-03
 
 Web UI Memory Browser Dashboard (`centmem ui`): A fast, local-first browser interface served directly from the `centmem` single binary via an embedded HTTP server and REST API, enabling visual browsing, hybrid recall search, and safe management of AI agent memories.
@@ -160,6 +184,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[1.4.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.1
 [1.4.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.0
 [1.3.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.3.1
 [1.3.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.3.0

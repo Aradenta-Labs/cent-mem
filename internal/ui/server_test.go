@@ -17,12 +17,14 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
+const testVersion = "1.4.1"
+
 func TestServer_HealthAndStaticServing(t *testing.T) {
 	cfg := ServerConfig{
 		Host:    "127.0.0.1",
 		Port:    0, // ephemeral port for test isolation
 		NoOpen:  true,
-		Version: "1.4.0",
+		Version: testVersion,
 	}
 
 	srv, err := NewServer(cfg)
@@ -57,7 +59,7 @@ func TestServer_HealthAndStaticServing(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&healthData); err != nil {
 		t.Fatalf("decode health json: %v", err)
 	}
-	if healthData["ok"] != true || healthData["status"] != "healthy" || healthData["version"] != "1.4.0" {
+	if healthData["ok"] != true || healthData["status"] != "healthy" || healthData["version"] != testVersion {
 		t.Errorf("unexpected health payload: %+v", healthData)
 	}
 
@@ -127,7 +129,7 @@ func TestServer_ScopesAPI(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.0",
+		Version: testVersion,
 		Store:   st,
 	}
 
@@ -268,7 +270,7 @@ func TestServer_Memories(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.0",
+		Version: testVersion,
 		Store:   st,
 	}
 
@@ -477,7 +479,7 @@ func TestServer_StatsAPI(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.0",
+		Version: testVersion,
 		Store:   st,
 	}
 
@@ -575,7 +577,7 @@ func TestServer_HealthAPI_DoctorChecks(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.0",
+		Version: testVersion,
 		Store:   st,
 		Config:  stCfg,
 	}
@@ -654,7 +656,7 @@ func TestServer_ForgetMemory(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.0",
+		Version: testVersion,
 		Store:   st,
 	}
 	srv, err := NewServer(cfg)
@@ -731,7 +733,7 @@ func TestServer_RestoreMemory(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.0",
+		Version: testVersion,
 		Store:   st,
 	}
 	srv, err := NewServer(cfg)
@@ -804,7 +806,7 @@ func TestServer_ExportAPI_JSON_and_CSV(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.0",
+		Version: testVersion,
 		Store:   st,
 	}
 	srv, err := NewServer(cfg)

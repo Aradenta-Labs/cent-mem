@@ -231,12 +231,12 @@ Maps all 19 configuration keys defined in `internal/config/keys.go`:
 - [x] Run Antislop-UI checklist: verify zero generic gradients, dose-capped shadows, and no decorative emojis.
 
 ### Phase 6.5: Build, Test & Release v1.4.1
-- [ ] Run full frontend test and build: `npm --prefix ui run build`.
-- [ ] Run Go vet, contract checks, and unit tests: `go test -tags fts5 -race ./...`.
-- [ ] Update `docs/ui.md` with Settings documentation, API endpoints, and screenshots/diagrams.
-- [ ] Update `CHANGELOG.md` with `[1.4.1]` release entry.
-- [ ] Bump version in `cmd/centmem/main.go`, `npm/package.json`, and skill files.
-- [ ] Commit, tag `v1.4.1`, and push.
+- [x] Run full frontend test and build: `npm --prefix ui run build`.
+- [x] Run Go vet, contract checks, and unit tests: `go test -tags fts5 -race ./...`.
+- [x] Update `docs/ui.md` with Settings documentation, API endpoints, and screenshots/diagrams.
+- [x] Update `CHANGELOG.md` with `[1.4.1]` release entry.
+- [x] Bump version in `cmd/centmem/main.go`, `npm/package.json`, and skill files.
+- [x] Commit, tag `v1.4.1`, and push.
 
 ---
 
@@ -254,9 +254,9 @@ Maps all 19 configuration keys defined in `internal/config/keys.go`:
 
 ## 7. Definition of Done (v1.4.1)
 
-1. Clicking the gear icon in the Web UI top bar or pressing `Cmd+,` opens the Settings modal.
-2. Users can modify any setting across Retention, Auto-Capture, Classifier, and Categories.
-3. Clicking "Save Changes" persists updates directly to `~/.centmem/config.toml` and displays a confirmation toast.
-4. "Test Connection" button accurately probes the specified Local LLM endpoint and reports status.
-5. All automated unit and contract tests pass (`go test -tags fts5 -race ./...`).
-6. UI builds cleanly with zero console warnings and adheres strictly to Impeccable Operate mode and Antislop-UI rules.
+- [x] 1. Clicking the gear icon in the Web UI top bar or pressing `Cmd+,` opens the Settings modal.
+- [x] 2. Users can modify any setting across Retention, Auto-Capture, Classifier, and Categories.
+- [x] 3. Clicking "Save Changes" persists updates directly to `~/.centmem/config.toml` and displays a confirmation toast.
+- [x] 4. "Test Connection" button accurately probes the specified Local LLM endpoint and reports status.
+- [x] 5. All automated unit and contract tests pass (`go test -tags fts5 -race ./...`).
+- [x] 6. UI builds cleanly with zero console warnings and adheres strictly to Impeccable Operate mode and Antislop-UI rules.

@@ -36,8 +36,8 @@ Roadmaps and per-phase specifications tracking project milestones from inception
 |---|---|---|---|
 | [implementation-plan.md](implementation-plan.md) | Overview | Canonical | Milestone ordering, deliverables, and dependency graph |
 | [plans/plan-v1.2.0.md](plans/plan-v1.2.0.md) | v1.2.0 | Completed | Frictionless UX: npx installer, slash commands, instruction injection |
-| [plans/plan-v1.3.0.md](plans/plan-v1.3.0.md) | v1.3.0 | Completed | Auto-capture from agent transcripts (hooks) |
-| [plans/plan-v1.4.0.md](plans/plan-v1.4.0.md) | v1.4.0 | In Progress | **Web UI Memory Browser Dashboard** (design + phased plan) |
+| [plans/plan-v1.4.0.md](plans/plan-v1.4.0.md) | v1.4.0 | Completed | **Web UI Memory Browser Dashboard** (design + phased plan) |
+| [plans/plan-v1.4.1.md](plans/plan-v1.4.1.md) | v1.4.1 | Completed | **Web UI Configuration & Settings** (design + phased plan) |
 
 ---
 

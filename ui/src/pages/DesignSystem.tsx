@@ -93,7 +93,7 @@ export const DesignSystemPage: React.FC = () => {
           </div>
           <div>
             <span style={{ fontWeight: 600, fontSize: 'var(--text-md)', letterSpacing: '-0.01em' }}>centmem</span>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginLeft: 'var(--space-2)' }}>Design System v1.4.0</span>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginLeft: 'var(--space-2)' }}>Design System v1.4.1</span>
           </div>
         </div>
 

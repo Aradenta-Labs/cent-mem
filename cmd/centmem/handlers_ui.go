@@ -63,7 +63,7 @@ func cmdUI(args []string) int {
 			Host:     host,
 			Port:     port,
 			NoOpen:   noOpen,
-			Version:  "1.4.0",
+			Version:  version,
 			Store:    st,
 			Searcher: searcher,
 			Config:   cfg,
@@ -82,7 +82,7 @@ func cmdUI(args []string) int {
 			"url":     url,
 			"host":    host,
 			"port":    port,
-			"version": "1.4.0",
+			"version": version,
 		})
 
 		if !noOpen {

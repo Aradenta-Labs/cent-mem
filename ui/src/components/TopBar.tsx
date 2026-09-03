@@ -149,7 +149,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               padding: '1px 5px',
             }}
           >
-            v1.4.0
+            v{health?.version || '1.4.1'}
           </span>
         </div>
       </div>
@@ -470,7 +470,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                     : 'System requires attention'}
                 </span>
                 <span className="tabular-nums" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  v{health?.version || '1.4.0'}
+                  v{health?.version || '1.4.1'}
                 </span>
               </div>
 

@@ -15,7 +15,7 @@ centmem ui
 ```
 
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.0"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.1"}
 ```
 
 The browser will open automatically to `http://127.0.0.1:4231`. To stop the server, press `Ctrl+C` in your terminal.
@@ -51,7 +51,7 @@ The centmem dashboard is crafted under two strict design directives:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ [centmem]  | 🔍 Hybrid search (/ or ⌘K) | [Export ▾] [Doctor ●] [Theme ☼] │
+│ [centmem]  | 🔍 Hybrid search (/ or ⌘K) | [Design] [?] [⚙ Settings] [●] [☼]│
 ├──────────────┬────────────────────────────────────────────────────────────┤
 │              │ Breadcrumb: global > project:cent-mem > agent:antigravity  │
 │  SCOPES      │ ┌────────────────────────────────────────────────────────┐ │
@@ -99,6 +99,16 @@ The sidebar renders the full 4-tier memory hierarchy (`global -> project -> agen
 - The top bar displays a real-time status pill (`Healthy`, `Warning`, or `Degraded`).
 - Click the pill to open the interactive **Doctor Diagnostics Popover**, displaying the results of store integrity, schema migrations, vector extensions, embedding model files, and database permissions.
 
+### 4.6 Settings & System Configuration (`Cmd+,`)
+Click the gear icon in the top bar or press `Cmd+,` (`Ctrl+,` on Linux/Windows) to open the **Settings & Configuration** modal. This two-pane dialog manages all 19 configuration keys supported by `centmem` with instant validation and atomic persistence:
+
+- **General Tab**: Inspects the pinned local ONNX embedding model (`bge-small-en-v1.5`, 384 dimensions), local storage directory (`CENTMEM_HOME`), database size, and file write permissions.
+- **Retention Tab**: Visualizes the active retention lifecycle (`Raw Notes/Logs -> Summaries -> Archive -> Dropped`). Provides tactile number steppers to configure retention policies: `fact_keep_days` (set to 0 for indefinite retention), `note_summarize_after_days`, `log_summarize_after_days`, `log_drop_after_days`, and `archive_keep_days`.
+- **Auto-Capture Tab**: Master switch for background and transcript auto-capture, target harness selector (`auto`, `claude-code`, `cursor`, `antigravity`, `trae`, `codex`, `generic`), triggers multi-select (`session-end`, `per-message`, `on-demand`), and default capture scope expression.
+- **Classifier Tab**: Configures the 3-tier memory classification backend (`heuristic`, `local-llm`, or `openai-compatible`). Provides endpoint URL, model tag, API key environment variable, and confidence cutoff slider (`0.10` to `1.00`). Includes a live **"Test Connection"** probe button that verifies endpoint reachability, checks loaded models, and displays round-trip latency in milliseconds before saving.
+- **Categories Tab**: Interactive tag chip manager for whitelisted auto-capture categories with quick-add chips (`decision`, `convention`, `preference`, `learning`, `checkpoint`, `security`, `api`, `arch`).
+- **Atomic Persistence & Dirty Tracking**: The footer tracks draft changes against `~/.centmem/config.toml` in real time with a dirty indicator dot. Includes "Revert Changes", "Reset to Defaults" (with confirmation), and prevents accidental dismissal via an unsaved changes confirmation dialog.
+
 ---
 
 ## 5. Keyboard Shortcuts
@@ -112,6 +122,7 @@ Press `?` anywhere in the dashboard to toggle the keyboard shortcuts overlay.
 | `K` or `↑` | Select previous memory row |
 | `Enter` | Open selected memory detail drawer |
 | `Backspace` or `Del` | Forget selected memory (with confirmation) |
+| `Cmd / Ctrl + ,` | Open Settings & Configuration dialog |
 | `Esc` | Close drawer, modal dialog, or popover |
 | `?` | Toggle keyboard shortcuts modal |
 
@@ -129,6 +140,9 @@ The dashboard communicates with `centmem` via a local-only REST API:
 | `/api/memories/:id` | `GET` | Retrieve full memory details by integer ID |
 | `/api/memories/:id/forget` | `POST` | Delete memory by ID |
 | `/api/memories` | `POST` | Restore or insert memory (used by Undo) |
+| `/api/config` | `GET` | Retrieve active system configuration and file metadata (`home`, `config_path`, `is_writable`) |
+| `/api/config` | `PATCH` | Update configuration with dot-notation validation and atomic write to `~/.centmem/config.toml` |
+| `/api/config/test-classifier` | `POST` | Live connectivity probe verifying Local LLM or OpenAI-compatible endpoint health and latency |
 | `/api/export` | `GET` | Download scoped memories (`format=json` or `format=csv`) |
 | `/api/stats` | `GET` | Retrieve database metrics (counts by type, size, pending embeddings) |
 | `/api/health` | `GET` | Run comprehensive `centmem doctor` checks |
