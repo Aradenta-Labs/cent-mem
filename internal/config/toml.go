@@ -23,6 +23,7 @@ type tomlFileSchema struct {
 	Model     ModelConfig   `toml:"model"`
 	Retention Retention     `toml:"retention"`
 	Capture   CaptureConfig `toml:"capture"`
+	Search    SearchConfig  `toml:"search"`
 }
 
 // LoadTOML reads a TOML configuration file and overlays it onto the default Config.
@@ -35,6 +36,7 @@ func LoadTOML(path string) (Config, error) {
 		},
 		Retention: DefaultRetention(),
 		Capture:   DefaultCaptureConfig(),
+		Search:    DefaultSearchConfig(),
 	}
 
 	data, err := os.ReadFile(path)
@@ -49,6 +51,7 @@ func LoadTOML(path string) (Config, error) {
 		Model:     cfg.Model,
 		Retention: cfg.Retention,
 		Capture:   cfg.Capture,
+		Search:    cfg.Search,
 	}
 
 	if err := toml.Unmarshal(data, &schema); err != nil {
@@ -58,6 +61,7 @@ func LoadTOML(path string) (Config, error) {
 	cfg.Model = schema.Model
 	cfg.Retention = schema.Retention
 	cfg.Capture = schema.Capture
+	cfg.Search = schema.Search
 
 	return cfg, nil
 }
@@ -73,6 +77,7 @@ func SaveTOML(path string, cfg Config) error {
 		Model:     cfg.Model,
 		Retention: cfg.Retention,
 		Capture:   cfg.Capture,
+		Search:    cfg.Search,
 	}
 
 	data, err := toml.Marshal(schema)

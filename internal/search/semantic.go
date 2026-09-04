@@ -105,6 +105,7 @@ func (s *Searcher) Semantic(ctx context.Context, q Query, top int) ([]Ranked, er
 			Scope:       m.ScopePath,
 			ScopeID:     m.ScopeID,
 			Content:     m.Content,
+			ContentHash: m.ContentHash,
 			Tags:        m.Tags,
 			SourceAgent: m.SourceAgent,
 			CreatedAt:   m.CreatedAt,

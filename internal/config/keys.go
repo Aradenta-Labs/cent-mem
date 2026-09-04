@@ -28,6 +28,7 @@ var KnownConfigKeys = []string{
 	"capture.api_key_env",
 	"capture.api_model",
 	"capture.confidence_threshold",
+	"search.decay_half_life_days",
 }
 
 // GetConfigValue retrieves a config property by its dot-notation key or table name.
@@ -82,6 +83,11 @@ func GetConfigValue(cfg Config, key string) (any, error) {
 		return cfg.Capture.APIModel, nil
 	case "capture.confidence_threshold":
 		return cfg.Capture.ConfidenceThreshold, nil
+
+	case "search":
+		return cfg.Search, nil
+	case "search.decay_half_life_days":
+		return cfg.Search.DecayHalfLifeDays, nil
 
 	default:
 		return nil, fmt.Errorf("unknown config key %q", key)
@@ -233,6 +239,13 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 		}
 		cfg.Capture.ConfidenceThreshold = f
 
+	case "search.decay_half_life_days":
+		days, err := strconv.Atoi(val)
+		if err != nil || days < 0 {
+			return fmt.Errorf("invalid search.decay_half_life_days %q: must be >= 0", val)
+		}
+		cfg.Search.DecayHalfLifeDays = days
+
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}
@@ -241,6 +254,9 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 		return err
 	}
 	if err := ValidateCaptureConfig(cfg.Capture); err != nil {
+		return err
+	}
+	if err := validateSearchConfig(cfg.Search); err != nil {
 		return err
 	}
 

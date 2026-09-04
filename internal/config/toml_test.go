@@ -43,6 +43,9 @@ func TestConfig_TOML_MarshalUnmarshal(t *testing.T) {
 			APIModel:            "gpt-4o-mini",
 			ConfidenceThreshold: 0.8,
 		},
+		Search: config.SearchConfig{
+			DecayHalfLifeDays: 30,
+		},
 	}
 
 	if err := config.SaveTOML(tomlPath, initial); err != nil {
@@ -65,6 +68,9 @@ func TestConfig_TOML_MarshalUnmarshal(t *testing.T) {
 	}
 	if len(loaded.Capture.Categories) != 3 || loaded.Capture.Categories[0] != "decision" {
 		t.Errorf("mismatched Categories: %+v", loaded.Capture.Categories)
+	}
+	if loaded.Search.DecayHalfLifeDays != 30 {
+		t.Errorf("mismatched Search: %+v", loaded.Search)
 	}
 }
 
@@ -143,6 +149,9 @@ func TestConfig_TOML_DefaultsFallback(t *testing.T) {
 	if loaded.Capture.ConfidenceThreshold != 0.7 {
 		t.Errorf("expected default capture confidence_threshold=0.7, got %f", loaded.Capture.ConfidenceThreshold)
 	}
+	if loaded.Search.DecayHalfLifeDays != 0 {
+		t.Errorf("expected default search decay_half_life_days=0, got %d", loaded.Search.DecayHalfLifeDays)
+	}
 }
 
 func TestConfig_TOML_EnvPrecedence(t *testing.T) {
@@ -159,6 +168,9 @@ func TestConfig_TOML_EnvPrecedence(t *testing.T) {
 			Backend:             "heuristic",
 			ConfidenceThreshold: 0.6,
 		},
+		Search: config.SearchConfig{
+			DecayHalfLifeDays: 5,
+		},
 	}
 	if err := config.SaveTOML(tomlPath, fileCfg); err != nil {
 		t.Fatalf("SaveTOML failed: %v", err)
@@ -167,6 +179,7 @@ func TestConfig_TOML_EnvPrecedence(t *testing.T) {
 	os.Setenv("CENTMEM_HOME", tempDir)
 	os.Setenv("CENTMEM_CAPTURE_HARNESS", "antigravity")
 	os.Setenv("CENTMEM_CAPTURE_ENABLED", "true")
+	os.Setenv("CENTMEM_SEARCH_DECAY_HALF_LIFE_DAYS", "14")
 
 	loaded, err := config.Load()
 	if err != nil {
@@ -178,6 +191,9 @@ func TestConfig_TOML_EnvPrecedence(t *testing.T) {
 	}
 	if loaded.Capture.Harness != "antigravity" {
 		t.Errorf("expected env override Harness=antigravity, got %q", loaded.Capture.Harness)
+	}
+	if loaded.Search.DecayHalfLifeDays != 14 {
+		t.Errorf("expected env override DecayHalfLifeDays=14, got %d", loaded.Search.DecayHalfLifeDays)
 	}
 	// Untouched in env, should come from TOML
 	if loaded.Capture.ConfidenceThreshold != 0.6 {

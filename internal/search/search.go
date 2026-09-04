@@ -8,6 +8,7 @@ package search
 import (
 	"context"
 	"database/sql"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -42,6 +43,7 @@ type Ranked struct {
 	Scope       string
 	ScopeID     int64
 	Content     string
+	ContentHash string // SHA-256 hash from memories.content_hash
 	Tags        []string
 	SourceAgent string
 	CreatedAt   time.Time
@@ -51,14 +53,19 @@ type Ranked struct {
 
 // Searcher executes hybrid search against a Store.
 type Searcher struct {
-	store *store.Store
-	emb   embed.Embedder
+	store             *store.Store
+	emb               embed.Embedder
+	decayHalfLifeDays int
 }
 
 // New builds a Searcher backed by s. It uses an offline StubEmbedder by
 // default; call WithEmbedder to attach a real ONNX embedder.
 func New(s *store.Store) *Searcher {
-	return &Searcher{store: s, emb: embed.NewStub(384)}
+	return &Searcher{
+		store:             s,
+		emb:               embed.NewStub(384),
+		decayHalfLifeDays: 0,
+	}
 }
 
 // WithEmbedder returns a Searcher that uses e for semantic queries. The
@@ -69,6 +76,18 @@ func (s *Searcher) WithEmbedder(e embed.Embedder) *Searcher {
 		s.emb = embed.NewCachingEmbedder(e, 256)
 	}
 	return s
+}
+
+// WithDecayDays configures the recency decay half-life in days.
+// If days <= 0, decay is disabled (the default).
+// Returns a copy of the Searcher for safe concurrent chaining.
+func (s *Searcher) WithDecayDays(days int) *Searcher {
+	if days < 0 {
+		days = 0
+	}
+	dup := *s
+	dup.decayHalfLifeDays = days
+	return &dup
 }
 
 // db exposes the underlying SQL handle.
@@ -91,7 +110,7 @@ func (s *Searcher) Keyword(ctx context.Context, q Query, top int) ([]Ranked, err
 
 	runQuery := func(query string, matchedBy string) ([]Ranked, error) {
 		sqlText := `
-			SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.tags, m.source_agent, m.created_at,
+			SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
 			       bm25(memories_fts) AS score
 			FROM memories_fts
 			JOIN memories m ON m.id = memories_fts.rowid
@@ -128,7 +147,7 @@ func (s *Searcher) Facts(ctx context.Context, q Query, top int) ([]Ranked, error
 	}
 
 	sqlText := `
-		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.tags, m.source_agent, m.created_at,
+		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
 		       0.0 AS score
 		FROM memories m
 		JOIN scopes sc ON sc.id = m.scope_id
@@ -150,7 +169,7 @@ func (s *Searcher) Timeline(ctx context.Context, q Query, top int) ([]Ranked, er
 	}
 
 	sqlText := `
-		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.tags, m.source_agent, m.created_at,
+		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
 		       0.0 AS score
 		FROM memories m
 		JOIN scopes sc ON sc.id = m.scope_id
@@ -188,7 +207,7 @@ func filterRanked(rs []Ranked, q Query) []Ranked {
 }
 
 // Recall fuses keyword + facts + timeline + semantic via RRF, applies
-// filters, dedups by id, and returns the top-N ranked results.
+// filters, dedups by id and content_hash, and returns the top-N ranked results.
 func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 	top := q.Top
 	if top <= 0 {
@@ -202,11 +221,20 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 
 	cand := max(top*candidateMultiplier, candidateFloor)
 
-	kw, err := s.Keyword(ctx, q, cand)
+	// Facts receives unexpanded q to preserve key prefix matching (key LIKE prefix%).
+	factsQuery := q
+
+	// R1: Query Expansion via tag enrichment
+	enrichedQuery, err := s.EnrichQuery(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	facts, err := s.Facts(ctx, q, cand)
+
+	kw, err := s.Keyword(ctx, enrichedQuery, cand)
+	if err != nil {
+		return nil, err
+	}
+	facts, err := s.Facts(ctx, factsQuery, cand)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +242,7 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 	if err != nil {
 		return nil, err
 	}
-	sem, err := s.Semantic(ctx, q, cand)
+	sem, err := s.Semantic(ctx, enrichedQuery, cand)
 	if err != nil {
 		return nil, err
 	}
@@ -259,8 +287,19 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 		results = append(results, r)
 	}
 
+	// Filter by type, tags, time range, agent
 	results = filterResults(results, q)
 
+	// R2: Recency Decay (strictly after filterResults and before slices.SortFunc)
+	if s.decayHalfLifeDays > 0 {
+		halfLife := time.Duration(s.decayHalfLifeDays) * 24 * time.Hour
+		now := time.Now()
+		for _, r := range results {
+			applyDecay(r, now, halfLife)
+		}
+	}
+
+	// Sort candidates descending by score with deterministic tie-breaking
 	slices.SortFunc(results, func(a, b *Ranked) int {
 		if b.Score > a.Score {
 			return 1
@@ -268,8 +307,23 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 		if b.Score < a.Score {
 			return -1
 		}
+		if b.CreatedAt.After(a.CreatedAt) {
+			return 1
+		}
+		if a.CreatedAt.After(b.CreatedAt) {
+			return -1
+		}
+		if b.ID > a.ID {
+			return 1
+		}
+		if a.ID > b.ID {
+			return -1
+		}
 		return 0
 	})
+
+	// R3: Near-Duplicate Collapse (strictly after slices.SortFunc and before top truncation)
+	results = collapseNearDupes(results)
 
 	if len(results) > top {
 		results = results[:top]
@@ -280,6 +334,42 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 		out = append(out, *r)
 	}
 	return out, nil
+}
+
+// applyDecay multiplies r.Score by an exponential decay factor based on age.
+// halfLife <= 0 disables decay.
+func applyDecay(r *Ranked, now time.Time, halfLife time.Duration) {
+	if r == nil || halfLife <= 0 || r.CreatedAt.IsZero() {
+		return
+	}
+	age := now.Sub(r.CreatedAt)
+	if age <= 0 {
+		return
+	}
+	// score *= 0.5 ^ (age / halfLife)
+	r.Score *= math.Pow(0.5, float64(age)/float64(halfLife))
+}
+
+// collapseNearDupes removes entries whose ContentHash has already been seen,
+// keeping only the highest-scored copy. Prevents multiple ingestion passes of
+// identical content from occupying multiple result slots. Entries with an empty
+// ContentHash are preserved without deduplication.
+func collapseNearDupes(results []*Ranked) []*Ranked {
+	if len(results) <= 1 {
+		return results
+	}
+	seen := make(map[string]bool, len(results))
+	out := make([]*Ranked, 0, len(results))
+	for _, r := range results {
+		if r.ContentHash != "" {
+			if seen[r.ContentHash] {
+				continue
+			}
+			seen[r.ContentHash] = true
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +454,9 @@ func ftsQueries(text string) (exact, prefix string) {
 	fields := strings.Fields(text)
 	var eq, pf []string
 	for _, f := range fields {
+		f = strings.ReplaceAll(f, "\x00", "")
 		f = strings.Trim(f, `"'()*`)
+		f = strings.ReplaceAll(f, `"`, `""`)
 		if f == "" {
 			continue
 		}
@@ -387,7 +479,7 @@ func (s *Searcher) queryRanked(ctx context.Context, sqlText string, args []any, 
 		var r Ranked
 		var tags string
 		var created int64
-		if err := rows.Scan(&r.ID, &r.Type, &r.Scope, &r.ScopeID, &r.Content, &tags, &r.SourceAgent, &created, &r.Score); err != nil {
+		if err := rows.Scan(&r.ID, &r.Type, &r.Scope, &r.ScopeID, &r.Content, &r.ContentHash, &tags, &r.SourceAgent, &created, &r.Score); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)

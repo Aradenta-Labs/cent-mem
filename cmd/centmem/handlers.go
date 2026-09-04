@@ -275,7 +275,9 @@ func cmdRecall(args []string) int {
 		defer s.Close()
 
 		emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
-		searcher := search.New(s).WithEmbedder(emb)
+		searcher := search.New(s).
+			WithEmbedder(emb).
+			WithDecayDays(cfg.Search.DecayHalfLifeDays)
 		text := query
 
 		top := intFlag(fs, "top", 5)

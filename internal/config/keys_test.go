@@ -33,9 +33,10 @@ func TestConfig_GetConfigValue_TableNames(t *testing.T) {
 		Model:     config.ModelConfig{Name: "bge", Dims: 384},
 		Retention: config.DefaultRetention(),
 		Capture:   config.DefaultCaptureConfig(),
+		Search:    config.DefaultSearchConfig(),
 	}
 
-	for _, tbl := range []string{"model", "retention", "capture"} {
+	for _, tbl := range []string{"model", "retention", "capture", "search"} {
 		val, err := config.GetConfigValue(cfg, tbl)
 		if err != nil {
 			t.Errorf("GetConfigValue failed for table %q: %v", tbl, err)
@@ -144,6 +145,20 @@ func TestConfig_SetConfigValue_Types(t *testing.T) {
 	expectedAll := []string{"message", "session-end", "on-demand"}
 	if !reflect.DeepEqual(cfg.Capture.Triggers, expectedAll) {
 		t.Errorf("triggers all expected %+v, got %+v", expectedAll, cfg.Capture.Triggers)
+	}
+
+	// Search (decay_half_life_days)
+	if err := config.SetConfigValue(&cfg, "search.decay_half_life_days", "45"); err != nil {
+		t.Fatalf("set search.decay_half_life_days: %v", err)
+	}
+	if cfg.Search.DecayHalfLifeDays != 45 {
+		t.Errorf("expected 45, got %d", cfg.Search.DecayHalfLifeDays)
+	}
+	if err := config.SetConfigValue(&cfg, "search.decay_half_life_days", "-10"); err == nil {
+		t.Error("expected error for negative decay_half_life_days")
+	}
+	if err := config.SetConfigValue(&cfg, "search.decay_half_life_days", "invalid"); err == nil {
+		t.Error("expected error for non-integer decay_half_life_days")
 	}
 }
 

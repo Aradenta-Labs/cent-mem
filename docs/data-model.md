@@ -144,7 +144,9 @@ A read targeting `project:P` matches rows where:
 
 Implemented as `scope.path LIKE 'project:P%'` for descendants plus `IN (ancestors)` for the upward chain. The upward chain is computed by walking `parent_path`.
 
-## 4. Retention Defaults (configurable)
+## 4. Retention & Search Defaults (configurable)
+
+### 4.1 Retention Defaults
 
 | Type | Default policy |
 |------|----------------|
@@ -153,6 +155,30 @@ Implemented as `scope.path LIKE 'project:P%'` for descendants plus `IN (ancestor
 | `log` | `summarize_at = created_at + 14d`; raw dropped after summarize |
 
 Compaction moves originals to `status='archived'` (kept in `events`) and inserts a new consolidated `note` pointing to the archive.
+
+### 4.2 Search Defaults (configurable)
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `search.decay_half_life_days` | integer | `0` (off) | Half-life in days for exponential recency decay. |
+
+When `search.decay_half_life_days` > 0, memories older than the half-life receive an exponential score penalty applied after RRF fusion and before final rank sorting:
+
+$$\text{score} \leftarrow \text{score} \times 0.5^{\frac{\text{age}}{\text{half\_life}}}$$
+
+Where:
+- $\text{age} = \text{now} - \text{memory.created\_at}$
+- $\text{half\_life} = \text{decay\_half\_life\_days} \times 24\text{ hours}$
+- If $\text{age} \le 0$ or $\text{decay\_half\_life\_days} \le 0$, no decay penalty is applied ($\text{factor} = 1.0$).
+
+**Configuration in `config.toml`:**
+```toml
+[search]
+decay_half_life_days = 0  # Default 0 (disabled). Set e.g. 30 to halve memory score every 30 days.
+```
+
+**Environment Variable Override:**
+- `CENTMEM_SEARCH_DECAY_HALF_LIFE_DAYS`: Overrides `search.decay_half_life_days` (e.g. `export CENTMEM_SEARCH_DECAY_HALF_LIFE_DAYS=30`).
 
 ## 5. Example Rows
 

@@ -15,12 +15,35 @@ type Config struct {
 	Model     ModelConfig   `json:"model" toml:"model"`
 	Retention Retention     `json:"retention" toml:"retention"`
 	Capture   CaptureConfig `json:"capture" toml:"capture"`
+	Search    SearchConfig  `json:"search" toml:"search"`
 }
 
 type ModelConfig struct {
 	Name string `json:"name" toml:"name"`
 	Path string `json:"path" toml:"path"`
 	Dims int    `json:"dims" toml:"dims"`
+}
+
+// SearchConfig captures search and retrieval preferences.
+type SearchConfig struct {
+	// DecayHalfLifeDays is the half-life in days for exponential recency decay.
+	// Default is 0 (decay disabled).
+	DecayHalfLifeDays int `json:"decay_half_life_days" toml:"decay_half_life_days"`
+}
+
+// DefaultSearchConfig returns standard search configuration defaults.
+func DefaultSearchConfig() SearchConfig {
+	return SearchConfig{
+		DecayHalfLifeDays: 0,
+	}
+}
+
+// validateSearchConfig rejects negative decay days.
+func validateSearchConfig(s SearchConfig) error {
+	if s.DecayHalfLifeDays < 0 {
+		return fmt.Errorf("config: invalid search.decay_half_life_days=%d: must be >= 0", s.DecayHalfLifeDays)
+	}
+	return nil
 }
 
 // Retention captures per-type retention policies (see docs/data-model.md).
@@ -179,11 +202,21 @@ func Load() (Config, error) {
 		}
 	}
 
-	// 5. Validate retention and capture values.
+	// 5. Apply search env overrides (CENTMEM_SEARCH_*).
+	if v := os.Getenv("CENTMEM_SEARCH_DECAY_HALF_LIFE_DAYS"); v != "" {
+		if days, err := strconv.Atoi(v); err == nil {
+			cfg.Search.DecayHalfLifeDays = days
+		}
+	}
+
+	// 6. Validate retention, capture, and search values.
 	if err := validateRetention(cfg.Retention); err != nil {
 		return Config{}, err
 	}
 	if err := ValidateCaptureConfig(cfg.Capture); err != nil {
+		return Config{}, err
+	}
+	if err := validateSearchConfig(cfg.Search); err != nil {
 		return Config{}, err
 	}
 

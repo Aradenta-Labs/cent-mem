@@ -32,7 +32,9 @@ func cmdUI(args []string) int {
 		defer st.Close()
 
 		emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
-		searcher := search.New(st).WithEmbedder(emb)
+		searcher := search.New(st).
+			WithEmbedder(emb).
+			WithDecayDays(cfg.Search.DecayHalfLifeDays)
 
 		port := 4231
 		if pStr := os.Getenv("CENTMEM_UI_PORT"); pStr != "" {

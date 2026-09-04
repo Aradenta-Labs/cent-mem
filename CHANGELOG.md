@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-09-04
+
+Recall Accuracy Enhancements: Phase A & B. Major improvements to search accuracy, query expansion, and duplicate detection without breaking the CLI contract.
+
+### Added
+
+- **Query Expansion via Tag Enrichment**: Search queries are now automatically augmented with top tags from the closest keyword matches for broader semantic recall.
+- **Recency Decay**: Introduced an exponential penalty factor for older memories. Configurable via `search.decay_half_life_days` (default off).
+- **FTS5 Prefix Fallback**: Search automatically retries with prefix matching if exact keyword matches return 0 rows.
+- **Weighted RRF Fusion**: Lowered timeline influence for text queries to prevent recency bias from overshadowing semantic relevance.
+
+### Fixed
+
+- **Mathematical Conversion of Distance**: Correctly configured semantic search to convert native SQLite L2 Euclidean distances to Cosine distances prior to applying the semantic distance threshold.
+- **Near-Duplicate Collapse**: After score fusion, duplicate memories (by `content_hash`) are collapsed into a single best result to prevent result-window crowding.
+
 ## [1.4.2] - 2026-09-04
 
 Patch release resolving a React `SyntheticEvent` circular structure serialization error when testing model connections in the Web UI Settings panel.
@@ -195,6 +211,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[1.4.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.3
 [1.4.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.2
 [1.4.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.1
 [1.4.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.0
