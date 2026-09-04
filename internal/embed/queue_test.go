@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,7 +148,7 @@ func (f *flakyEmbedder) Dims() int    { return f.inner.Dims() }
 func (f *flakyEmbedder) Close() error { return f.inner.Close() }
 func (f *flakyEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	for _, t := range texts {
-		if t == f.failOn {
+		if t == f.failOn || strings.Contains(t, f.failOn) {
 			return nil, f.failErr
 		}
 	}

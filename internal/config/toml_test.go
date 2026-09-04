@@ -45,6 +45,10 @@ func TestConfig_TOML_MarshalUnmarshal(t *testing.T) {
 		},
 		Search: config.SearchConfig{
 			DecayHalfLifeDays: 30,
+			Reranker:          "cross_encoder",
+			RerankWindow:      45,
+			SessionBoost:      1.5,
+			AgentBoost:        1.25,
 		},
 	}
 
@@ -69,7 +73,11 @@ func TestConfig_TOML_MarshalUnmarshal(t *testing.T) {
 	if len(loaded.Capture.Categories) != 3 || loaded.Capture.Categories[0] != "decision" {
 		t.Errorf("mismatched Categories: %+v", loaded.Capture.Categories)
 	}
-	if loaded.Search.DecayHalfLifeDays != 30 {
+	if loaded.Search.DecayHalfLifeDays != 30 ||
+		loaded.Search.Reranker != "cross_encoder" ||
+		loaded.Search.RerankWindow != 45 ||
+		loaded.Search.SessionBoost != 1.5 ||
+		loaded.Search.AgentBoost != 1.25 {
 		t.Errorf("mismatched Search: %+v", loaded.Search)
 	}
 }

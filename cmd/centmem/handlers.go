@@ -265,6 +265,8 @@ func cmdRecall(args []string) int {
 	fs.String("since", "", "since duration (e.g. 7d, 24h)")
 	fs.String("until", "", "until duration (e.g. 1d)")
 	fs.String("agent", "", "source agent filter")
+	fs.String("caller-agent", "", "caller agent identifier for affinity boosting")
+	fs.String("reranker", "", "re-ranker strategy override")
 	fs.Bool("inherit", true, "include ancestor scopes")
 	fs.Bool("children", false, "include descendant scopes")
 	return runCommandQuery(args, fs, func(cfg config.Config, fs *flag.FlagSet, query string) error {
@@ -275,9 +277,28 @@ func cmdRecall(args []string) int {
 		defer s.Close()
 
 		emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
+		callerAgent := fs.Lookup("caller-agent").Value.String()
+		if callerAgent == "" {
+			callerAgent = os.Getenv("CENTMEM_AGENT")
+		}
+
+		rerankerChoice := cfg.Search.Reranker
+		if flagReranker := fs.Lookup("reranker").Value.String(); flagReranker != "" {
+			switch strings.ToLower(flagReranker) {
+			case "composite", "none", "cross_encoder", "llm":
+				rerankerChoice = strings.ToLower(flagReranker)
+			default:
+				return cli.Invalidf("recall: unknown --reranker %q (expected composite, none, cross_encoder, or llm)", flagReranker)
+			}
+		}
+
 		searcher := search.New(s).
 			WithEmbedder(emb).
-			WithDecayDays(cfg.Search.DecayHalfLifeDays)
+			WithDecayDays(cfg.Search.DecayHalfLifeDays).
+			WithRerankerName(rerankerChoice).
+			WithRerankWindow(cfg.Search.RerankWindow).
+			WithSessionBoost(cfg.Search.SessionBoost).
+			WithAgentBoost(cfg.Search.AgentBoost)
 		text := query
 
 		top := intFlag(fs, "top", 5)
@@ -286,14 +307,15 @@ func cmdRecall(args []string) int {
 		}
 
 		q := search.Query{
-			Text:     text,
-			Scope:    fs.Lookup("scope").Value.String(),
-			Inherit:  fs.Lookup("inherit").Value.String() == "true",
-			Children: fs.Lookup("children").Value.String() == "true",
-			Top:      top,
-			Type:     fs.Lookup("type").Value.String(),
-			Tags:     splitCSV(fs.Lookup("tags").Value.String()),
-			Agent:    fs.Lookup("agent").Value.String(),
+			Text:        text,
+			Scope:       fs.Lookup("scope").Value.String(),
+			Inherit:     fs.Lookup("inherit").Value.String() == "true",
+			Children:    fs.Lookup("children").Value.String() == "true",
+			Top:         top,
+			Type:        fs.Lookup("type").Value.String(),
+			Tags:        splitCSV(fs.Lookup("tags").Value.String()),
+			Agent:       fs.Lookup("agent").Value.String(),
+			CallerAgent: callerAgent,
 		}
 
 		now := time.Now()
@@ -873,6 +895,110 @@ func checkDBIntegrity(path string) error {
 		return fmt.Errorf("integrity check failed: %s", integrity)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// reindex
+// ---------------------------------------------------------------------------
+
+func cmdReindex(args []string) int {
+	fs := newFlagSet("reindex")
+	fs.Bool("all", false, "re-enqueue all active memories even if already embedded")
+	fs.Int("batch", 32, "batch size per ONNX inference run")
+	fs.String("max-time", "30s", "maximum execution time before yielding (0 for unlimited)")
+	fs.Bool("dry-run", false, "report count of pending embeddings without processing")
+
+	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		start := time.Now()
+		ctx, cancel := signalContext()
+		defer cancel()
+
+		s, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("reindex: open store: %v", err)
+		}
+		defer s.Close()
+
+		all := fs.Lookup("all").Value.String() == "true"
+		batch := intFlag(fs, "batch", 32)
+		if batch <= 0 {
+			return cli.Invalidf("reindex: --batch must be > 0")
+		}
+		dryRun := fs.Lookup("dry-run").Value.String() == "true"
+		maxTimeStr := fs.Lookup("max-time").Value.String()
+		maxTime := 30 * time.Second
+		if maxTimeStr != "" {
+			d, err := parseDuration(maxTimeStr)
+			if err != nil {
+				return cli.Invalidf("reindex: bad --max-time: %v", err)
+			}
+			maxTime = d
+		}
+
+		modelName := cfg.Model.Name
+		if modelName == "" {
+			modelName = "bge-small-en-v1.5"
+		}
+
+		if dryRun {
+			var pending int64
+			if all {
+				err = s.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM memories WHERE status = 'active'`).Scan(&pending)
+			} else {
+				pending, err = s.PendingEmbeddings(ctx)
+			}
+			if err != nil {
+				return cli.Internalf("reindex: count pending: %v", err)
+			}
+
+			return prettyPrint(fs, map[string]any{
+				"ok":          true,
+				"reindexed":   0,
+				"pending":     pending,
+				"duration_ms": time.Since(start).Milliseconds(),
+				"model":       modelName,
+			})
+		}
+
+		if all {
+			if _, err := s.EnqueueAllActive(ctx); err != nil {
+				return cli.Internalf("reindex: enqueue all: %v", err)
+			}
+		}
+
+		emb, err := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
+		if err != nil {
+			return cli.Internalf("reindex: init embedder: %v", err)
+		}
+		defer emb.Close()
+
+		q := embed.NewQueue(s, emb)
+		q.BatchSize = batch
+		q.Model = modelName
+		if maxTime <= 0 {
+			q.MaxTime = -1 // unlimited
+		} else {
+			q.MaxTime = maxTime
+		}
+
+		reindexed, err := q.Drain(ctx)
+		if err != nil {
+			return cli.Internalf("reindex: drain queue: %v", err)
+		}
+
+		pending, err := s.PendingEmbeddings(ctx)
+		if err != nil {
+			return cli.Internalf("reindex: count pending: %v", err)
+		}
+
+		return prettyPrint(fs, map[string]any{
+			"ok":          true,
+			"reindexed":   reindexed,
+			"pending":     pending,
+			"duration_ms": time.Since(start).Milliseconds(),
+			"model":       modelName,
+		})
+	})
 }
 
 // ---------------------------------------------------------------------------

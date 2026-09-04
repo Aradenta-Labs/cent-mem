@@ -160,6 +160,52 @@ func TestConfig_SetConfigValue_Types(t *testing.T) {
 	if err := config.SetConfigValue(&cfg, "search.decay_half_life_days", "invalid"); err == nil {
 		t.Error("expected error for non-integer decay_half_life_days")
 	}
+
+	// Search (reranker)
+	for _, r := range []string{"composite", "none", "cross_encoder", "llm"} {
+		if err := config.SetConfigValue(&cfg, "search.reranker", r); err != nil {
+			t.Fatalf("set search.reranker %q: %v", r, err)
+		}
+		if cfg.Search.Reranker != r {
+			t.Errorf("expected %q, got %q", r, cfg.Search.Reranker)
+		}
+	}
+	if err := config.SetConfigValue(&cfg, "search.reranker", "unknown_strategy"); err == nil {
+		t.Error("expected error for unknown reranker strategy")
+	}
+
+	// Search (rerank_window)
+	if err := config.SetConfigValue(&cfg, "search.rerank_window", "50"); err != nil {
+		t.Fatalf("set search.rerank_window: %v", err)
+	}
+	if cfg.Search.RerankWindow != 50 {
+		t.Errorf("expected 50, got %d", cfg.Search.RerankWindow)
+	}
+	if err := config.SetConfigValue(&cfg, "search.rerank_window", "-5"); err == nil {
+		t.Error("expected error for negative rerank_window")
+	}
+
+	// Search (session_boost)
+	if err := config.SetConfigValue(&cfg, "search.session_boost", "1.5"); err != nil {
+		t.Fatalf("set search.session_boost: %v", err)
+	}
+	if cfg.Search.SessionBoost != 1.5 {
+		t.Errorf("expected 1.5, got %f", cfg.Search.SessionBoost)
+	}
+	if err := config.SetConfigValue(&cfg, "search.session_boost", "-1.0"); err == nil {
+		t.Error("expected error for negative session_boost")
+	}
+
+	// Search (agent_boost)
+	if err := config.SetConfigValue(&cfg, "search.agent_boost", "1.3"); err != nil {
+		t.Fatalf("set search.agent_boost: %v", err)
+	}
+	if cfg.Search.AgentBoost != 1.3 {
+		t.Errorf("expected 1.3, got %f", cfg.Search.AgentBoost)
+	}
+	if err := config.SetConfigValue(&cfg, "search.agent_boost", "-0.5"); err == nil {
+		t.Error("expected error for negative agent_boost")
+	}
 }
 
 func TestConfig_SetConfigValue_BackendValidation(t *testing.T) {

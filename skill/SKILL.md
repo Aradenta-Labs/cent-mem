@@ -169,6 +169,7 @@ project:<name>/agent:<agent>/session:<id>
 | `capture` | `centmem capture <run|summary|categories|convert> [flags]` | Auto-capture engine and session telemetry |
 | `config` | `centmem config <get|set> [key] [value]` | Manage configuration settings in `config.toml` |
 | `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open]` | Launch embedded Web UI memory browser dashboard |
+| `reindex` | `centmem reindex [--all] [--batch N] [--max-time d] [--dry-run]` | Re-embed memories into vector index |
 
 ---
 

@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 1.0
+**Version:** 1.4.4
 **Binary:** `centmem`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
@@ -91,12 +91,14 @@ Not found → exit 2.
 
 ### 3.5 `recall` — hybrid search (THE main read command)
 ```
-centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags a,b] [--since 7d] [--until 1d] [--agent claude] [--inherit] [--children]
+centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags a,b] [--since 7d] [--until 1d] [--agent claude] [--inherit] [--children] [--caller-agent a] [--reranker r]
 ```
 
 - `--inherit` (default true): include ancestor scopes (global).
 - `--children`: include descendant scopes (agents/sessions under a project).
 - `--top N` default 5, max 20.
+- `--caller-agent <name>`: calling agent identifier for affinity boosting (+15% when matching author). Defaults to `$CENTMEM_AGENT`.
+- `--reranker <strategy>`: re-ranker strategy override (`composite`, `none`, `cross_encoder`, `llm`). Defaults to `composite`.
 
 **Output:**
 ```json
@@ -275,7 +277,32 @@ centmem ui [--port <port>] [--host <host>] [--no-open]
 
 **Output:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.2"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.4"}
+```
+
+---
+
+### 3.17 `reindex` — re-embed memories into vector index
+Drains the embedding queue and updates dense vector representations in `memories_vec`.
+
+```
+centmem reindex [--all] [--batch 32] [--max-time 30s] [--dry-run]
+```
+
+- `--all`: re-enqueues all active memories into `embed_queue`, even if already indexed in `memories_vec`.
+- `--batch <int>`: batch size per inference iteration (default 32).
+- `--max-time <duration>`: maximum execution time before yielding (default 30s; 0 for unlimited).
+- `--dry-run`: reports pending embeddings count without processing.
+
+**Output:**
+```json
+{
+  "ok": true,
+  "reindexed": 142,
+  "pending": 0,
+  "duration_ms": 1284,
+  "model": "bge-small-en-v1.5"
+}
 ```
 
 ---

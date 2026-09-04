@@ -24,31 +24,34 @@ const rrfK = 60
 // Query captures a full search request. It is reused by both M1 (non-semantic)
 // and M2 (semantic) rankers.
 type Query struct {
-	Text     string
-	Scope    string
-	Inherit  bool
-	Children bool
-	Top      int
-	Type     string
-	Tags     []string
-	Since    time.Time
-	Until    time.Time
-	Agent    string
+	Text        string
+	Scope       string
+	Inherit     bool
+	Children    bool
+	Top         int
+	Type        string
+	Tags        []string
+	Since       time.Time
+	Until       time.Time
+	Agent       string
+	CallerAgent string
 }
 
 // Ranked is a single search result.
 type Ranked struct {
-	ID          int64
-	Type        string
-	Scope       string
-	ScopeID     int64
-	Content     string
-	ContentHash string // SHA-256 hash from memories.content_hash
-	Tags        []string
-	SourceAgent string
-	CreatedAt   time.Time
-	Score       float64
-	MatchedBy   []string
+	ID            int64
+	Type          string
+	Scope         string
+	ScopeID       int64
+	Content       string
+	Key           string // fact key or empty
+	ContentHash   string // SHA-256 hash from memories.content_hash
+	Tags          []string
+	SourceAgent   string
+	CreatedAt     time.Time
+	Score         float64
+	MatchedBy     []string
+	SemanticScore float64 // dense semantic similarity (1.0 - cosDist)
 }
 
 // Searcher executes hybrid search against a Store.
@@ -56,6 +59,10 @@ type Searcher struct {
 	store             *store.Store
 	emb               embed.Embedder
 	decayHalfLifeDays int
+	reranker          ReRanker
+	rerankWindow      int
+	sessionBoost      float64
+	agentBoost        float64
 }
 
 // New builds a Searcher backed by s. It uses an offline StubEmbedder by
@@ -65,6 +72,10 @@ func New(s *store.Store) *Searcher {
 		store:             s,
 		emb:               embed.NewStub(384),
 		decayHalfLifeDays: 0,
+		reranker:          NewCompositeReRanker(),
+		rerankWindow:      30,
+		sessionBoost:      1.25,
+		agentBoost:        1.15,
 	}
 }
 
@@ -90,6 +101,61 @@ func (s *Searcher) WithDecayDays(days int) *Searcher {
 	return &dup
 }
 
+// WithReranker configures the re-ranker strategy instance.
+func (s *Searcher) WithReranker(r ReRanker) *Searcher {
+	dup := *s
+	dup.reranker = r
+	return &dup
+}
+
+// WithRerankerName configures the re-ranker strategy by name.
+func (s *Searcher) WithRerankerName(name string) *Searcher {
+	dup := *s
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "none":
+		dup.reranker = &noneReRanker{}
+	case "cross_encoder":
+		dup.reranker = NewCrossEncoderReRanker()
+	case "llm":
+		dup.reranker = NewLLMReRanker()
+	case "composite", "":
+		dup.reranker = NewCompositeReRanker()
+	default:
+		dup.reranker = NewCompositeReRanker()
+	}
+	return &dup
+}
+
+// WithRerankWindow sets the candidate window slice size for Stage 2 re-ranking.
+func (s *Searcher) WithRerankWindow(w int) *Searcher {
+	if w <= 0 {
+		w = 30
+	}
+	dup := *s
+	dup.rerankWindow = w
+	return &dup
+}
+
+// WithSessionBoost sets the score multiplier for memories in matching session scope.
+func (s *Searcher) WithSessionBoost(b float64) *Searcher {
+	if b <= 0 {
+		b = 1.25
+	}
+	dup := *s
+	dup.sessionBoost = b
+	return &dup
+}
+
+// WithAgentBoost sets the score multiplier for memories authored by caller agent.
+func (s *Searcher) WithAgentBoost(b float64) *Searcher {
+	if b <= 0 {
+		b = 1.15
+	}
+	dup := *s
+	dup.agentBoost = b
+	return &dup
+}
+
 // db exposes the underlying SQL handle.
 func (s *Searcher) db() *sql.DB { return s.store.DB() }
 
@@ -111,7 +177,7 @@ func (s *Searcher) Keyword(ctx context.Context, q Query, top int) ([]Ranked, err
 	runQuery := func(query string, matchedBy string) ([]Ranked, error) {
 		sqlText := `
 			SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
-			       bm25(memories_fts) AS score
+			       bm25(memories_fts) AS score, COALESCE(m.key, '')
 			FROM memories_fts
 			JOIN memories m ON m.id = memories_fts.rowid
 			JOIN scopes sc ON sc.id = m.scope_id
@@ -148,7 +214,7 @@ func (s *Searcher) Facts(ctx context.Context, q Query, top int) ([]Ranked, error
 
 	sqlText := `
 		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
-		       0.0 AS score
+		       0.0 AS score, COALESCE(m.key, '')
 		FROM memories m
 		JOIN scopes sc ON sc.id = m.scope_id
 		WHERE m.type = 'fact' AND m.status = 'active' AND m.key LIKE ?` +
@@ -170,7 +236,7 @@ func (s *Searcher) Timeline(ctx context.Context, q Query, top int) ([]Ranked, er
 
 	sqlText := `
 		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
-		       0.0 AS score
+		       0.0 AS score, COALESCE(m.key, '')
 		FROM memories m
 		JOIN scopes sc ON sc.id = m.scope_id
 		WHERE m.status = 'active'` +
@@ -271,6 +337,12 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 			contrib := l.weight / (float64(rrfK) + float64(rank+1))
 			if existing, ok := scores[item.ID]; ok {
 				existing.Score += contrib
+				if item.SemanticScore > 0 {
+					existing.SemanticScore = item.SemanticScore
+				}
+				if item.Key != "" && existing.Key == "" {
+					existing.Key = item.Key
+				}
 				if !contains(existing.MatchedBy, l.name) {
 					existing.MatchedBy = append(existing.MatchedBy, l.name)
 				}
@@ -290,7 +362,37 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 	// Filter by type, tags, time range, agent
 	results = filterResults(results, q)
 
-	// R2: Recency Decay (strictly after filterResults and before slices.SortFunc)
+	// Sort candidates descending by Stage 1 RRF score before candidate window slicing
+	slices.SortFunc(results, sortRanked)
+
+	// Stage 2 Re-Ranking: Slice candidate window (default 30)
+	rerankWindow := s.rerankWindow
+	if rerankWindow <= 0 {
+		rerankWindow = 30
+	}
+	windowSize := min(len(results), rerankWindow)
+	reranker := s.reranker
+	if reranker == nil {
+		reranker = NewCompositeReRanker()
+	}
+
+	isReranked := false
+	if windowSize > 0 && reranker.Name() != "none" && strings.TrimSpace(q.Text) != "" {
+		reranked, err := reranker.ReRank(ctx, q, nil, results[:windowSize])
+		if err != nil {
+			return nil, err
+		}
+		copy(results[:windowSize], reranked)
+		isReranked = true
+	}
+
+	// Session & Agent Boosting (Scope Proximity & Caller Affinity)
+	for _, r := range results {
+		applyScopeProximityBoost(r, q, s.sessionBoost)
+		applyAgentAffinityBoost(r, q, s.agentBoost)
+	}
+
+	// Recency Decay (strictly after boosting and before final sort)
 	if s.decayHalfLifeDays > 0 {
 		halfLife := time.Duration(s.decayHalfLifeDays) * 24 * time.Hour
 		now := time.Now()
@@ -299,30 +401,20 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 		}
 	}
 
-	// Sort candidates descending by score with deterministic tie-breaking
-	slices.SortFunc(results, func(a, b *Ranked) int {
-		if b.Score > a.Score {
-			return 1
+	// Sort candidates descending by final score with deterministic tie-breaking.
+	// When Stage 2 re-ranking is active, candidates within the window are sorted among
+	// themselves, while overflow candidates outside the window remain strictly after
+	// the window (preserving their Stage 1 order/ranking without leapfrogging).
+	if isReranked {
+		slices.SortFunc(results[:windowSize], sortRanked)
+		if len(results) > windowSize {
+			slices.SortFunc(results[windowSize:], sortRanked)
 		}
-		if b.Score < a.Score {
-			return -1
-		}
-		if b.CreatedAt.After(a.CreatedAt) {
-			return 1
-		}
-		if a.CreatedAt.After(b.CreatedAt) {
-			return -1
-		}
-		if b.ID > a.ID {
-			return 1
-		}
-		if a.ID > b.ID {
-			return -1
-		}
-		return 0
-	})
+	} else {
+		slices.SortFunc(results, sortRanked)
+	}
 
-	// R3: Near-Duplicate Collapse (strictly after slices.SortFunc and before top truncation)
+	// Near-Duplicate Collapse (strictly after sorting and before top truncation)
 	results = collapseNearDupes(results)
 
 	if len(results) > top {
@@ -477,12 +569,13 @@ func (s *Searcher) queryRanked(ctx context.Context, sqlText string, args []any, 
 	var out []Ranked
 	for rows.Next() {
 		var r Ranked
-		var tags string
+		var tags, key string
 		var created int64
-		if err := rows.Scan(&r.ID, &r.Type, &r.Scope, &r.ScopeID, &r.Content, &r.ContentHash, &tags, &r.SourceAgent, &created, &r.Score); err != nil {
+		if err := rows.Scan(&r.ID, &r.Type, &r.Scope, &r.ScopeID, &r.Content, &r.ContentHash, &tags, &r.SourceAgent, &created, &r.Score, &key); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
+		r.Key = key
 		r.CreatedAt = time.UnixMicro(created)
 		r.MatchedBy = []string{matchedBy}
 		out = append(out, r)

@@ -1038,8 +1038,38 @@ func (s *Store) ClaimEmbedJobs(ctx context.Context, limit int, staleBefore int64
 	return ids, rows.Err()
 }
 
+// FormatEmbedText builds the canonical string passed to the embedding model.
+// Ensures high-signal tags and keys are prioritized in the semantic vector.
+func FormatEmbedText(typ, key, content string, tags []string) string {
+	var b strings.Builder
+
+	if key != "" {
+		b.WriteString("Key: ")
+		b.WriteString(key)
+		b.WriteString("\n")
+	}
+
+	var cleaned []string
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			cleaned = append(cleaned, t)
+		}
+	}
+	if len(cleaned) > 0 {
+		b.WriteString("Tags: ")
+		b.WriteString(strings.Join(cleaned, ", "))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("Content: ")
+	b.WriteString(content)
+
+	return b.String()
+}
+
 // LoadMemoryEmbedTexts returns the embeddable text for each memory id.
-// The text is the memory content; facts additionally include the key.
+// Formatted with structured prefix (key, tags, content) via FormatEmbedText.
 func (s *Store) LoadMemoryEmbedTexts(ctx context.Context, ids []int64) (map[int64]string, error) {
 	if len(ids) == 0 {
 		return map[int64]string{}, nil
@@ -1050,7 +1080,7 @@ func (s *Store) LoadMemoryEmbedTexts(ctx context.Context, ids []int64) (map[int6
 		args = append(args, id)
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, type, content, COALESCE(key, '')
+		SELECT id, type, content, COALESCE(key, ''), COALESCE(tags, '')
 		FROM memories
 		WHERE id IN (`+placeholders+`)`, args...)
 	if err != nil {
@@ -1060,16 +1090,36 @@ func (s *Store) LoadMemoryEmbedTexts(ctx context.Context, ids []int64) (map[int6
 	out := make(map[int64]string, len(ids))
 	for rows.Next() {
 		var id int64
-		var typ, content, key string
-		if err := rows.Scan(&id, &typ, &content, &key); err != nil {
+		var typ, content, key, rawTags string
+		if err := rows.Scan(&id, &typ, &content, &key, &rawTags); err != nil {
 			return nil, err
 		}
-		if key != "" {
-			content = key + " " + content
-		}
-		out[id] = content
+		tags := splitTags(rawTags)
+		out[id] = FormatEmbedText(typ, key, content, tags)
 	}
 	return out, rows.Err()
+}
+
+// EnqueueAllActive enqueues all active memories into embed_queue.
+// Existing rows in embed_queue are preserved without duplicates.
+// Returns the number of newly enqueued memories.
+func (s *Store) EnqueueAllActive(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO embed_queue(memory_id, priority, created_at)
+		SELECT id, 0, ?
+		FROM memories
+		WHERE status = 'active'`, nowMicro())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// PendingEmbeddings returns the number of memories waiting in embed_queue.
+func (s *Store) PendingEmbeddings(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM embed_queue`).Scan(&count)
+	return count, err
 }
 
 // WriteEmbedding persists an embedding for a memory into the embeddings table
@@ -1093,7 +1143,12 @@ func (s *Store) WriteEmbedding(ctx context.Context, memoryID int64, vec []float3
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT OR REPLACE INTO memories_vec(memory_id, embedding)
+		DELETE FROM memories_vec WHERE memory_id = ?`,
+		memoryID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO memories_vec(memory_id, embedding)
 		VALUES (?, ?)`,
 		memoryID, vecBlob); err != nil {
 		return err

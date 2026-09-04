@@ -173,6 +173,9 @@ func stubVector(text string, dims int) []float32 {
 		return vec
 	}
 	for _, tok := range tokens {
+		if tok == "content:" || tok == "key:" || tok == "tags:" {
+			continue
+		}
 		h := fnv32(tok)
 		idx := int(h) % dims
 		vec[idx] += 1.0

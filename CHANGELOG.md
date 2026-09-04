@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-09-04
+
+Recall Accuracy Enhancements: Phase C. Comprehensive Stage 2 re-ranking pipeline, scope proximity and agent affinity boosting, tag-weighted structured embeddings, background re-indexing command, and synthetic evaluation suite.
+
+### Added
+
+- **Two-Stage Re-Ranking Pipeline (`CompositeReRanker`)**:
+  - Implemented Stage 2 scoring over a candidate window combining semantic score ($S_{\text{sem}}$), lexical token coverage ($S_{\text{lex}}$), exact phrase match bonus ($S_{\text{phrase}}$), and normalized Stage 1 RRF rank ($S_{\text{rrf\_norm}}$).
+  - Configurable re-ranking backend via `search.reranker` (`none`, `composite`, `cross-encoder`, `llm`) and `--reranker` CLI flag on `centmem recall`.
+  - Configurable candidate window via `search.rerank_window` (default 30).
+- **Session & Agent Proximity / Affinity Boosting**:
+  - Scope proximity multiplier boosts current session memories by +25% (`search.session_boost`), agent memories by +10% (`search.agent_boost`), preserves project score at 1.0x, and softly penalizes global memories (-5%).
+  - Caller agent affinity boost adds +15% when memory `source_agent` matches `--caller-agent` or the `$CENTMEM_AGENT` environment variable.
+- **Tag-Weighted Embeddings (v2)**:
+  - Formatted embedding canonical text with structured `Key: ...`, `Tags: ...`, and `Content: ...` headers, prioritizing explicit metadata during semantic vector generation.
+  - Migration `m0003_embedding_v2.sql` bumps `schema_version` to 3, records `embedding_version = 2`, and enqueues existing active memories for background re-indexing.
+- **Background Re-Indexing Command (`centmem reindex`)**:
+  - `centmem reindex [--all] [--batch N] [--max-time D] [--dry-run]` to process pending embedding migrations with rate-limiting, batching, and crash recovery.
+- **Recall Evaluation Suite**:
+  - Benchmark evaluation suite in `internal/search/eval_test.go` verifying accuracy metrics against synthetic test memories (`MRR@5 >= 0.85`, `NDCG@5 >= 0.80`, `Session Precision@1 >= 0.90`).
+
 ## [1.4.3] - 2026-09-04
 
 Recall Accuracy Enhancements: Phase A & B. Major improvements to search accuracy, query expansion, and duplicate detection without breaking the CLI contract.

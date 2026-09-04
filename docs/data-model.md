@@ -131,9 +131,21 @@ Powers v2 sync and debugging.
 
 | key TEXT PK | value TEXT |
 |---|---|
-| schema_version | current migration version |
-| embedding_model | active model name |
-| embedding_dims | vector dims |
+| schema_version | current migration version (`3`) |
+| embedding_version | embedding format version (`2`) |
+| embedding_model | active model name (`bge-small-en-v1.5`) |
+| embedding_dims | vector dims (`384`) |
+
+### 2.8 Embedding Format v2
+
+As of migration `m0003_embedding_v2.sql`, embeddings use a structured text template format:
+```
+Key: <key>
+Tags: <comma-separated tags>
+
+Content: <content>
+```
+Omitting `Key:` and `Tags:` sections when empty. This boosts semantic weighting of keys and tags during embedding inference.
 
 ## 3. Scope Inheritance
 
@@ -161,8 +173,12 @@ Compaction moves originals to `status='archived'` (kept in `events`) and inserts
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `search.decay_half_life_days` | integer | `0` (off) | Half-life in days for exponential recency decay. |
+| `search.reranker` | string | `"composite"` | Re-ranking strategy (`none`, `composite`, `cross-encoder`, `llm`). |
+| `search.rerank_window` | integer | `30` | Number of candidate results to pass to the Stage-2 re-ranker. |
+| `search.session_boost` | float | `1.25` | Score multiplier for memories in exact matching session scope (+25%). |
+| `search.agent_boost` | float | `1.15` | Score multiplier for memories authored by caller agent (+15%). |
 
-When `search.decay_half_life_days` > 0, memories older than the half-life receive an exponential score penalty applied after RRF fusion and before final rank sorting:
+When `search.decay_half_life_days` > 0, memories older than the half-life receive an exponential score penalty applied after RRF fusion / re-ranking and before final rank sorting:
 
 $$\text{score} \leftarrow \text{score} \times 0.5^{\frac{\text{age}}{\text{half\_life}}}$$
 
@@ -174,11 +190,19 @@ Where:
 **Configuration in `config.toml`:**
 ```toml
 [search]
-decay_half_life_days = 0  # Default 0 (disabled). Set e.g. 30 to halve memory score every 30 days.
+decay_half_life_days = 0   # Default 0 (disabled). Set e.g. 30 to halve memory score every 30 days.
+reranker = "composite"     # none | composite | cross-encoder | llm
+rerank_window = 30         # candidate window for Stage 2 re-ranking
+session_boost = 1.25       # 1.25x (+25%) score boost for current session memories
+agent_boost = 1.15         # 1.15x (+15%) score boost for caller agent memories
 ```
 
-**Environment Variable Override:**
+**Environment Variable Overrides:**
 - `CENTMEM_SEARCH_DECAY_HALF_LIFE_DAYS`: Overrides `search.decay_half_life_days` (e.g. `export CENTMEM_SEARCH_DECAY_HALF_LIFE_DAYS=30`).
+- `CENTMEM_SEARCH_RERANKER`: Overrides `search.reranker` (e.g. `export CENTMEM_SEARCH_RERANKER=composite`).
+- `CENTMEM_SEARCH_RERANK_WINDOW`: Overrides `search.rerank_window` (e.g. `export CENTMEM_SEARCH_RERANK_WINDOW=30`).
+- `CENTMEM_SEARCH_SESSION_BOOST`: Overrides `search.session_boost` (e.g. `export CENTMEM_SEARCH_SESSION_BOOST=1.25`).
+- `CENTMEM_SEARCH_AGENT_BOOST`: Overrides `search.agent_boost` (e.g. `export CENTMEM_SEARCH_AGENT_BOOST=1.15`).
 
 ## 5. Example Rows
 

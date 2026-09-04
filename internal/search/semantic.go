@@ -99,24 +99,26 @@ func (s *Searcher) Semantic(ctx context.Context, q Query, top int) ([]Ranked, er
 
 	out := make([]*Ranked, 0, len(mems))
 	for _, m := range mems {
-		r := &Ranked{
-			ID:          m.ID,
-			Type:        m.Type,
-			Scope:       m.ScopePath,
-			ScopeID:     m.ScopeID,
-			Content:     m.Content,
-			ContentHash: m.ContentHash,
-			Tags:        m.Tags,
-			SourceAgent: m.SourceAgent,
-			CreatedAt:   m.CreatedAt,
-		}
 		// dist[m.ID] is L2 distance. Convert to cosine distance for scoring.
 		cosDist := (dist[m.ID] * dist[m.ID]) / 2.0
 		sc := 1.0 - cosDist
 		if sc < 0 {
 			sc = 0
 		}
-		r.Score = sc
+		r := &Ranked{
+			ID:            m.ID,
+			Type:          m.Type,
+			Scope:         m.ScopePath,
+			ScopeID:       m.ScopeID,
+			Content:       m.Content,
+			Key:           m.Key,
+			ContentHash:   m.ContentHash,
+			Tags:          m.Tags,
+			SourceAgent:   m.SourceAgent,
+			CreatedAt:     m.CreatedAt,
+			Score:         sc,
+			SemanticScore: sc,
+		}
 		out = append(out, r)
 	}
 

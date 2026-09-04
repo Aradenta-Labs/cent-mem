@@ -30,7 +30,7 @@ var commands = map[string]commandEntry{
 	"put":      {cmdPut, "put --scope <scope> --type note|log --content <text> [--tags a,b] [--source-agent a] [--source-session s]", []string{"--scope", "--type", "--content", "--tags", "--source-agent", "--source-session"}},
 	"set":      {cmdSet, "set --scope <scope> --key <k> --value <json> [--tags a,b]", []string{"--scope", "--key", "--value", "--tags"}},
 	"get":      {cmdGet, "get --scope <scope> --key <k> [--inherit]", []string{"--scope", "--key", "--inherit"}},
-	"recall":   {cmdRecall, "recall <query> --scope <scope> [--top N] [--type t] [--tags a,b] [--since d] [--until d] [--agent a] [--inherit] [--children]", []string{"--scope", "--top", "--type", "--tags", "--since", "--until", "--agent", "--inherit", "--children"}},
+	"recall":   {cmdRecall, "recall <query> --scope <scope> [--top N] [--type t] [--tags a,b] [--since d] [--until d] [--agent a] [--inherit] [--children] [--caller-agent a] [--reranker r]", []string{"--scope", "--top", "--type", "--tags", "--since", "--until", "--agent", "--inherit", "--children", "--caller-agent", "--reranker"}},
 	"timeline": {cmdTimeline, "timeline --scope <scope> [--since d] [--until d] [--limit N]", []string{"--scope", "--since", "--until", "--limit"}},
 	"list":     {cmdList, "list --scope <scope> [--type t] [--tags a,b] [--limit N] [--offset N]", []string{"--scope", "--type", "--tags", "--limit", "--offset"}},
 	"forget":   {cmdForget, "forget --id N | --scope <s> --key <k> | --scope <s> --tag <t>", []string{"--id", "--scope", "--key", "--tag"}},
@@ -42,6 +42,7 @@ var commands = map[string]commandEntry{
 	"capture":  {cmdCapture, "capture <run|summary|categories|convert> [flags]", []string{"--transcript", "--scope", "--session", "--add", "--remove", "--list", "--harness", "--input", "--output", "--watch", "--interval", "--state-file", "--once"}},
 	"config":   {cmdConfig, "config <get|set> [key] [value]", nil},
 	"ui":       {cmdUI, "ui [--port <port>] [--host <host>] [--no-open]", []string{"--port", "--host", "--no-open"}},
+	"reindex":  {cmdReindex, "reindex [--all] [--batch N] [--max-time d] [--dry-run]", []string{"--all", "--batch", "--max-time", "--dry-run"}},
 }
 
 // buildRegistry returns a *cli.Registry populated with every registered command

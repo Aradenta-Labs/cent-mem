@@ -41,7 +41,7 @@ func (q *Queue) Drain(ctx context.Context) (int, error) {
 		batch = 16
 	}
 	maxTime := q.MaxTime
-	if maxTime <= 0 {
+	if maxTime == 0 {
 		maxTime = 250 * time.Millisecond
 	}
 	stale := q.StaleAfter
@@ -49,11 +49,12 @@ func (q *Queue) Drain(ctx context.Context) (int, error) {
 		stale = 60 * time.Second
 	}
 
+	hasDeadline := maxTime > 0
 	deadline := time.Now().Add(maxTime)
 	processed := 0
 
 	for {
-		if time.Now().After(deadline) {
+		if hasDeadline && time.Now().After(deadline) {
 			break
 		}
 		staleBefore := time.Now().Add(-stale).UnixMicro()

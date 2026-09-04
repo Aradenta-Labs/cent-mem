@@ -29,6 +29,10 @@ var KnownConfigKeys = []string{
 	"capture.api_model",
 	"capture.confidence_threshold",
 	"search.decay_half_life_days",
+	"search.reranker",
+	"search.rerank_window",
+	"search.session_boost",
+	"search.agent_boost",
 }
 
 // GetConfigValue retrieves a config property by its dot-notation key or table name.
@@ -88,6 +92,14 @@ func GetConfigValue(cfg Config, key string) (any, error) {
 		return cfg.Search, nil
 	case "search.decay_half_life_days":
 		return cfg.Search.DecayHalfLifeDays, nil
+	case "search.reranker":
+		return cfg.Search.Reranker, nil
+	case "search.rerank_window":
+		return cfg.Search.RerankWindow, nil
+	case "search.session_boost":
+		return cfg.Search.SessionBoost, nil
+	case "search.agent_boost":
+		return cfg.Search.AgentBoost, nil
 
 	default:
 		return nil, fmt.Errorf("unknown config key %q", key)
@@ -245,6 +257,35 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 			return fmt.Errorf("invalid search.decay_half_life_days %q: must be >= 0", val)
 		}
 		cfg.Search.DecayHalfLifeDays = days
+
+	case "search.reranker":
+		switch strings.ToLower(val) {
+		case "composite", "none", "cross_encoder", "llm":
+			cfg.Search.Reranker = strings.ToLower(val)
+		default:
+			return fmt.Errorf("invalid search.reranker %q (expected composite, none, cross_encoder, or llm)", val)
+		}
+
+	case "search.rerank_window":
+		w, err := strconv.Atoi(val)
+		if err != nil || w < 0 {
+			return fmt.Errorf("invalid search.rerank_window %q: must be >= 0", val)
+		}
+		cfg.Search.RerankWindow = w
+
+	case "search.session_boost":
+		b, err := strconv.ParseFloat(val, 64)
+		if err != nil || b < 0 {
+			return fmt.Errorf("invalid search.session_boost %q: must be >= 0", val)
+		}
+		cfg.Search.SessionBoost = b
+
+	case "search.agent_boost":
+		b, err := strconv.ParseFloat(val, 64)
+		if err != nil || b < 0 {
+			return fmt.Errorf("invalid search.agent_boost %q: must be >= 0", val)
+		}
+		cfg.Search.AgentBoost = b
 
 	default:
 		return fmt.Errorf("unknown config key %q", key)

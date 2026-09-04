@@ -29,19 +29,47 @@ type SearchConfig struct {
 	// DecayHalfLifeDays is the half-life in days for exponential recency decay.
 	// Default is 0 (decay disabled).
 	DecayHalfLifeDays int `json:"decay_half_life_days" toml:"decay_half_life_days"`
+	// Reranker is the Stage 2 re-ranker strategy: "composite", "none", "cross_encoder", "llm".
+	Reranker string `json:"reranker" toml:"reranker"`
+	// RerankWindow is the number of Stage 1 RRF candidates passed to Stage 2 rescorer. Default 30.
+	RerankWindow int `json:"rerank_window" toml:"rerank_window"`
+	// SessionBoost is the score multiplier for memories in the exact matching session scope. Default 1.25.
+	SessionBoost float64 `json:"session_boost" toml:"session_boost"`
+	// AgentBoost is the score multiplier for memories authored by the caller agent. Default 1.15.
+	AgentBoost float64 `json:"agent_boost" toml:"agent_boost"`
 }
 
 // DefaultSearchConfig returns standard search configuration defaults.
 func DefaultSearchConfig() SearchConfig {
 	return SearchConfig{
 		DecayHalfLifeDays: 0,
+		Reranker:          "composite",
+		RerankWindow:      30,
+		SessionBoost:      1.25,
+		AgentBoost:        1.15,
 	}
 }
 
-// validateSearchConfig rejects negative decay days.
+// validateSearchConfig validates search configuration parameters.
 func validateSearchConfig(s SearchConfig) error {
 	if s.DecayHalfLifeDays < 0 {
 		return fmt.Errorf("config: invalid search.decay_half_life_days=%d: must be >= 0", s.DecayHalfLifeDays)
+	}
+	if s.RerankWindow < 0 {
+		return fmt.Errorf("config: invalid search.rerank_window=%d: must be >= 0", s.RerankWindow)
+	}
+	if s.SessionBoost < 0 {
+		return fmt.Errorf("config: invalid search.session_boost=%f: must be >= 0", s.SessionBoost)
+	}
+	if s.AgentBoost < 0 {
+		return fmt.Errorf("config: invalid search.agent_boost=%f: must be >= 0", s.AgentBoost)
+	}
+	if s.Reranker != "" {
+		switch strings.ToLower(s.Reranker) {
+		case "composite", "none", "cross_encoder", "llm":
+		default:
+			return fmt.Errorf("config: invalid search.reranker=%q (expected composite, none, cross_encoder, or llm)", s.Reranker)
+		}
 	}
 	return nil
 }
@@ -206,6 +234,24 @@ func Load() (Config, error) {
 	if v := os.Getenv("CENTMEM_SEARCH_DECAY_HALF_LIFE_DAYS"); v != "" {
 		if days, err := strconv.Atoi(v); err == nil {
 			cfg.Search.DecayHalfLifeDays = days
+		}
+	}
+	if v := os.Getenv("CENTMEM_SEARCH_RERANKER"); v != "" {
+		cfg.Search.Reranker = v
+	}
+	if v := os.Getenv("CENTMEM_SEARCH_RERANK_WINDOW"); v != "" {
+		if w, err := strconv.Atoi(v); err == nil {
+			cfg.Search.RerankWindow = w
+		}
+	}
+	if v := os.Getenv("CENTMEM_SEARCH_SESSION_BOOST"); v != "" {
+		if b, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Search.SessionBoost = b
+		}
+	}
+	if v := os.Getenv("CENTMEM_SEARCH_AGENT_BOOST"); v != "" {
+		if b, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Search.AgentBoost = b
 		}
 	}
 

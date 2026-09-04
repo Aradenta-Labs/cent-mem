@@ -150,8 +150,8 @@ func TestStore_ClaimEmbedJobsAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadMemoryEmbedTexts: %v", err)
 	}
-	if texts[id] != "embed me" {
-		t.Errorf("embed text = %q, want 'embed me'", texts[id])
+	if texts[id] != "Content: embed me" {
+		t.Errorf("embed text = %q, want 'Content: embed me'", texts[id])
 	}
 
 	// Write embedding (384-dim matches the vec0 schema).
