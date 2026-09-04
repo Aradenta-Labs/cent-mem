@@ -187,7 +187,7 @@ export const ClassifierTab: React.FC<ClassifierTabProps> = ({
           <Button
             variant="secondary"
             size="sm"
-            onClick={onTest}
+            onClick={() => onTest()}
             disabled={isTesting}
           >
             {isTesting ? (

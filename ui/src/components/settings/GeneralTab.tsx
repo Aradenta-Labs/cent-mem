@@ -182,7 +182,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ model, meta }) => {
             variant="ghost"
             size="sm"
             disabled={isLoadingStats}
-            onClick={loadStats}
+            onClick={() => loadStats()}
             style={{ padding: '2px 6px', height: '24px' }}
           >
             <RefreshCw size={12} className={isLoadingStats ? 'animate-spin' : ''} />

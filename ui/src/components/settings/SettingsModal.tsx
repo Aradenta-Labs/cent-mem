@@ -433,7 +433,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                     onChange={(k, v) => updateField('capture', k, v)}
                     isTesting={isTesting}
                     testResult={testResult}
-                    onTest={testClassifier}
+                    onTest={() => testClassifier()}
                   />
                 )}
 

@@ -1,7 +1,7 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` CLI to recall prior context, store decisions, save facts, and inspect timeline so every agent shares one persistent brain. Use whenever you need to remember or retrieve project context, architecture decisions, user preferences, API conventions, or session checkpoints.
-version: 1.4.1
+version: 1.4.2
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 allowed-tools:

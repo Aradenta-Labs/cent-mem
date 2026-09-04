@@ -186,12 +186,21 @@ export async function testClassifierEndpoint(params: TestClassifierParams): Prom
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 6000);
   try {
+    const payload: TestClassifierParams = {
+      backend: params?.backend,
+      local_llm_endpoint: params?.local_llm_endpoint,
+      local_llm_model: params?.local_llm_model,
+      api_base_url: params?.api_base_url,
+      api_key_env: params?.api_key_env,
+      api_model: params?.api_model,
+      confidence_threshold: params?.confidence_threshold,
+    };
     const res = await fetch('/api/config/test-classifier', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(params),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     const data: TestClassifierResponse = await res.json();

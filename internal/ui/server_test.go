@@ -17,7 +17,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
-const testVersion = "1.4.1"
+const testVersion = "1.4.2"
 
 func TestServer_HealthAndStaticServing(t *testing.T) {
 	cfg := ServerConfig{
@@ -898,7 +898,7 @@ func TestServer_ConfigAPI_Get(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.1",
+		Version: testVersion,
 		Config: config.Config{
 			Home:   home,
 			DBPath: home + "/centmem.db",
@@ -970,7 +970,7 @@ func TestServer_ConfigAPI_Patch_ValidationAndPersistence(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.1",
+		Version: testVersion,
 		Config: config.Config{
 			Home:   home,
 			DBPath: home + "/centmem.db",
@@ -1109,7 +1109,7 @@ func TestServer_ConfigAPI_TestClassifier(t *testing.T) {
 		Host:    "127.0.0.1",
 		Port:    0,
 		NoOpen:  true,
-		Version: "1.4.1",
+		Version: testVersion,
 		Config: config.Config{
 			Home: home,
 		},

@@ -265,15 +265,25 @@ export function useConfig() {
       setIsTesting(true);
       setTestResult(null);
 
+      // Guard against React SyntheticEvent or DOM Event passed if invoked directly from an event handler
+      const isEventOrInvalid =
+        !overrideParams ||
+        typeof overrideParams !== 'object' ||
+        'nativeEvent' in overrideParams ||
+        'target' in overrideParams ||
+        'currentTarget' in overrideParams ||
+        typeof (overrideParams as any).preventDefault === 'function';
+
+      const cleanOverrides: Partial<TestClassifierParams> = isEventOrInvalid ? {} : overrideParams;
+
       const params: TestClassifierParams = {
-        backend: draft?.capture.backend || 'heuristic',
-        local_llm_endpoint: draft?.capture.local_llm_endpoint,
-        local_llm_model: draft?.capture.local_llm_model,
-        api_base_url: draft?.capture.api_base_url,
-        api_key_env: draft?.capture.api_key_env,
-        api_model: draft?.capture.api_model,
-        confidence_threshold: draft?.capture.confidence_threshold,
-        ...overrideParams,
+        backend: cleanOverrides.backend ?? draft?.capture.backend ?? 'heuristic',
+        local_llm_endpoint: cleanOverrides.local_llm_endpoint ?? draft?.capture.local_llm_endpoint,
+        local_llm_model: cleanOverrides.local_llm_model ?? draft?.capture.local_llm_model,
+        api_base_url: cleanOverrides.api_base_url ?? draft?.capture.api_base_url,
+        api_key_env: cleanOverrides.api_key_env ?? draft?.capture.api_key_env,
+        api_model: cleanOverrides.api_model ?? draft?.capture.api_model,
+        confidence_threshold: cleanOverrides.confidence_threshold ?? draft?.capture.confidence_threshold,
       };
 
       try {

@@ -200,5 +200,5 @@ centmem ui [--port <port>] [--host <host>] [--no-open]
 
 **Stdout JSON:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.1"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.2"}
 ```

@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-09-04
+
+Patch release resolving a React `SyntheticEvent` circular structure serialization error when testing model connections in the Web UI Settings panel.
+
+### Fixed
+
+- **Web UI Live Connection Probe Error**:
+  - Resolved `Converting circular structure to JSON` TypeError triggered when clicking "Test Connection" in the Settings > Classifier tab.
+  - Sanitized `testClassifier` and `testClassifierEndpoint` parameters to filter out synthetic mouse events and extract only known, strongly-typed configuration keys before serialization.
+  - Decoupled `Button` `onClick` handlers across `ClassifierTab`, `SettingsModal`, and `GeneralTab` to prevent leaking event arguments to async action dispatchers.
+
 ## [1.4.1] - 2026-09-03
 
 Web UI Configuration & Settings Panel: A dedicated, high-density settings dialog in `centmem ui` allowing users to configure retention rules, auto-capture parameters, classifier backends, and category whitelists with live connectivity probing and atomic persistence directly to `~/.centmem/config.toml`.
@@ -184,6 +195,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[1.4.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.2
 [1.4.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.1
 [1.4.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.0
 [1.3.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.3.1
