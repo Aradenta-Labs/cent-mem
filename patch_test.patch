@@ -1,0 +1,10 @@
+--- internal/search/semantic.go
++++ internal/search/semantic.go
+@@ -62,6 +62,7 @@
+ 		if err := rows.Scan(&c.id, &c.distance); err != nil {
+ 			return nil, err
+ 		}
++        fmt.Printf("id=%d distance=%f\n", c.id, c.distance)
+ 		if c.distance > semanticDistThreshold {
+ 			continue // skip: too semantically distant
+ 		}

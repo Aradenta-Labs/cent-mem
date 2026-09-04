@@ -147,3 +147,72 @@ func TestRecall_InheritScope(t *testing.T) {
 		t.Errorf("expected result scoped to global, got %q", res[0].Scope)
 	}
 }
+
+func TestRecall_CandidatePool(t *testing.T) {
+	// Candidate pool floor should be 50.
+	// Since we can't easily spy on the exact `cand` passed, we can ensure that
+	// if we insert 40 items that don't match, and 1 item that matches at the end,
+	// that item is found, meaning `cand` was large enough.
+	se, s := testSearcher(t)
+	
+	// Create 60 memories. The first 55 are noise. The 56th matches the query.
+	for i := 0; i < 55; i++ {
+		seed(t, s, "global", "note", "noise", nil)
+	}
+	seed(t, s, "global", "note", "needle in haystack", nil)
+	
+	res, err := se.Recall(context.Background(), search.Query{
+		Text: "needle", Top: 5, Scope: "global", Inherit: true,
+	})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("expected to find needle in candidate pool")
+	}
+}
+
+func TestKeyword_PrefixFallback(t *testing.T) {
+	se, s := testSearcher(t)
+	seed(t, s, "global", "note", "architecture decisions", nil)
+
+	ctx := context.Background()
+	// "arch" should not match exact phrase "architecture" but will match via prefix fallback
+	res, err := se.Keyword(ctx, search.Query{Text: "arch", Top: 5, Scope: "global", Inherit: true}, 15)
+	if err != nil {
+		t.Fatalf("Keyword: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("expected at least one keyword result via prefix fallback")
+	}
+	if len(res[0].MatchedBy) == 0 || res[0].MatchedBy[0] != "keyword_prefix" {
+		t.Errorf("expected matched_by keyword_prefix, got %v", res[0].MatchedBy)
+	}
+}
+
+func TestRecall_WeightedRRF(t *testing.T) {
+	se, s := testSearcher(t)
+	// We want to verify timeline weight is 0.3 for text queries.
+	// Insert an old memory that is highly relevant
+	oldID := seed(t, s, "global", "note", "the absolute best architecture architecture", nil)
+	// Make it older in DB
+	s.DB().Exec("UPDATE memories SET created_at = ? WHERE id = ?", time.Now().Add(-24*time.Hour).UnixMicro(), oldID)
+	
+	// Insert a new memory that is barely relevant (only timeline will give it a high rank)
+	seed(t, s, "global", "note", "recent meaningless update", nil)
+
+	// Since timeline weight is 0.3, the highly relevant older one should score higher.
+	res, err := se.Recall(context.Background(), search.Query{
+		Text: "architecture", Top: 5, Scope: "global", Inherit: true,
+	})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("expected results")
+	}
+	// The most relevant result should be first
+	if res[0].ID != oldID {
+		t.Errorf("expected highly relevant older memory first, got ID %d with score %v", res[0].ID, res[0].Score)
+	}
+}

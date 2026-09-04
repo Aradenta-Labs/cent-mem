@@ -79,8 +79,8 @@ func (s *Searcher) Keyword(ctx context.Context, q Query, top int) ([]Ranked, err
 	if q.Text == "" {
 		return nil, nil
 	}
-	query := ftsQuery(q.Text)
-	if query == "" {
+	exact, prefix := ftsQueries(q.Text)
+	if exact == "" {
 		return nil, nil
 	}
 
@@ -89,20 +89,30 @@ func (s *Searcher) Keyword(ctx context.Context, q Query, top int) ([]Ranked, err
 		return nil, err
 	}
 
-	sqlText := `
-		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.tags, m.source_agent, m.created_at,
-		       bm25(memories_fts) AS score
-		FROM memories_fts
-		JOIN memories m ON m.id = memories_fts.rowid
-		JOIN scopes sc ON sc.id = m.scope_id
-		WHERE memories_fts MATCH ? AND m.status = 'active'` +
-		scopeConds +
-		` ORDER BY score LIMIT ?`
-	args := []any{query}
-	args = append(args, scopeArgs...)
-	args = append(args, top)
+	runQuery := func(query string, matchedBy string) ([]Ranked, error) {
+		sqlText := `
+			SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.tags, m.source_agent, m.created_at,
+			       bm25(memories_fts) AS score
+			FROM memories_fts
+			JOIN memories m ON m.id = memories_fts.rowid
+			JOIN scopes sc ON sc.id = m.scope_id
+			WHERE memories_fts MATCH ? AND m.status = 'active'` +
+			scopeConds +
+			` ORDER BY score LIMIT ?`
+		args := []any{query}
+		args = append(args, scopeArgs...)
+		args = append(args, top)
+		return s.queryRanked(ctx, sqlText, args, matchedBy)
+	}
 
-	return s.queryRanked(ctx, sqlText, args, "keyword")
+	res, err := runQuery(exact, "keyword")
+	if err != nil {
+		return nil, err
+	}
+	if len(res) == 0 {
+		return runQuery(prefix, "keyword_prefix")
+	}
+	return res, nil
 }
 
 // Facts ranks by key-prefix lookup (key LIKE '<text>%').
@@ -184,10 +194,13 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 	if top <= 0 {
 		top = 5
 	}
-	if top > 20 {
-		top = 20
+	if top > 200 {
+		top = 200
 	}
-	cand := top * 3
+	const candidateMultiplier = 5
+	const candidateFloor = 50
+
+	cand := max(top*candidateMultiplier, candidateFloor)
 
 	kw, err := s.Keyword(ctx, q, cand)
 	if err != nil {
@@ -206,27 +219,36 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 		return nil, err
 	}
 
-	lists := []struct {
-		name  string
-		items []Ranked
-	}{
-		{"keyword", kw},
-		{"facts", facts},
-		{"timeline", tl},
-		{"semantic", sem},
+	type rankerDef struct {
+		name   string
+		items  []Ranked
+		weight float64
+	}
+
+	var timelineWeight float64 = 1.0
+	if q.Text != "" {
+		timelineWeight = 0.3 // recency ≠ relevance for text queries
+	}
+
+	lists := []rankerDef{
+		{"keyword", kw, 1.0},
+		{"facts", facts, 1.0},
+		{"timeline", tl, timelineWeight},
+		{"semantic", sem, 1.2}, // semantic similarity is highest-confidence signal
 	}
 
 	scores := map[int64]*Ranked{}
 	for _, l := range lists {
 		for rank, item := range l.items {
-			item.Score += 1.0 / (float64(rrfK) + float64(rank+1))
+			contrib := l.weight / (float64(rrfK) + float64(rank+1))
 			if existing, ok := scores[item.ID]; ok {
-				existing.Score += 1.0 / (float64(rrfK) + float64(rank+1))
+				existing.Score += contrib
 				if !contains(existing.MatchedBy, l.name) {
 					existing.MatchedBy = append(existing.MatchedBy, l.name)
 				}
 				continue
 			}
+			item.Score = contrib
 			item.MatchedBy = []string{l.name}
 			scores[item.ID] = &item
 		}
@@ -335,18 +357,21 @@ func (s *Searcher) scopeFilter(ctx context.Context, q Query) (string, []any, err
 	return " AND m.scope_id IN (" + placeholders + ")", args, nil
 }
 
-// ftsQuery builds a safe FTS5 MATCH expression by quoting each whitespace token.
-func ftsQuery(text string) string {
+// ftsQueries returns an exact-phrase query and a prefix fallback query.
+// The caller tries the exact query first; if it returns 0 rows, retries
+// with the prefix query.
+func ftsQueries(text string) (exact, prefix string) {
 	fields := strings.Fields(text)
-	var quoted []string
+	var eq, pf []string
 	for _, f := range fields {
 		f = strings.Trim(f, `"'()*`)
 		if f == "" {
 			continue
 		}
-		quoted = append(quoted, `"`+f+`"`)
+		eq = append(eq, `"`+f+`"`)
+		pf = append(pf, `"`+f+`"*`)
 	}
-	return strings.Join(quoted, " ")
+	return strings.Join(eq, " "), strings.Join(pf, " ")
 }
 
 // queryRanked scans the common Ranked result shape.

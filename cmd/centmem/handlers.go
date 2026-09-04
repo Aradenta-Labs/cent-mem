@@ -278,12 +278,17 @@ func cmdRecall(args []string) int {
 		searcher := search.New(s).WithEmbedder(emb)
 		text := query
 
+		top := intFlag(fs, "top", 5)
+		if top > 20 {
+			top = 20
+		}
+
 		q := search.Query{
 			Text:     text,
 			Scope:    fs.Lookup("scope").Value.String(),
 			Inherit:  fs.Lookup("inherit").Value.String() == "true",
 			Children: fs.Lookup("children").Value.String() == "true",
-			Top:      intFlag(fs, "top", 5),
+			Top:      top,
 			Type:     fs.Lookup("type").Value.String(),
 			Tags:     splitCSV(fs.Lookup("tags").Value.String()),
 			Agent:    fs.Lookup("agent").Value.String(),

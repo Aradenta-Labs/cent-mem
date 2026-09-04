@@ -1,0 +1,22 @@
+--- internal/search/semantic.go
++++ internal/search/semantic.go
+@@ -67,7 +67,9 @@
+ 		if err := rows.Scan(&c.id, &c.distance); err != nil {
+ 			return nil, err
+ 		}
+-		if c.distance > semanticDistThreshold {
++		// c.distance from sqlite-vec MATCH is Euclidean (L2) distance.
++		// Convert to cosine distance: cos_dist = L2^2 / 2
++		if (c.distance * c.distance / 2.0) > semanticDistThreshold {
+ 			continue // skip: too semantically distant
+ 		}
+ 		cands = append(cands, c)
+@@ -101,7 +103,7 @@
+ 			SourceAgent: m.SourceAgent,
+ 			CreatedAt:   m.CreatedAt,
+ 		}
+-		sc := 1.0 - dist[m.ID]
++		sc := 1.0 - (dist[m.ID]*dist[m.ID])/2.0
+ 		if sc < 0 {
+ 			sc = 0
+ 		}
