@@ -1,4 +1,4 @@
-# v1.4.4 — Smart Skills Installer
+# v1.4.5 — Smart Skills Installer
 
 **Status:** Decisions resolved — ready for implementation  
 **Scope:** `npm/bin/install.js` + `npm/test/install.test.js` only. `skill/install.sh` is unchanged.
@@ -10,7 +10,7 @@ The current skills installer (`@aradenta.labs/centmem-skills`) has three problem
 2. **No scope awareness**: It always installs to both project-level and global directories simultaneously. Users who want project-only or global-only installation have no clean way to express that.
 
 3. **No interactivity**: When something is ambiguous (multiple harnesses found, or none found), it silently installs everywhere or nowhere. The `skills.sh` ecosystem (reference: `npx skills add <owner/repo>`) shows users a clear, interactive install experience.
-**v1.4.4** fixes all three by reworking `npm/bin/install.js` with:
+**v1.4.5** fixes all three by reworking `npm/bin/install.js` with:
 - **Harness detection** (filesystem config dir presence)
 - **Scope inference** (project if inside a Git repo, global via `--global`)
 - **Interactive disambiguation** using Node.js built-in `readline` — TTY-safe, zero new deps
@@ -20,7 +20,7 @@ The current skills installer (`@aradenta.labs/centmem-skills`) has three problem
 - Rewriting existing passing tests (extend, don't replace)
 
 ## 1. Comparison: skills.sh vs. ours (current vs. target)
-| Capability | skills.sh | Ours (current) | Ours (v1.4.4 target) |
+| Capability | skills.sh | Ours (current) | Ours (v1.4.5 target) |
 |---|---|---|---|
 | Detect installed harnesses | ✅ | ❌ installs everywhere | ✅ config dir detection |
 | Project scope install | ✅ default when in repo | ❌ always both | ✅ default in Git repo |
@@ -250,9 +250,9 @@ EXAMPLES:
 | [`npm/bin/install.js`](../../npm/bin/install.js) | Add `resolveScope()`, `isInsideGitRepo()`, `promptHarnessSelection()`, `buildTargets()`, new flag parsing (`--global`, `--project`, `--yes`). Refactor `getSkillTargets()` to use harness registry. |
 | [`npm/bin/harnesses.js`](../../npm/bin/harnesses.js) | **[NEW]** Harness registry (`HARNESSES` array + `detectHarnesses()`) |
 | [`npm/test/install.test.js`](../../npm/test/install.test.js) | Keep all 9 existing tests. Add 10 new unit tests (see §6). |
-| [`npm/package.json`](../../npm/package.json) | Bump version to `1.4.4` |
-| [`cmd/centmem/main.go`](../../cmd/centmem/main.go) | Bump version to `1.4.4` |
-| [`CHANGELOG.md`](../../CHANGELOG.md) | Add `[1.4.4]` section |
+| [`npm/package.json`](../../npm/package.json) | Bump version to `1.4.5` |
+| [`cmd/centmem/main.go`](../../cmd/centmem/main.go) | Bump version to `1.4.5` |
+| [`CHANGELOG.md`](../../CHANGELOG.md) | Add `[1.4.5]` section |
 
 ---
 
@@ -370,10 +370,10 @@ $ npx @aradenta.labs/centmem-skills --global --yes
 - [ ] 10 new unit tests added and passing
 
 **Release**
-- [ ] `npm/package.json` version bumped to `1.4.4`
-- [ ] `cmd/centmem/main.go` version bumped to `1.4.4`
-- [ ] `CHANGELOG.md` updated with `[1.4.4]` section
-- [ ] Tagged `v1.4.4` and pushed; GitHub Actions release runs
+- [ ] `npm/package.json` version bumped to `1.4.5`
+- [ ] `cmd/centmem/main.go` version bumped to `1.4.5`
+- [ ] `CHANGELOG.md` updated with `[1.4.5]` section
+- [ ] Tagged `v1.4.5` and pushed; GitHub Actions release runs
 - [ ] npm publish: `cd npm && npm publish --access public`
 - [ ] `graphify update .` run after all code changes
 
