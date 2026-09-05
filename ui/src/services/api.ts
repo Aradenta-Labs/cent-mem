@@ -192,6 +192,7 @@ export async function testClassifierEndpoint(params: TestClassifierParams): Prom
       local_llm_model: params?.local_llm_model,
       api_base_url: params?.api_base_url,
       api_key_env: params?.api_key_env,
+      api_key: params?.api_key ?? params?.api_key_env,
       api_model: params?.api_model,
       confidence_threshold: params?.confidence_threshold,
     };

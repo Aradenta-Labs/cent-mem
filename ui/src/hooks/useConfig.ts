@@ -282,6 +282,7 @@ export function useConfig() {
         local_llm_model: cleanOverrides.local_llm_model ?? draft?.capture.local_llm_model,
         api_base_url: cleanOverrides.api_base_url ?? draft?.capture.api_base_url,
         api_key_env: cleanOverrides.api_key_env ?? draft?.capture.api_key_env,
+        api_key: cleanOverrides.api_key ?? cleanOverrides.api_key_env ?? draft?.capture.api_key_env,
         api_model: cleanOverrides.api_model ?? draft?.capture.api_model,
         confidence_threshold: cleanOverrides.confidence_threshold ?? draft?.capture.confidence_threshold,
       };

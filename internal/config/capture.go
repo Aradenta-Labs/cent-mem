@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -18,6 +19,7 @@ type CaptureConfig struct {
 	LocalLLMModel       string   `json:"local_llm_model" toml:"local_llm_model"`
 	APIBaseURL          string   `json:"api_base_url" toml:"api_base_url"`
 	APIKeyEnv           string   `json:"api_key_env" toml:"api_key_env"`
+	APIKey              string   `json:"api_key,omitempty" toml:"api_key,omitempty"`
 	APIModel            string   `json:"api_model" toml:"api_model"`
 	ConfidenceThreshold float64  `json:"confidence_threshold" toml:"confidence_threshold"`
 }
@@ -66,3 +68,94 @@ func ValidateCaptureConfig(c CaptureConfig) error {
 	}
 	return nil
 }
+
+// ResolveAPIKey extracts the actual secret token from a string which may either be:
+// 1. The name of an environment variable (e.g. "OPENAI_API_KEY", "MY_API_KEY").
+// 2. A direct API key token (e.g. "sk-...", "sk-proj-...", or any raw token).
+//
+// It returns the resolved API key and a boolean `fromEnv` indicating whether it
+// was resolved from an environment variable (or was intended as an unset env var).
+func ResolveAPIKey(keyOrEnv string) (apiKey string, fromEnv bool) {
+	trimmed := strings.TrimSpace(keyOrEnv)
+	if trimmed == "" {
+		return "", false
+	}
+
+	// Clean up surrounding quotes if accidentally supplied (e.g. "sk-..." or 'sk-...')
+	if len(trimmed) >= 2 {
+		if (trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"') ||
+			(trimmed[0] == '\'' && trimmed[len(trimmed)-1] == '\'') {
+			trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+		}
+	}
+
+	// Clean up optional "Bearer " or "bearer " prefix if supplied
+	if len(trimmed) > 7 && strings.EqualFold(trimmed[:7], "bearer ") {
+		trimmed = strings.TrimSpace(trimmed[7:])
+	}
+
+	// Clean up surrounding quotes again if nested inside "Bearer ..."
+	if len(trimmed) >= 2 {
+		if (trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"') ||
+			(trimmed[0] == '\'' && trimmed[len(trimmed)-1] == '\'') {
+			trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+		}
+	}
+
+	if trimmed == "" {
+		return "", false
+	}
+
+	// 1. If an environment variable with this exact name exists and is non-empty, use its value.
+	if envVal := os.Getenv(trimmed); envVal != "" {
+		return strings.TrimSpace(envVal), true
+	}
+
+	// 2. Check if the input is likely a direct API key secret token rather than an env var name.
+	if isLikelyDirectKey(trimmed) {
+		return trimmed, false
+	}
+
+	// 3. Otherwise, treat it as an unset or empty environment variable.
+	return "", true
+}
+
+func isLikelyDirectKey(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	// 1. If it contains characters illegal in POSIX environment variable names,
+	// it is definitely a direct key token (e.g. contains hyphens, colons, slashes, spaces, dots, pluses).
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return true
+		}
+	}
+
+	lower := strings.ToLower(s)
+	// 2. Well-known secret token prefixes
+	for _, prefix := range []string{"sk-", "sk_", "gsk_", "hf_", "xai-", "ghr-", "key-", "api-", "co-", "pplx-", "glpat-", "ghp_"} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+
+	// 3. Standard environment variable naming convention is UPPERCASE with underscores and digits (e.g. OPENAI_API_KEY).
+	// If the string contains lowercase letters and was not found in the environment,
+	// it is almost certainly a direct API key / secret token (e.g. "secret", "mytoken123", "a1b2c3d4...").
+	for _, r := range s {
+		if r >= 'a' && r <= 'z' {
+			return true
+		}
+	}
+
+	// 4. Long random hash strings (>= 32 chars) without standard env var descriptor words
+	// like "KEY", "TOKEN", "SECRET", "API" are treated as raw keys.
+	if len(s) >= 32 && !strings.Contains(s, "KEY") && !strings.Contains(s, "TOKEN") && !strings.Contains(s, "SECRET") && !strings.Contains(s, "API") {
+		return true
+	}
+
+	return false
+}
+

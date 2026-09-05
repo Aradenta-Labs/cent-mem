@@ -264,3 +264,116 @@ func TestConfigCaptureRejectsInvalidBackend(t *testing.T) {
 	}
 }
 
+func TestResolveAPIKey(t *testing.T) {
+	// 1. Unset env var
+	os.Unsetenv("TEST_UNSET_API_KEY_VAR")
+	key, fromEnv := config.ResolveAPIKey("TEST_UNSET_API_KEY_VAR")
+	if key != "" || !fromEnv {
+		t.Errorf("expected empty key and fromEnv=true for unset var, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 2. Set env var
+	t.Setenv("TEST_SET_API_KEY_VAR", "sk-resolved-from-env")
+	key, fromEnv = config.ResolveAPIKey("TEST_SET_API_KEY_VAR")
+	if key != "sk-resolved-from-env" || !fromEnv {
+		t.Errorf("expected sk-resolved-from-env and fromEnv=true, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 3. Direct API key like in User's screenshot: sk-f7c1cf87505b4556-yi1kjc-2435b0d4
+	userKey := "sk-f7c1cf87505b4556-yi1kjc-2435b0d4"
+	key, fromEnv = config.ResolveAPIKey(userKey)
+	if key != userKey || fromEnv {
+		t.Errorf("expected userKey direct resolution and fromEnv=false, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 4. Direct API key with Bearer prefix
+	key, fromEnv = config.ResolveAPIKey("Bearer sk-direct-with-bearer-12345")
+	if key != "sk-direct-with-bearer-12345" || fromEnv {
+		t.Errorf("expected stripped bearer key and fromEnv=false, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 5. Empty input
+	key, fromEnv = config.ResolveAPIKey("")
+	if key != "" || fromEnv {
+		t.Errorf("expected empty key and fromEnv=false for empty input, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 6. Direct key with gsk_ prefix
+	key, fromEnv = config.ResolveAPIKey("gsk_some_groq_key_value")
+	if key != "gsk_some_groq_key_value" || fromEnv {
+		t.Errorf("expected gsk key direct resolution, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 7. Direct key with 32-char hex string
+	hexKey := "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	key, fromEnv = config.ResolveAPIKey(hexKey)
+	if key != hexKey || fromEnv {
+		t.Errorf("expected hexKey direct resolution, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 8. Lowercase bearer prefix and whitespace
+	key, fromEnv = config.ResolveAPIKey("  bearer sk-lowercase-bearer-12345  ")
+	if key != "sk-lowercase-bearer-12345" || fromEnv {
+		t.Errorf("expected stripped lowercase bearer key, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 9. Surrounding double and single quotes
+	key, fromEnv = config.ResolveAPIKey(`"sk-quoted-token-12345"`)
+	if key != "sk-quoted-token-12345" || fromEnv {
+		t.Errorf("expected stripped double quotes, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+	key, fromEnv = config.ResolveAPIKey(`'sk-single-quoted-12345'`)
+	if key != "sk-single-quoted-12345" || fromEnv {
+		t.Errorf("expected stripped single quotes, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 10. Nested Bearer and quotes
+	key, fromEnv = config.ResolveAPIKey(`Bearer "sk-nested-bearer-quotes-12345"`)
+	if key != "sk-nested-bearer-quotes-12345" || fromEnv {
+		t.Errorf("expected stripped nested bearer and quotes, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 11. Short lowercase direct key
+	key, fromEnv = config.ResolveAPIKey("secret")
+	if key != "secret" || fromEnv {
+		t.Errorf("expected secret direct resolution, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+
+	// 12. sk_live_ token
+	key, fromEnv = config.ResolveAPIKey("sk_live_1234567890abcdef")
+	if key != "sk_live_1234567890abcdef" || fromEnv {
+		t.Errorf("expected sk_live direct resolution, got key=%q, fromEnv=%v", key, fromEnv)
+	}
+}
+
+func TestCaptureConfig_TOML_APIKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.toml")
+
+	// 1. Save and Load with APIKey set
+	cfg := config.Config{
+		Model:     config.ModelConfig{Name: "bge-small-en-v1.5", Dims: 384},
+		Retention: config.DefaultRetention(),
+		Capture:   config.DefaultCaptureConfig(),
+		Search:    config.DefaultSearchConfig(),
+	}
+	cfg.Capture.APIKey = "sk-direct-toml-key"
+	cfg.Capture.APIKeyEnv = "sk-direct-toml-key"
+
+	if err := config.SaveTOML(cfgPath, cfg); err != nil {
+		t.Fatalf("SaveTOML failed: %v", err)
+	}
+
+	loaded, err := config.LoadTOML(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadTOML failed: %v", err)
+	}
+	if loaded.Capture.APIKey != "sk-direct-toml-key" {
+		t.Errorf("expected Capture.APIKey to round-trip in TOML, got %q", loaded.Capture.APIKey)
+	}
+	if loaded.Capture.APIKeyEnv != "sk-direct-toml-key" {
+		t.Errorf("expected Capture.APIKeyEnv to round-trip in TOML, got %q", loaded.Capture.APIKeyEnv)
+	}
+}
+
+

@@ -2,6 +2,7 @@ package capture_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -287,6 +288,46 @@ func TestOpenAICompatible_Success(t *testing.T) {
 		t.Errorf("expected Authorization header 'Bearer sk-mock-12345', got %q", authHeader)
 	}
 	if len(items) != 1 || items[0].Key != "server.port" {
+		t.Errorf("unexpected items: %+v", items)
+	}
+}
+
+func TestOpenAICompatible_DirectAPIKey(t *testing.T) {
+	var authHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		resp := map[string]any{
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"content": `[{"category":"fact","key":"api.provider","content":"Using direct key","confidence":0.95}]`,
+					},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cfg := capture.DefaultCaptureConfig()
+	cfg.Backend = "openai-compatible"
+	cfg.APIBaseURL = server.URL
+	cfg.APIKeyEnv = "sk-f7c1cf87505b4556-yi1kjc-2435b0d4" // User's direct key format
+	cfg.APIModel = "deepseek-v4-flash"
+
+	messages := []capture.TranscriptMessage{
+		{Role: "user", Content: "We are configuring direct provider keys."},
+	}
+
+	items, err := capture.ClassifyWithConfig(context.Background(), messages, cfg, nil)
+	if err != nil {
+		t.Fatalf("ClassifyWithConfig failed: %v", err)
+	}
+	if authHeader != "Bearer sk-f7c1cf87505b4556-yi1kjc-2435b0d4" {
+		t.Errorf("expected Authorization header with direct key, got %q", authHeader)
+	}
+	if len(items) != 1 || items[0].Key != "api.provider" {
 		t.Errorf("unexpected items: %+v", items)
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/aradenta-labs/cent-mem/internal/config"
 )
 
 // CaptureItem represents a piece of durable knowledge extracted from a transcript.
@@ -298,11 +300,14 @@ func NewOpenAICompatibleClassifier(cfg CaptureConfig) *OpenAICompatibleClassifie
 }
 
 func (o *OpenAICompatibleClassifier) Classify(ctx context.Context, messages []TranscriptMessage, recallFn RecallFunc) ([]CaptureItem, error) {
-	keyEnv := o.cfg.APIKeyEnv
+	keyEnv := o.cfg.APIKey
+	if keyEnv == "" {
+		keyEnv = o.cfg.APIKeyEnv
+	}
 	if keyEnv == "" {
 		keyEnv = "OPENAI_API_KEY"
 	}
-	apiKey := os.Getenv(keyEnv)
+	apiKey, _ := config.ResolveAPIKey(keyEnv)
 	if apiKey == "" {
 		// Key missing; fallback to heuristic
 		return o.fallback.Classify(ctx, messages, recallFn)

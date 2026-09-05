@@ -8,6 +8,14 @@ const {
   WORKFLOW_BLOCK,
   COMMAND_BLOCK,
   CANDIDATE_INSTRUCTION_FILES,
+  HARNESSES,
+  detectHarnesses,
+  isInsideGitRepo,
+  resolveScope,
+  buildTargets,
+  promptHarnessSelection,
+  parseSelection,
+  parseConfirmation,
   getHomeDir,
   getSkillTargets,
   detectInstructionFiles,
@@ -16,6 +24,7 @@ const {
   injectWorkflowAndCommands,
   removeWorkflowAndCommands,
   parseArgs,
+  printHelp,
   run
 } = require('../bin/install.js');
 
@@ -36,6 +45,19 @@ test('parseArgs correctly parses flags and commands', () => {
   assert.strictEqual(addCmd.command, 'install');
   assert.strictEqual(addCmd.url, 'https://github.com/aradenta-labs/cent-mem');
   assert.strictEqual(addCmd.skillName, 'centmem');
+
+  // v1.4.5 new flags
+  const globalOpts = parseArgs(['node', 'install.js', '--global']);
+  assert.strictEqual(globalOpts.global, true);
+
+  const projectOpts = parseArgs(['node', 'install.js', '--project']);
+  assert.strictEqual(projectOpts.project, true);
+
+  const yesOpts = parseArgs(['node', 'install.js', '--yes']);
+  assert.strictEqual(yesOpts.yes, true);
+
+  const yShortOpts = parseArgs(['node', 'install.js', '-y']);
+  assert.strictEqual(yShortOpts.yes, true);
 });
 
 test('injectSection appends when tag is missing and replaces when tag exists', () => {
@@ -203,3 +225,323 @@ test('Full E2E install and uninstall workflow', () => {
     fs.rmSync(tmpCwd, { recursive: true, force: true });
   }
 });
+
+// =========================================================================
+// v1.4.5 New Unit Tests
+// =========================================================================
+
+test('detectHarnesses_returnsOnlyPresentDirs', () => {
+  const tmpHome = createTempDir('home-detect-');
+  const tmpCwd = createTempDir('cwd-detect-');
+  try {
+    fs.mkdirSync(path.join(tmpHome, '.cursor'), { recursive: true });
+    fs.mkdirSync(path.join(tmpHome, '.gemini', 'antigravity'), { recursive: true });
+
+    const detected = detectHarnesses(tmpHome, tmpCwd);
+    const ids = detected.map(h => h.id);
+    assert.strictEqual(detected.length, 2);
+    assert(ids.includes('cursor'));
+    assert(ids.includes('antigravity'));
+    assert(!ids.includes('claude'));
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test('detectHarnesses_returnsEmptyWhenNoneFound', () => {
+  const tmpHome = createTempDir('home-empty-');
+  const tmpCwd = createTempDir('cwd-empty-');
+  try {
+    const detected = detectHarnesses(tmpHome, tmpCwd);
+    assert.strictEqual(detected.length, 0);
+    assert.deepStrictEqual(detected, []);
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test('resolveScope_projectWhenInsideGitRepo', () => {
+  const tmpGitRoot = createTempDir('git-root-');
+  try {
+    fs.mkdirSync(path.join(tmpGitRoot, '.git'), { recursive: true });
+    const subDir = path.join(tmpGitRoot, 'packages', 'app');
+    fs.mkdirSync(subDir, { recursive: true });
+
+    assert.strictEqual(isInsideGitRepo(subDir), true);
+    assert.strictEqual(resolveScope({ cwd: subDir }), 'project');
+  } finally {
+    fs.rmSync(tmpGitRoot, { recursive: true, force: true });
+  }
+});
+
+test('resolveScope_globalWhenOutsideGitRepo', () => {
+  const tmpDir = createTempDir('non-git-');
+  try {
+    assert.strictEqual(isInsideGitRepo(tmpDir), false);
+    assert.strictEqual(resolveScope({ cwd: tmpDir }), 'global');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('resolveScope_globalFlagOverridesGitRepo', () => {
+  const tmpGitRoot = createTempDir('git-root-');
+  try {
+    fs.mkdirSync(path.join(tmpGitRoot, '.git'), { recursive: true });
+    assert.strictEqual(resolveScope({ cwd: tmpGitRoot, global: true }), 'global');
+  } finally {
+    fs.rmSync(tmpGitRoot, { recursive: true, force: true });
+  }
+});
+
+test('resolveScope_projectFlagOverridesOutsideRepo', () => {
+  const tmpDir = createTempDir('non-git-');
+  try {
+    assert.strictEqual(resolveScope({ cwd: tmpDir, project: true }), 'project');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('buildTargets_projectScope_usesProjectPaths', () => {
+  const tmpHome = createTempDir('home-targets-');
+  const tmpCwd = createTempDir('cwd-targets-');
+  try {
+    const claudeHarness = HARNESSES.find(h => h.id === 'claude');
+    const targets = buildTargets([claudeHarness], 'project', tmpHome, tmpCwd, 'centmem');
+
+    assert(targets.includes(path.join(tmpCwd, '.claude', 'skills', 'centmem')));
+    assert(targets.includes(path.join(tmpCwd, '.agents', 'skills', 'centmem')));
+    assert(!targets.includes(path.join(tmpHome, '.claude', 'skills', 'centmem')));
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test('buildTargets_globalScope_usesHomePaths', () => {
+  const tmpHome = createTempDir('home-targets-');
+  const tmpCwd = createTempDir('cwd-targets-');
+  try {
+    const claudeHarness = HARNESSES.find(h => h.id === 'claude');
+    const cursorHarness = HARNESSES.find(h => h.id === 'cursor');
+    const targets = buildTargets([claudeHarness, cursorHarness], 'global', tmpHome, tmpCwd, 'centmem');
+
+    assert(targets.includes(path.join(tmpHome, '.claude', 'skills', 'centmem')));
+    assert(targets.includes(path.join(tmpHome, '.cursor', 'rules', 'centmem')));
+    assert(!targets.includes(path.join(tmpCwd, '.claude', 'skills', 'centmem')));
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test('promptHarnessSelection_nonTTY_returnsDetected', async () => {
+  const claudeHarness = HARNESSES.find(h => h.id === 'claude');
+  const cursorHarness = HARNESSES.find(h => h.id === 'cursor');
+  const detected = [claudeHarness, cursorHarness];
+
+  // In test environment, process.stdout.isTTY is falsy (non-TTY)
+  const result = await promptHarnessSelection(detected, HARNESSES, {});
+  assert.deepStrictEqual(result, detected);
+});
+
+test('promptHarnessSelection_singleHarness_returnsWithoutPrompt', async () => {
+  const antigravityHarness = HARNESSES.find(h => h.id === 'antigravity');
+  const detected = [antigravityHarness];
+
+  const result = await promptHarnessSelection(detected, HARNESSES, {});
+  assert.deepStrictEqual(result, detected);
+});
+
+test('parseSelection and parseConfirmation correctly handle interactive answers', () => {
+  const h1 = { id: 'one' };
+  const h2 = { id: 'two' };
+  const list = [h1, h2];
+
+  // parseSelection
+  assert.deepStrictEqual(parseSelection('', list), []);
+  assert.deepStrictEqual(parseSelection('   ', list), []);
+  assert.deepStrictEqual(parseSelection('abc', list), []);
+  assert.deepStrictEqual(parseSelection('1', list), [h1]);
+  assert.deepStrictEqual(parseSelection('2', list), [h2]);
+  assert.deepStrictEqual(parseSelection('1, 2', list), [h1, h2]);
+  assert.deepStrictEqual(parseSelection('1 2', list), [h1, h2]);
+  assert.deepStrictEqual(parseSelection('1,1,2', list), [h1, h2]);
+  assert.deepStrictEqual(parseSelection('0, 3', list), []);
+
+  // parseConfirmation
+  assert.deepStrictEqual(parseConfirmation('', list), list);
+  assert.deepStrictEqual(parseConfirmation('y', list), list);
+  assert.deepStrictEqual(parseConfirmation('yes', list), list);
+  assert.deepStrictEqual(parseConfirmation('YES', list), list);
+  assert.deepStrictEqual(parseConfirmation('n', list), []);
+  assert.deepStrictEqual(parseConfirmation('no', list), []);
+  assert.deepStrictEqual(parseConfirmation('2', list), [h2]);
+});
+
+test('run with --list, --help, and --dry-run exits 0', () => {
+  const tmpHome = createTempDir('home-cli-');
+  const tmpCwd = createTempDir('cwd-cli-');
+  try {
+    assert.strictEqual(run(['node', 'install.js', '--help']), 0);
+    assert.strictEqual(run(['node', 'install.js', '--list', '--home', tmpHome, '--cwd', tmpCwd]), 0);
+    assert.strictEqual(run(['node', 'install.js', '--dry-run', '--home', tmpHome, '--cwd', tmpCwd]), 0);
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test('run with --global --yes exits 0 with warning when no harnesses detected', () => {
+  const tmpHome = createTempDir('home-empty-');
+  const tmpCwd = createTempDir('cwd-empty-');
+  try {
+    const exitCode = run(['node', 'install.js', '--global', '--yes', '--home', tmpHome, '--cwd', tmpCwd]);
+    assert.strictEqual(exitCode, 0);
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test('run installs only to detected harnesses when harness exists', () => {
+  const tmpHome = createTempDir('home-single-');
+  const tmpCwd = createTempDir('cwd-single-');
+  try {
+    // Simulate only cursor installed
+    fs.mkdirSync(path.join(tmpHome, '.cursor'), { recursive: true });
+
+    const exitCode = run(['node', 'install.js', '--home', tmpHome, '--cwd', tmpCwd]);
+    assert.strictEqual(exitCode, 0);
+
+    // Cursor rule exists
+    assert(fs.existsSync(path.join(tmpHome, '.cursor', 'rules', 'centmem', 'SKILL.md')));
+
+    // Claude and Trae should NOT be installed
+    assert(!fs.existsSync(path.join(tmpHome, '.claude', 'skills', 'centmem')));
+    assert(!fs.existsSync(path.join(tmpHome, '.trae', 'skills', 'centmem')));
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test('run with --global installs workflow and commands to homeDir/AGENTS.md and uninstalls cleanly', () => {
+  const tmpHome = createTempDir('home-global-');
+  const tmpCwd = createTempDir('cwd-global-');
+  try {
+    fs.mkdirSync(path.join(tmpHome, '.gemini', 'antigravity'), { recursive: true });
+
+    // Install with --global
+    const exitCode = run(['node', 'install.js', '--global', '--home', tmpHome, '--cwd', tmpCwd]);
+    assert.strictEqual(exitCode, 0);
+
+    // AGENTS.md must be created in homeDir, NOT cwd
+    assert(fs.existsSync(path.join(tmpHome, 'AGENTS.md')), 'AGENTS.md should exist in homeDir for --global');
+    assert(!fs.existsSync(path.join(tmpCwd, 'AGENTS.md')), 'AGENTS.md should NOT exist in cwd for --global');
+
+    const homeContent = fs.readFileSync(path.join(tmpHome, 'AGENTS.md'), 'utf8');
+    assert(homeContent.includes('## cent-mem Workflow'));
+
+    // Uninstall with --global
+    const uninstExit = run(['node', 'install.js', 'uninstall', '--global', '--home', tmpHome, '--cwd', tmpCwd]);
+    assert.strictEqual(uninstExit, 0);
+    assert(!fs.existsSync(path.join(tmpHome, 'AGENTS.md')), 'Empty AGENTS.md should be cleaned up from homeDir');
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+
+test('promptHarnessSelection interactive selection with readline streams', async () => {
+  const { Readable, Writable } = require('node:stream');
+
+  const antigravityHarness = HARNESSES.find(h => h.id === 'antigravity');
+  const claudeHarness = HARNESSES.find(h => h.id === 'claude');
+  const cursorHarness = HARNESSES.find(h => h.id === 'cursor');
+  const detected = [antigravityHarness, claudeHarness, cursorHarness];
+
+  // Helper to create mocked readline I/O streams
+  function makeMockStreams(inputText) {
+    const input = new Readable({
+      read() {
+        this.push(inputText);
+        this.push(null);
+      }
+    });
+    const output = new Writable({
+      write(chunk, encoding, callback) {
+        callback();
+      }
+    });
+    return { input, output, isTTY: true };
+  }
+
+  // 1. User picks '1,2' from detected
+  const res1 = await promptHarnessSelection(detected, HARNESSES, makeMockStreams('1,2\n'));
+  assert.strictEqual(res1.length, 2);
+  assert.strictEqual(res1[0].id, 'antigravity');
+  assert.strictEqual(res1[1].id, 'claude');
+
+  // 2. User answers 'n' to reject all
+  const res2 = await promptHarnessSelection(detected, HARNESSES, makeMockStreams('n\n'));
+  assert.deepStrictEqual(res2, []);
+
+  // 3. User answers 'y' to accept all
+  const res3 = await promptHarnessSelection(detected, HARNESSES, makeMockStreams('y\n'));
+  assert.strictEqual(res3.length, 3);
+
+  // 4. No harnesses detected: user picks '1,3' from all available harnesses
+  const res4 = await promptHarnessSelection([], HARNESSES, makeMockStreams('1,3\n'));
+  assert.strictEqual(res4.length, 2);
+  assert.strictEqual(res4[0].id, HARNESSES[0].id);
+  assert.strictEqual(res4[1].id, HARNESSES[2].id);
+
+  // 5. No harnesses detected: user presses Enter to skip
+  const res5 = await promptHarnessSelection([], HARNESSES, makeMockStreams('\n'));
+  assert.deepStrictEqual(res5, []);
+});
+
+test('run end-to-end interactive TTY disambiguation where user selects 1 of 2 detected harnesses', async () => {
+  const { Readable, Writable } = require('node:stream');
+
+  const tmpHome = createTempDir('home-interactive-');
+  const tmpCwd = createTempDir('cwd-interactive-');
+  try {
+    // Simulate both cursor and antigravity present
+    fs.mkdirSync(path.join(tmpHome, '.cursor'), { recursive: true });
+    fs.mkdirSync(path.join(tmpHome, '.gemini', 'antigravity'), { recursive: true });
+
+    // Stream inputs '2\n' (Cursor is item 2 after Antigravity)
+    const input = new Readable({
+      read() {
+        this.push('2\n');
+        this.push(null);
+      }
+    });
+    const output = new Writable({
+      write(chunk, encoding, callback) {
+        callback();
+      }
+    });
+
+    const exitCode = await run(
+      ['node', 'install.js', '--home', tmpHome, '--cwd', tmpCwd],
+      { isTTY: true, input, output }
+    );
+    assert.strictEqual(exitCode, 0);
+
+    // Cursor rules should be installed (item 2)
+    assert(fs.existsSync(path.join(tmpHome, '.cursor', 'rules', 'centmem', 'SKILL.md')));
+
+    // Antigravity should NOT be installed (not chosen)
+    assert(!fs.existsSync(path.join(tmpHome, '.gemini', 'antigravity', 'skills', 'centmem')));
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }
+});
+

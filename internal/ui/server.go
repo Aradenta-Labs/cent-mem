@@ -1228,7 +1228,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			LocalLLMEndpoint    string  `json:"local_llm_endpoint"`
 			LocalLLMModel       string  `json:"local_llm_model"`
 			APIBaseURL          string  `json:"api_base_url"`
-			APIKeyEnv           string  `json:"api_key_env"`
+			APIKeyEnv           *string `json:"api_key_env"`
+			APIKey              *string `json:"api_key"`
 			APIModel            string  `json:"api_model"`
 			ConfidenceThreshold float64 `json:"confidence_threshold"`
 		}
@@ -1342,12 +1343,19 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				baseURL = "https://api.openai.com/v1"
 			}
 
-			keyEnv := strings.TrimSpace(req.APIKeyEnv)
-			if keyEnv == "" {
-				keyEnv = strings.TrimSpace(activeCapture.APIKeyEnv)
-			}
-			if keyEnv == "" {
-				keyEnv = "OPENAI_API_KEY"
+			var keyEnv string
+			if req.APIKey != nil && strings.TrimSpace(*req.APIKey) != "" {
+				keyEnv = strings.TrimSpace(*req.APIKey)
+			} else if req.APIKeyEnv != nil && strings.TrimSpace(*req.APIKeyEnv) != "" {
+				keyEnv = strings.TrimSpace(*req.APIKeyEnv)
+			} else if req.APIKey == nil && req.APIKeyEnv == nil {
+				keyEnv = strings.TrimSpace(activeCapture.APIKey)
+				if keyEnv == "" {
+					keyEnv = strings.TrimSpace(activeCapture.APIKeyEnv)
+				}
+				if keyEnv == "" {
+					keyEnv = "OPENAI_API_KEY"
+				}
 			}
 
 			model := strings.TrimSpace(req.APIModel)
@@ -1358,14 +1366,18 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				model = "gpt-4o-mini"
 			}
 
-			apiKey := os.Getenv(keyEnv)
+			apiKey, fromEnv := config.ResolveAPIKey(keyEnv)
 			if apiKey == "" {
+				msg := fmt.Sprintf("Environment variable %q is not set or empty", keyEnv)
+				if !fromEnv || keyEnv == "" {
+					msg = "API key or environment variable is empty"
+				}
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"ok":         false,
 					"status":     "missing_api_key",
 					"latency_ms": int64(0),
 					"model":      model,
-					"message":    fmt.Sprintf("Environment variable %q is not set or empty", keyEnv),
+					"message":    msg,
 				})
 				return
 			}
@@ -1408,12 +1420,16 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			defer resp.Body.Close()
 
 			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				target := keyEnv
+				if !fromEnv {
+					target = "provided API key"
+				}
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"ok":         false,
 					"status":     "unauthorized",
 					"latency_ms": latencyMs,
 					"model":      model,
-					"message":    fmt.Sprintf("Authentication failed with %s: invalid API key (HTTP %d)", keyEnv, resp.StatusCode),
+					"message":    fmt.Sprintf("Authentication failed with %s: invalid API key (HTTP %d)", target, resp.StatusCode),
 				})
 				return
 			}
@@ -1427,6 +1443,45 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 					"message":    "OpenAI-compatible endpoint is authenticated and healthy.",
 				})
 				return
+			}
+
+			if resp.StatusCode == http.StatusNotFound {
+				// Gateways that do not implement /models: probe /chat/completions
+				chatURL := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
+				chatReq, chatErr := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, strings.NewReader(`{"model":`+strconv.Quote(model)+`,"messages":[{"role":"user","content":"ping"}],"max_tokens":1}`))
+				if chatErr == nil {
+					chatReq.Header.Set("Content-Type", "application/json")
+					chatReq.Header.Set("Authorization", "Bearer "+apiKey)
+					chatResp, chatDoErr := client.Do(chatReq)
+					if chatDoErr == nil {
+						defer chatResp.Body.Close()
+						chatLatencyMs := time.Since(start).Milliseconds()
+						if chatResp.StatusCode >= 200 && chatResp.StatusCode < 300 {
+							_ = json.NewEncoder(w).Encode(map[string]any{
+								"ok":         true,
+								"status":     "connected",
+								"latency_ms": chatLatencyMs,
+								"model":      model,
+								"message":    "OpenAI-compatible endpoint is authenticated and healthy.",
+							})
+							return
+						}
+						if chatResp.StatusCode == http.StatusUnauthorized || chatResp.StatusCode == http.StatusForbidden {
+							target := keyEnv
+							if !fromEnv {
+								target = "provided API key"
+							}
+							_ = json.NewEncoder(w).Encode(map[string]any{
+								"ok":         false,
+								"status":     "unauthorized",
+								"latency_ms": chatLatencyMs,
+								"model":      model,
+								"message":    fmt.Sprintf("Authentication failed with %s: invalid API key (HTTP %d)", target, chatResp.StatusCode),
+							})
+							return
+						}
+					}
+				}
 			}
 
 			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

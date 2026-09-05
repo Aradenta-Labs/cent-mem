@@ -6,6 +6,7 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
   helperText?: string;
   error?: string;
   leftIcon?: React.ReactNode;
+  rightElement?: React.ReactNode;
   onClear?: () => void;
   size?: 'sm' | 'md';
 }
@@ -15,6 +16,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(({
   helperText,
   error,
   leftIcon,
+  rightElement,
   onClear,
   size = 'md',
   disabled,
@@ -47,7 +49,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(({
     fontFamily: 'var(--font-sans)',
     fontSize: size === 'sm' ? 'var(--text-xs)' : 'var(--text-sm)',
     paddingLeft: leftIcon ? (size === 'sm' ? '28px' : '36px') : (size === 'sm' ? 'var(--space-2)' : 'var(--space-3)'),
-    paddingRight: onClear && hasValue ? (size === 'sm' ? '28px' : '36px') : (size === 'sm' ? 'var(--space-2)' : 'var(--space-3)'),
+    paddingRight: rightElement
+      ? (size === 'sm' ? '28px' : '36px')
+      : onClear && hasValue
+      ? (size === 'sm' ? '28px' : '36px')
+      : (size === 'sm' ? 'var(--space-2)' : 'var(--space-3)'),
     height: size === 'sm' ? '28px' : '36px',
     backgroundColor: disabled ? 'var(--surface-secondary)' : 'var(--surface-primary)',
     color: disabled ? 'var(--text-muted)' : 'var(--text-primary)',
@@ -105,7 +111,19 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(({
           style={inputStyle}
           {...props}
         />
-        {onClear && hasValue && !disabled && (
+        {rightElement && (
+          <div
+            style={{
+              position: 'absolute',
+              right: size === 'sm' ? '6px' : '8px',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            {rightElement}
+          </div>
+        )}
+        {!rightElement && onClear && hasValue && !disabled && (
           <button
             type="button"
             onClick={onClear}

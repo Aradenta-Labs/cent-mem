@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2026-09-05
+
+Smart Skills Installer: Re-engineered `@aradenta.labs/centmem-skills` (`npm/bin/install.js`) with filesystem config directory harness detection, Git-aware scope inference, and interactive disambiguation using Node.js built-in `readline`.
+
+### Added
+
+- **Harness Detection (`npm/bin/harnesses.js`)**:
+  - Declarative `HARNESSES` registry mapping supported AI agent harnesses (Antigravity, Claude Code, Cursor, OpenAI Codex, Generic `.agents/skills`, Trae, Hermes) to filesystem config directory detection signals and installation target paths.
+  - `detectHarnesses(home, cwd)` to dynamically discover installed harnesses on the user's system rather than scattering files blindly.
+- **Scope Inference**:
+  - Automatic detection of project vs. global scope: defaults to `project` scope when inside a Git repository (walk-up `.git` discovery) and `global` scope when outside.
+  - `--global` and `--project` CLI flags to explicitly override scope inference from any directory.
+- **Interactive Disambiguation**:
+  - Interactive CLI prompting via Node.js built-in `readline` when multiple harnesses are detected or when no supported harnesses are found.
+  - `--yes`, `-y` flags to bypass interactive prompts and accept all detected defaults.
+  - CI / non-TTY safety with silent default fallback and zero third-party dependencies.
+- **Enhanced CLI Output & List Mode**:
+  - `list` command and installer output display resolved scope, detected harnesses, and formatted destination paths.
+
 ## [1.4.4] - 2026-09-04
 
 Recall Accuracy Enhancements: Phase C. Comprehensive Stage 2 re-ranking pipeline, scope proximity and agent affinity boosting, tag-weighted structured embeddings, background re-indexing command, and synthetic evaluation suite.

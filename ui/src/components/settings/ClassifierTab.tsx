@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
+import { Activity, RefreshCw, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
 import { CaptureConfig, TestClassifierResponse } from '../../types/config';
 import { SegmentedControl } from '../SegmentedControl';
 import { Slider } from '../Slider';
@@ -42,6 +42,13 @@ export const ClassifierTab: React.FC<ClassifierTabProps> = ({
   testResult,
   onTest,
 }) => {
+  const [showKey, setShowKey] = React.useState<boolean>(() => {
+    const val = (capture.api_key_env || capture.api_key || '').trim();
+    if (!val || (!val.startsWith('sk-') && !val.startsWith('gsk_') && !val.includes('-') && val === val.toUpperCase())) {
+      return true;
+    }
+    return false;
+  });
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
       <div>
@@ -122,11 +129,35 @@ export const ClassifierTab: React.FC<ClassifierTabProps> = ({
             }}
           >
             <Input
-              label="API Key Environment Variable"
-              helperText="Env variable containing secret token"
-              placeholder="OPENAI_API_KEY"
-              value={capture.api_key_env}
-              onChange={(e) => onChange('api_key_env', e.target.value)}
+              label="API Key or Environment Variable"
+              helperText="Secret API key token or env variable name (e.g. OPENAI_API_KEY)"
+              placeholder="OPENAI_API_KEY or sk-..."
+              type={showKey ? 'text' : 'password'}
+              value={capture.api_key_env || capture.api_key || ''}
+              onChange={(e) => {
+                onChange('api_key_env', e.target.value);
+                onChange('api_key', e.target.value);
+              }}
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  aria-label={showKey ? 'Hide API key' : 'Show API key'}
+                  title={showKey ? 'Hide API key' : 'Show API key'}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '2px',
+                    borderRadius: 'var(--radius-xs)',
+                  }}
+                >
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              }
             />
 
             <Input

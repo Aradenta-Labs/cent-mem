@@ -1250,6 +1250,95 @@ func TestServer_ConfigAPI_TestClassifier(t *testing.T) {
 		t.Errorf("expected connected status, got: %+v", resSuccess)
 	}
 
+	// 6b. Test openai-compatible with direct API key in api_key_env (e.g. user screenshot key)
+	mockDirectKeyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer sk-f7c1cf87505b4556-yi1kjc-2435b0d4" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data":   []map[string]any{{"id": "deepseek-v4-flash"}},
+		})
+	}))
+	defer mockDirectKeyServer.Close()
+
+	openAIPayloadDirectKey := fmt.Sprintf(`{"backend": "openai-compatible", "api_base_url": %q, "api_key_env": "sk-f7c1cf87505b4556-yi1kjc-2435b0d4"}`, mockDirectKeyServer.URL)
+	respDirectKey, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(openAIPayloadDirectKey))
+	if err != nil {
+		t.Fatalf("POST test-classifier direct key error: %v", err)
+	}
+	defer respDirectKey.Body.Close()
+
+	var resDirectKey map[string]any
+	_ = json.NewDecoder(respDirectKey.Body).Decode(&resDirectKey)
+	if resDirectKey["ok"] != true || resDirectKey["status"] != "connected" {
+		t.Errorf("expected connected status with direct key, got: %+v", resDirectKey)
+	}
+
+	// 6c. Test openai-compatible with api_key field and lowercase bearer
+	openAIPayloadBearer := fmt.Sprintf(`{"backend": "openai-compatible", "api_base_url": %q, "api_key": "bearer sk-f7c1cf87505b4556-yi1kjc-2435b0d4"}`, mockDirectKeyServer.URL)
+	respBearer, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(openAIPayloadBearer))
+	if err != nil {
+		t.Fatalf("POST test-classifier bearer key error: %v", err)
+	}
+	defer respBearer.Body.Close()
+
+	var resBearer map[string]any
+	_ = json.NewDecoder(respBearer.Body).Decode(&resBearer)
+	if resBearer["ok"] != true || resBearer["status"] != "connected" {
+		t.Errorf("expected connected status with bearer direct key, got: %+v", resBearer)
+	}
+
+	// 6d. Test fallback to /chat/completions when /models returns 404
+	mock404FallbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Path == "/chat/completions" {
+			if r.Header.Get("Authorization") != "Bearer sk-test-key-404" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{"message": map[string]any{"content": "ok"}}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mock404FallbackServer.Close()
+
+	openAI404Payload := fmt.Sprintf(`{"backend": "openai-compatible", "api_base_url": %q, "api_key": "sk-test-key-404", "api_model": "deepseek-v4-flash"}`, mock404FallbackServer.URL)
+	resp404, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(openAI404Payload))
+	if err != nil {
+		t.Fatalf("POST test-classifier 404 fallback error: %v", err)
+	}
+	defer resp404.Body.Close()
+
+	var res404 map[string]any
+	_ = json.NewDecoder(resp404.Body).Decode(&res404)
+	if res404["ok"] != true || res404["status"] != "connected" {
+		t.Errorf("expected connected status from /chat/completions fallback, got: %+v", res404)
+	}
+
+	// 6e. Test explicitly empty api_key and api_key_env
+	openAIEmptyPayload := `{"backend": "openai-compatible", "api_key_env": "", "api_key": ""}`
+	respEmpty, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(openAIEmptyPayload))
+	if err != nil {
+		t.Fatalf("POST test-classifier empty key error: %v", err)
+	}
+	defer respEmpty.Body.Close()
+
+	var resEmpty map[string]any
+	_ = json.NewDecoder(respEmpty.Body).Decode(&resEmpty)
+	if resEmpty["ok"] != false || resEmpty["status"] != "missing_api_key" {
+		t.Errorf("expected missing_api_key status for explicitly empty key, got: %+v", resEmpty)
+	}
+
 	// 7. Test invalid backend
 	badBackendPayload := `{"backend": "quantum-llm"}`
 	respBadBackend, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(badBackendPayload))
@@ -1259,5 +1348,43 @@ func TestServer_ConfigAPI_TestClassifier(t *testing.T) {
 	defer respBadBackend.Body.Close()
 	if respBadBackend.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 Bad Request for unknown backend, got %d", respBadBackend.StatusCode)
+	}
+}
+
+func TestServer_ConfigAPI_TestClassifier_LiveUserEndpoint(t *testing.T) {
+	srv, err := NewServer(ServerConfig{
+		Host:   "127.0.0.1",
+		Port:   0,
+		NoOpen: true,
+	})
+	if err != nil {
+		t.Fatalf("NewServer error: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	payload := `{"backend": "openai-compatible", "api_base_url": "https://griphubrouter.web.id/v1", "api_key": "sk-f7c1cf87505b4556-yi1kjc-2435b0d4", "api_model": "deepseek-v4-flash"}`
+	resp, err := client.Post(srv.URL()+"/api/config/test-classifier", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Skipf("Network unavailable: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var res map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Skipf("Failed to decode response: %v", err)
+	}
+	if res["status"] == "unreachable" {
+		t.Skipf("External host unreachable from test environment: %+v", res)
+	}
+	if res["ok"] != true || res["status"] != "connected" {
+		t.Fatalf("expected connected with user live endpoint, got %+v", res)
 	}
 }

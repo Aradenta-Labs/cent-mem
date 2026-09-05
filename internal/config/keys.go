@@ -26,6 +26,7 @@ var KnownConfigKeys = []string{
 	"capture.local_llm_model",
 	"capture.api_base_url",
 	"capture.api_key_env",
+	"capture.api_key",
 	"capture.api_model",
 	"capture.confidence_threshold",
 	"search.decay_half_life_days",
@@ -81,8 +82,16 @@ func GetConfigValue(cfg Config, key string) (any, error) {
 		return cfg.Capture.LocalLLMModel, nil
 	case "capture.api_base_url":
 		return cfg.Capture.APIBaseURL, nil
-	case "capture.api_key_env":
+	case "capture.api_key":
+		if cfg.Capture.APIKey != "" {
+			return cfg.Capture.APIKey, nil
+		}
 		return cfg.Capture.APIKeyEnv, nil
+	case "capture.api_key_env":
+		if cfg.Capture.APIKeyEnv != "" {
+			return cfg.Capture.APIKeyEnv, nil
+		}
+		return cfg.Capture.APIKey, nil
 	case "capture.api_model":
 		return cfg.Capture.APIModel, nil
 	case "capture.confidence_threshold":
@@ -237,6 +246,10 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 
 	case "capture.api_base_url":
 		cfg.Capture.APIBaseURL = val
+
+	case "capture.api_key":
+		cfg.Capture.APIKey = val
+		cfg.Capture.APIKeyEnv = val
 
 	case "capture.api_key_env":
 		cfg.Capture.APIKeyEnv = val

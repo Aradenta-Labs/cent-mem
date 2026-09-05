@@ -27,6 +27,7 @@ export interface CaptureConfig {
   local_llm_model: string;
   api_base_url: string;
   api_key_env: string;
+  api_key?: string;
   api_model: string;
   confidence_threshold: number;
   categories: string[];
@@ -69,6 +70,7 @@ export interface TestClassifierParams {
   local_llm_model?: string;
   api_base_url?: string;
   api_key_env?: string;
+  api_key?: string;
   api_model?: string;
   confidence_threshold?: number;
 }
