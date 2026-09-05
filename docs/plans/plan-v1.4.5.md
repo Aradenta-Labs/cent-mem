@@ -1,6 +1,6 @@
 # v1.4.5 — Recall Accuracy Enhancements (Phase C)
 
-**Version:** 1.4.4 (target)  
+**Version:** 1.4.5 (target)  
 **Owner:** Aradenta Labs  
 **Status:** Decisions resolved via `/grill-me` — ready for implementation  
 **Depends on:** v1.4.3 (Phase A + B shipped); backwards-compatible CLI extension
@@ -333,7 +333,7 @@ For each candidate $r$ in the top `rerankWindow` of Stage 1 RRF results:
 | `internal/config/keys.go` | **[MODIFY]** | Register `search.reranker`, `search.rerank_window`, `search.session_boost`, `search.agent_boost`. |
 | `internal/config/toml.go` | **[MODIFY]** | Add search fields to `SearchConfig` struct. |
 | `cmd/centmem/handlers.go` | **[MODIFY]** | Add `cmdReindex()`, update `cmdRecall()` to parse `--caller-agent` and `--reranker`. |
-| `cmd/centmem/main.go` | **[MODIFY]** | Register `reindex` in command dispatch. Bump version to 1.4.4. |
+| `cmd/centmem/main.go` | **[MODIFY]** | Register `reindex` in command dispatch. Bump version to 1.4.5. |
 | `docs/cli-contract.md` | **[MODIFY]** | Document `centmem reindex` and recall flags. |
 | `docs/data-model.md` | **[MODIFY]** | Document migration `m0003` and new config keys. |
 | `skill/SKILL.md` | **[MODIFY]** | Document caller affinity and reindex usage for agent workflows. |
@@ -421,6 +421,6 @@ All architectural dependencies have been resolved through interactive grilling:
 - [ ] Implement synthetic ground-truth corpus and metrics in `internal/search/eval_test.go`
 - [ ] Validate MRR@5 $\ge 0.85$ and NDCG@5 $\ge 0.80$
 - [ ] Run benchmarks to verify p95 latency $< 300\text{ ms}$ @ 100k memories
-- [ ] Update `CHANGELOG.md` with `[1.4.4]` section
-- [ ] Update `cmd/centmem/main.go` version to `1.4.4`
+- [ ] Update `CHANGELOG.md` with `[1.4.5]` section
+- [ ] Update `cmd/centmem/main.go` version to `1.4.5`
 - [ ] Run `graphify update .` after all changes
