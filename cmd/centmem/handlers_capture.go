@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,11 +38,19 @@ func cmdCapture(args []string) int {
 		return cmdCaptureCategories(rest)
 	case "convert":
 		return cmdCaptureConvert(rest)
+	case "git":
+		return cmdCaptureGit(rest)
+	case "docs":
+		return cmdCaptureDocs(rest)
+	case "shell":
+		return cmdCaptureShell(rest)
+	case "comments":
+		return cmdCaptureComments(rest)
 	case "-h", "--help", "help":
-		fmt.Fprintln(os.Stderr, "Usage: centmem capture <run|summary|categories|convert> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: centmem capture <run|summary|categories|convert|git|docs|shell|comments> [flags]")
 		return cli.ExitOK
 	default:
-		cli.WriteError(osStderr, cli.Invalidf("unknown capture subcommand %q: expected run, summary, categories, or convert", sub))
+		cli.WriteError(osStderr, cli.Invalidf("unknown capture subcommand %q: expected run, summary, categories, convert, git, docs, shell, or comments", sub))
 		return cli.ExitError
 	}
 }
@@ -456,4 +465,202 @@ func cmdCaptureConvert(args []string) int {
 			Harness:  harness,
 		})
 	})
+}
+
+// cmdCaptureGit handles `centmem capture git [--repo <path>] [--since <sha|date>] [--scope <scope>] [--dry-run] [--max-commits <n>]`.
+func cmdCaptureGit(args []string) int {
+	fs := newFlagSet("capture git")
+	fs.String("repo", "", "target git repository path")
+	fs.String("since", "", "commit SHA or date/duration")
+	fs.String("scope", "", "target memory scope")
+	fs.Bool("dry-run", false, "simulate without writing to SQLite")
+	fs.Int("max-commits", 100, "maximum commits to process")
+
+	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		repoPath := fs.Lookup("repo").Value.String()
+		sinceFlag := fs.Lookup("since").Value.String()
+		scopeFlag := fs.Lookup("scope").Value.String()
+		dryRunFlag := fs.Lookup("dry-run").Value.String() == "true"
+		maxCommitsStr := fs.Lookup("max-commits").Value.String()
+		maxCommits, _ := strconv.Atoi(maxCommitsStr)
+
+		ctx, cancel := signalContext()
+		defer cancel()
+
+		var st *store.Store
+		var err error
+		if !dryRunFlag {
+			if err := cfg.Ensure(); err != nil {
+				return cli.Internalf("ensure home: %v", err)
+			}
+			st, err = store.Open(cfg)
+			if err != nil {
+				return cli.Internalf("open store: %v", err)
+			}
+			defer st.Close()
+		}
+
+		res, err := capture.CaptureGit(ctx, st, capture.GitCaptureConfig{
+			RepoPath:   repoPath,
+			Since:      sinceFlag,
+			Scope:      scopeFlag,
+			DryRun:     dryRunFlag,
+			MaxCommits: maxCommits,
+		})
+		if err != nil {
+			return cli.Invalidf("%v", err)
+		}
+
+		return prettyPrint(fs, res)
+	})
+}
+
+// cmdCaptureDocs handles `centmem capture docs [--dir <path>] [--scope <scope>] [--ext md,txt,rst] [--dry-run]`.
+func cmdCaptureDocs(args []string) int {
+	fs := newFlagSet("capture docs")
+	fs.String("dir", "", "target documentation directory")
+	fs.String("scope", "", "target memory scope")
+	fs.String("ext", "md,txt,rst", "comma-separated file extensions")
+	fs.Bool("dry-run", false, "simulate without writing to SQLite")
+
+	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		dirPath := fs.Lookup("dir").Value.String()
+		scopeFlag := fs.Lookup("scope").Value.String()
+		extFlag := fs.Lookup("ext").Value.String()
+		dryRunFlag := fs.Lookup("dry-run").Value.String() == "true"
+
+		ctx, cancel := signalContext()
+		defer cancel()
+
+		var st *store.Store
+		var err error
+		if !dryRunFlag {
+			if err := cfg.Ensure(); err != nil {
+				return cli.Internalf("ensure home: %v", err)
+			}
+			st, err = store.Open(cfg)
+			if err != nil {
+				return cli.Internalf("open store: %v", err)
+			}
+			defer st.Close()
+		}
+
+		res, err := capture.CaptureDocs(ctx, st, capture.DocsCaptureConfig{
+			Dir:        dirPath,
+			Scope:      scopeFlag,
+			Extensions: splitCommaList(extFlag),
+			DryRun:     dryRunFlag,
+		})
+		if err != nil {
+			return cli.Invalidf("%v", err)
+		}
+
+		return prettyPrint(fs, res)
+	})
+}
+
+// cmdCaptureShell handles `centmem capture shell [--history <path>] [--shell <zsh|bash|fish>] [--scope <scope>] [--top <n>] [--dry-run]`.
+func cmdCaptureShell(args []string) int {
+	fs := newFlagSet("capture shell")
+	fs.String("history", "", "path to shell history file")
+	fs.String("shell", "", "shell type (zsh, bash, fish)")
+	fs.String("scope", "", "target memory scope")
+	fs.Int("top", 15, "number of top frequent patterns to save")
+	fs.Bool("dry-run", false, "simulate without writing to SQLite")
+
+	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		histPath := fs.Lookup("history").Value.String()
+		shellType := fs.Lookup("shell").Value.String()
+		scopeFlag := fs.Lookup("scope").Value.String()
+		topStr := fs.Lookup("top").Value.String()
+		topN, _ := strconv.Atoi(topStr)
+		dryRunFlag := fs.Lookup("dry-run").Value.String() == "true"
+
+		ctx, cancel := signalContext()
+		defer cancel()
+
+		var st *store.Store
+		var err error
+		if !dryRunFlag {
+			if err := cfg.Ensure(); err != nil {
+				return cli.Internalf("ensure home: %v", err)
+			}
+			st, err = store.Open(cfg)
+			if err != nil {
+				return cli.Internalf("open store: %v", err)
+			}
+			defer st.Close()
+		}
+
+		res, err := capture.CaptureShell(ctx, st, capture.ShellCaptureConfig{
+			HistoryPath: histPath,
+			ShellType:   shellType,
+			Scope:       scopeFlag,
+			TopN:        topN,
+			DryRun:      dryRunFlag,
+		})
+		if err != nil {
+			return cli.Invalidf("%v", err)
+		}
+
+		return prettyPrint(fs, res)
+	})
+}
+
+// cmdCaptureComments handles `centmem capture comments [--dir <path>] [--ext go,ts,js,py,rs,sh] [--keywords TODO,FIXME...] [--scope <scope>] [--dry-run]`.
+func cmdCaptureComments(args []string) int {
+	fs := newFlagSet("capture comments")
+	fs.String("dir", "", "target source code directory")
+	fs.String("ext", "go,ts,js,py,rs,sh", "comma-separated file extensions")
+	fs.String("keywords", "TODO,FIXME,HACK,NOTE,OPTIMIZE,SECURITY,DEPRECATED", "comma-separated keywords")
+	fs.String("scope", "", "target memory scope")
+	fs.Bool("dry-run", false, "simulate without writing to SQLite")
+
+	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		dirPath := fs.Lookup("dir").Value.String()
+		extFlag := fs.Lookup("ext").Value.String()
+		kwsFlag := fs.Lookup("keywords").Value.String()
+		scopeFlag := fs.Lookup("scope").Value.String()
+		dryRunFlag := fs.Lookup("dry-run").Value.String() == "true"
+
+		ctx, cancel := signalContext()
+		defer cancel()
+
+		var st *store.Store
+		var err error
+		if !dryRunFlag {
+			if err := cfg.Ensure(); err != nil {
+				return cli.Internalf("ensure home: %v", err)
+			}
+			st, err = store.Open(cfg)
+			if err != nil {
+				return cli.Internalf("open store: %v", err)
+			}
+			defer st.Close()
+		}
+
+		res, err := capture.CaptureComments(ctx, st, capture.CommentsCaptureConfig{
+			Dir:        dirPath,
+			Scope:      scopeFlag,
+			Extensions: splitCommaList(extFlag),
+			Keywords:   splitCommaList(kwsFlag),
+			DryRun:     dryRunFlag,
+		})
+		if err != nil {
+			return cli.Invalidf("%v", err)
+		}
+
+		return prettyPrint(fs, res)
+	})
+}
+
+func splitCommaList(s string) []string {
+	var result []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }

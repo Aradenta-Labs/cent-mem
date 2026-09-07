@@ -199,19 +199,27 @@ of the current DB, then replaces the live DB. Output: `{"ok": true, "restored_fr
 ---
 
 ### 3.14 `capture`
-Automatic transcript capture, session summaries, category management, and format normalization.
+Automatic transcript capture, session summaries, category management, format normalization, and developer artifact capture (Git, docs, shell, comments).
 
 ```
 centmem capture run [--transcript <path>] [--scope <scope>] [--harness <name>]
 centmem capture summary [--session <id>]
 centmem capture categories [--list] [--add <c>] [--remove <c>]
 centmem capture convert --harness <name> --input <path> [--output <path>]
+centmem capture git [--repo <path>] [--since <sha|date>] [--scope <scope>] [--dry-run] [--max-commits <n>]
+centmem capture docs [--dir <path>] [--scope <scope>] [--ext md,txt,rst] [--dry-run]
+centmem capture shell [--history <path>] [--shell <zsh|bash|fish>] [--scope <scope>] [--top <n>] [--dry-run]
+centmem capture comments [--dir <path>] [--ext go,ts,js,py,rs,sh] [--keywords TODO,FIXME...] [--scope <scope>] [--dry-run]
 ```
 
 - `run`: processes a transcript file or stdin pipe, classifies items, deduplicates, writes to store, and outputs `CaptureSummary` JSON.
 - `summary`: prints the last (or specified session's) capture summary as JSON. Exit 2 if not found.
 - `categories`: inspects or updates the active capture categories list.
 - `convert`: normalizes a harness transcript file into standard `.centmem.jsonl` format.
+- `git`: incrementally extracts architectural decisions and dependency facts from Git commits using `.centmem/git-cursor`.
+- `docs`: indexes markdown, plaintext, and RST documentation into heading-based chunks with mtime caching and tombstoning.
+- `shell`: extracts top frequent shell toolchain commands from zsh, bash, or fish history with high-entropy secret scrubbing.
+- `comments`: scans source code for actionable annotations (TODO, FIXME, HACK, SECURITY) with line-shift tracking.
 
 **Output (`capture run` / `capture summary`):**
 ```json
@@ -239,6 +247,29 @@ centmem capture convert --harness <name> --input <path> [--output <path>]
 **Output (`capture categories`):**
 ```json
 {"ok": true, "categories": ["decision", "fact", "preference", "code", "log", "error", "dependency"]}
+```
+
+**Output (`capture git` / `capture docs` / `capture shell` / `capture comments`):**
+```json
+{
+  "ok": true,
+  "command": "capture git",
+  "source": ".git",
+  "scanned": 24,
+  "commits_scanned": 24,
+  "memories_created": 3,
+  "memories_updated": 0,
+  "cursor": "a8f3bc1994d8721c0e352b9921",
+  "items": [
+    {
+      "id": 149,
+      "type": "note",
+      "tags": ["git", "commit", "decision"],
+      "content": "Commit a8f3bc1: Switch SQLite to WAL journal mode to improve multi-process concurrency.",
+      "dry_run": false
+    }
+  ]
+}
 ```
 
 ---

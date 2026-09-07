@@ -785,6 +785,241 @@ func (s *Store) Forget(ctx context.Context, ids []int64, scopePath, key, tag *st
 	return int(n), err
 }
 
+// ArchiveMemory marks an active memory as archived, drops its vector embeddings
+// and embed_queue jobs, and records an 'archive' event.
+func (s *Store) ArchiveMemory(ctx context.Context, id int64) error {
+	m, err := s.GetMemory(ctx, id)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return fmt.Errorf("memory %d not found", id)
+	}
+	if m.Status == "archived" {
+		return nil
+	}
+
+	now := nowMicro()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`,
+		now, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM embeddings WHERE memory_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM memories_vec WHERE memory_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM embed_queue WHERE memory_id = ?`, id); err != nil {
+		return err
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"memory_id": id,
+		"op":        "archive",
+	})
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
+		VALUES (?, 'archive', ?, ?, ?)`,
+		id, m.ScopePath, string(payload), now); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// ArchiveMemoriesByTag archives active memories matching scopePath (optional, if non-empty),
+// sourceAgent (optional, if non-empty), and tag (exact tag match in CSV tags column).
+// Returns the number of memories archived.
+func (s *Store) ArchiveMemoriesByTag(ctx context.Context, scopePath, sourceAgent, tag string) (int, error) {
+	var conds []string
+	var args []any
+
+	conds = append(conds, "m.status = 'active'")
+
+	if scopePath != "" {
+		sc, err := scope.Parse(scopePath)
+		if err != nil {
+			return 0, err
+		}
+		conds = append(conds, "s.path = ?")
+		args = append(args, sc.Path)
+	}
+
+	if sourceAgent != "" {
+		conds = append(conds, "m.source_agent = ?")
+		args = append(args, sourceAgent)
+	}
+
+	if tag != "" {
+		conds = append(conds, "(',' || m.tags || ',') LIKE ?")
+		args = append(args, "%,"+tag+",%")
+	}
+
+	query := `SELECT m.id, s.path FROM memories m JOIN scopes s ON s.id = m.scope_id WHERE ` + strings.Join(conds, " AND ")
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type toArchive struct {
+		id        int64
+		scopePath string
+	}
+	var items []toArchive
+	for rows.Next() {
+		var item toArchive
+		if err := rows.Scan(&item.id, &item.scopePath); err != nil {
+			return 0, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	if len(items) == 0 {
+		return 0, nil
+	}
+
+	now := nowMicro()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	for _, item := range items {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`,
+			now, item.id); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM embeddings WHERE memory_id = ?`, item.id); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM memories_vec WHERE memory_id = ?`, item.id); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM embed_queue WHERE memory_id = ?`, item.id); err != nil {
+			return 0, err
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"memory_id": item.id,
+			"op":        "archive",
+		})
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
+			VALUES (?, 'archive', ?, ?, ?)`,
+			item.id, item.scopePath, string(payload), now); err != nil {
+			return 0, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(items), nil
+}
+
+// UpdateMemoryContent updates the content and tags of an existing active memory,
+// recomputing its content hash and re-enqueueing it for embedding generation if content changed.
+func (s *Store) UpdateMemoryContent(ctx context.Context, id int64, content string, tags []string) error {
+	m, err := s.GetMemory(ctx, id)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return fmt.Errorf("memory %d not found", id)
+	}
+
+	now := nowMicro()
+	contentChanged := m.Content != content
+	newHash := hashContent(m.ScopePath, m.Type, m.Key, content)
+	joinedTags := joinTags(tags)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE memories
+		SET content = ?, tags = ?, content_hash = ?, updated_at = ?
+		WHERE id = ?`,
+		content, joinedTags, newHash, now, id); err != nil {
+		return err
+	}
+
+	if contentChanged {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM embeddings WHERE memory_id = ?`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM memories_vec WHERE memory_id = ?`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM embed_queue WHERE memory_id = ?`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO embed_queue(memory_id, priority, created_at) VALUES (?, 0, ?)`,
+			id, now); err != nil {
+			return err
+		}
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"memory_id": id,
+		"op":        "update",
+	})
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
+		VALUES (?, 'update', ?, ?, ?)`,
+		id, m.ScopePath, string(payload), now); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// HasActiveMemory checks whether an active memory with the given scope, type, and content exists.
+// Uses content_hash indexed lookup.
+func (s *Store) HasActiveMemory(ctx context.Context, scopePath, memType, content string) (bool, error) {
+	sc, err := scope.Parse(scopePath)
+	if err != nil {
+		return false, err
+	}
+	contentHash := hashContent(sc.Path, memType, "", content)
+	var id int64
+	err = s.db.QueryRowContext(ctx, `
+		SELECT m.id FROM memories m
+		JOIN scopes s ON s.id = m.scope_id
+		WHERE s.path = ? AND m.content_hash = ? AND m.status = 'active'
+		LIMIT 1`, sc.Path, contentHash).Scan(&id)
+	if err == nil {
+		return true, nil
+	}
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return false, err
+}
+
 // Stats computes store-wide aggregate statistics.
 func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	var st Stats

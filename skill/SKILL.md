@@ -1,7 +1,7 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` CLI to recall prior context, store decisions, save facts, and inspect timeline so every agent shares one persistent brain. Use whenever you need to remember or retrieve project context, architecture decisions, user preferences, API conventions, or session checkpoints.
-version: 1.5.0
+version: 1.5.1
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 allowed-tools:
@@ -107,7 +107,22 @@ centmem capture categories --add "security"
 centmem capture convert --harness cursor --input .cursor/logs/session.json
 ```
 
-### 7. Web UI Memory Browser Dashboard
+### 7. Developer Artifact Capture (v1.5.1)
+```bash
+# Capture architectural decisions and dependencies from Git commits
+centmem capture git
+
+# Index project documentation with heading breadcrumbs and mtime caching
+centmem capture docs
+
+# Capture top shell toolchain conventions with secret scrubbing
+centmem capture shell
+
+# Inventory code comments with line provenance and line-shift tracking
+centmem capture comments
+```
+
+### 8. Web UI Memory Browser Dashboard
 ```bash
 # Launch the embedded web UI memory browser dashboard in your browser
 centmem ui
@@ -166,7 +181,7 @@ project:<name>/agent:<agent>/session:<id>
 | `doctor` | `centmem doctor` | Health check (DB integrity, schema, model, FTS5) |
 | `backup` | `centmem backup --to <path>` | Create snapshot backup of SQLite database |
 | `restore` | `centmem restore --from <path>` | Restore database from backup snapshot |
-| `capture` | `centmem capture <run|summary|categories|convert> [flags]` | Auto-capture engine and session telemetry |
+| `capture` | `centmem capture <run|summary|categories|convert|git|docs|shell|comments> [flags]` | Auto-capture engine and developer artifact capture |
 | `config` | `centmem config <get|set> [key] [value]` | Manage configuration settings in `config.toml` |
 | `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open]` | Launch embedded Web UI memory browser dashboard |
 | `reindex` | `centmem reindex [--all] [--batch N] [--max-time d] [--dry-run]` | Re-embed memories into vector index |
