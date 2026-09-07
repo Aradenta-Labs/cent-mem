@@ -39,19 +39,21 @@ type Query struct {
 
 // Ranked is a single search result.
 type Ranked struct {
-	ID            int64
-	Type          string
-	Scope         string
-	ScopeID       int64
-	Content       string
-	Key           string // fact key or empty
-	ContentHash   string // SHA-256 hash from memories.content_hash
-	Tags          []string
-	SourceAgent   string
-	CreatedAt     time.Time
-	Score         float64
-	MatchedBy     []string
-	SemanticScore float64 // dense semantic similarity (1.0 - cosDist)
+	ID             int64
+	Type           string
+	Scope          string
+	ScopeID        int64
+	Content        string
+	Key            string // fact key or empty
+	ContentHash    string // SHA-256 hash from memories.content_hash
+	Tags           []string
+	SourceAgent    string
+	AccessCount    int
+	LastAccessedAt *time.Time
+	CreatedAt      time.Time
+	Score          float64
+	MatchedBy      []string
+	SemanticScore  float64 // dense semantic similarity (1.0 - cosDist)
 }
 
 // Searcher executes hybrid search against a Store.
@@ -63,6 +65,9 @@ type Searcher struct {
 	rerankWindow      int
 	sessionBoost      float64
 	agentBoost        float64
+	importanceEnabled bool
+	importanceWeight  float64
+	importanceCap     float64
 }
 
 // New builds a Searcher backed by s. It uses an offline StubEmbedder by
@@ -76,7 +81,19 @@ func New(s *store.Store) *Searcher {
 		rerankWindow:      30,
 		sessionBoost:      1.25,
 		agentBoost:        1.15,
+		importanceEnabled: true,
+		importanceWeight:  0.1,
+		importanceCap:     2.0,
 	}
+}
+
+// WithImportance configures importance scoring boost parameters.
+func (s *Searcher) WithImportance(enabled bool, weight, cap float64) *Searcher {
+	dup := *s
+	dup.importanceEnabled = enabled
+	dup.importanceWeight = weight
+	dup.importanceCap = cap
+	return &dup
 }
 
 // WithEmbedder returns a Searcher that uses e for semantic queries. The
@@ -177,7 +194,7 @@ func (s *Searcher) Keyword(ctx context.Context, q Query, top int) ([]Ranked, err
 	runQuery := func(query string, matchedBy string) ([]Ranked, error) {
 		sqlText := `
 			SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
-			       bm25(memories_fts) AS score, COALESCE(m.key, '')
+			       bm25(memories_fts) AS score, COALESCE(m.key, ''), m.access_count, m.last_accessed_at
 			FROM memories_fts
 			JOIN memories m ON m.id = memories_fts.rowid
 			JOIN scopes sc ON sc.id = m.scope_id
@@ -214,7 +231,7 @@ func (s *Searcher) Facts(ctx context.Context, q Query, top int) ([]Ranked, error
 
 	sqlText := `
 		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
-		       0.0 AS score, COALESCE(m.key, '')
+		       0.0 AS score, COALESCE(m.key, ''), m.access_count, m.last_accessed_at
 		FROM memories m
 		JOIN scopes sc ON sc.id = m.scope_id
 		WHERE m.type = 'fact' AND m.status = 'active' AND m.key LIKE ?` +
@@ -236,7 +253,7 @@ func (s *Searcher) Timeline(ctx context.Context, q Query, top int) ([]Ranked, er
 
 	sqlText := `
 		SELECT m.id, m.type, sc.path, m.scope_id, m.content, m.content_hash, m.tags, m.source_agent, m.created_at,
-		       0.0 AS score, COALESCE(m.key, '')
+		       0.0 AS score, COALESCE(m.key, ''), m.access_count, m.last_accessed_at
 		FROM memories m
 		JOIN scopes sc ON sc.id = m.scope_id
 		WHERE m.status = 'active'` +
@@ -343,6 +360,12 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 				if item.Key != "" && existing.Key == "" {
 					existing.Key = item.Key
 				}
+				if existing.AccessCount == 0 && item.AccessCount > 0 {
+					existing.AccessCount = item.AccessCount
+				}
+				if existing.LastAccessedAt == nil && item.LastAccessedAt != nil {
+					existing.LastAccessedAt = item.LastAccessedAt
+				}
 				if !contains(existing.MatchedBy, l.name) {
 					existing.MatchedBy = append(existing.MatchedBy, l.name)
 				}
@@ -350,7 +373,8 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 			}
 			item.Score = contrib
 			item.MatchedBy = []string{l.name}
-			scores[item.ID] = &item
+			clone := item
+			scores[item.ID] = &clone
 		}
 	}
 
@@ -386,10 +410,11 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 		isReranked = true
 	}
 
-	// Session & Agent Boosting (Scope Proximity & Caller Affinity)
+	// Session & Agent Boosting (Scope Proximity & Caller Affinity) and Importance Boosting
 	for _, r := range results {
 		applyScopeProximityBoost(r, q, s.sessionBoost)
 		applyAgentAffinityBoost(r, q, s.agentBoost)
+		applyImportanceBoost(r, s.importanceEnabled, s.importanceWeight, s.importanceCap)
 	}
 
 	// Recency Decay (strictly after boosting and before final sort)
@@ -571,12 +596,20 @@ func (s *Searcher) queryRanked(ctx context.Context, sqlText string, args []any, 
 		var r Ranked
 		var tags, key string
 		var created int64
-		if err := rows.Scan(&r.ID, &r.Type, &r.Scope, &r.ScopeID, &r.Content, &r.ContentHash, &tags, &r.SourceAgent, &created, &r.Score, &key); err != nil {
+		var lastAccessed sql.NullInt64
+		if err := rows.Scan(
+			&r.ID, &r.Type, &r.Scope, &r.ScopeID, &r.Content, &r.ContentHash, &tags, &r.SourceAgent, &created,
+			&r.Score, &key, &r.AccessCount, &lastAccessed,
+		); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
 		r.Key = key
 		r.CreatedAt = time.UnixMicro(created)
+		if lastAccessed.Valid {
+			t := time.UnixMicro(lastAccessed.Int64)
+			r.LastAccessedAt = &t
+		}
 		r.MatchedBy = []string{matchedBy}
 		out = append(out, r)
 	}
@@ -596,7 +629,7 @@ func (s *Searcher) loadMemoriesByIDs(ctx context.Context, ids []int64) ([]store.
 	rows, err := s.db().QueryContext(ctx, `
 		SELECT m.id, m.scope_id, sc.path, m.type, m.content, m.key, m.value_json, m.tags,
 		       m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at,
-		       m.created_at, m.updated_at
+		       m.access_count, m.last_accessed_at, m.created_at, m.updated_at
 		FROM memories m
 		JOIN scopes sc ON sc.id = m.scope_id
 		WHERE m.id IN (`+placeholders+`)`, args...)
@@ -619,12 +652,12 @@ func (s *Searcher) loadMemoriesByIDs(ctx context.Context, ids []int64) ([]store.
 func scanMemoryRow(row interface{ Scan(...any) error }) (*store.Memory, error) {
 	var m store.Memory
 	var tags, valueJSON, key, sourceAgent, sourceSession sql.NullString
-	var summarizeAt sql.NullInt64
+	var summarizeAt, lastAccessedAt sql.NullInt64
 	var created, updated int64
 	err := row.Scan(
 		&m.ID, &m.ScopeID, &m.ScopePath, &m.Type, &m.Content, &key, &valueJSON,
 		&tags, &sourceAgent, &sourceSession, &m.ContentHash, &m.Status,
-		&summarizeAt, &created, &updated,
+		&summarizeAt, &m.AccessCount, &lastAccessedAt, &created, &updated,
 	)
 	if err != nil {
 		return nil, err
@@ -637,6 +670,10 @@ func scanMemoryRow(row interface{ Scan(...any) error }) (*store.Memory, error) {
 	if summarizeAt.Valid {
 		v := summarizeAt.Int64
 		m.SummarizeAt = &v
+	}
+	if lastAccessedAt.Valid {
+		t := time.UnixMicro(lastAccessedAt.Int64)
+		m.LastAccessedAt = &t
 	}
 	m.CreatedAt = time.UnixMicro(created)
 	m.UpdatedAt = time.UnixMicro(updated)

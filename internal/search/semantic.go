@@ -106,18 +106,20 @@ func (s *Searcher) Semantic(ctx context.Context, q Query, top int) ([]Ranked, er
 			sc = 0
 		}
 		r := &Ranked{
-			ID:            m.ID,
-			Type:          m.Type,
-			Scope:         m.ScopePath,
-			ScopeID:       m.ScopeID,
-			Content:       m.Content,
-			Key:           m.Key,
-			ContentHash:   m.ContentHash,
-			Tags:          m.Tags,
-			SourceAgent:   m.SourceAgent,
-			CreatedAt:     m.CreatedAt,
-			Score:         sc,
-			SemanticScore: sc,
+			ID:             m.ID,
+			Type:           m.Type,
+			Scope:          m.ScopePath,
+			ScopeID:        m.ScopeID,
+			Content:        m.Content,
+			Key:            m.Key,
+			ContentHash:    m.ContentHash,
+			Tags:           m.Tags,
+			SourceAgent:    m.SourceAgent,
+			AccessCount:    m.AccessCount,
+			LastAccessedAt: m.LastAccessedAt,
+			CreatedAt:      m.CreatedAt,
+			Score:          sc,
+			SemanticScore:  sc,
 		}
 		out = append(out, r)
 	}

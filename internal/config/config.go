@@ -37,16 +37,25 @@ type SearchConfig struct {
 	SessionBoost float64 `json:"session_boost" toml:"session_boost"`
 	// AgentBoost is the score multiplier for memories authored by the caller agent. Default 1.15.
 	AgentBoost float64 `json:"agent_boost" toml:"agent_boost"`
+	// ImportanceBoostEnabled toggles access-frequency importance boosting. Default true.
+	ImportanceBoostEnabled bool `json:"importance_boost_enabled" toml:"importance_boost_enabled"`
+	// ImportanceWeight is the scale factor for the logarithmic access boost. Default 0.1.
+	ImportanceWeight float64 `json:"importance_weight" toml:"importance_weight"`
+	// ImportanceCap is the maximum multiplier ceiling for importance boost. Default 2.0.
+	ImportanceCap float64 `json:"importance_cap" toml:"importance_cap"`
 }
 
 // DefaultSearchConfig returns standard search configuration defaults.
 func DefaultSearchConfig() SearchConfig {
 	return SearchConfig{
-		DecayHalfLifeDays: 0,
-		Reranker:          "composite",
-		RerankWindow:      30,
-		SessionBoost:      1.25,
-		AgentBoost:        1.15,
+		DecayHalfLifeDays:      0,
+		Reranker:               "composite",
+		RerankWindow:           30,
+		SessionBoost:           1.25,
+		AgentBoost:             1.15,
+		ImportanceBoostEnabled: true,
+		ImportanceWeight:       0.1,
+		ImportanceCap:          2.0,
 	}
 }
 
@@ -63,6 +72,12 @@ func validateSearchConfig(s SearchConfig) error {
 	}
 	if s.AgentBoost < 0 {
 		return fmt.Errorf("config: invalid search.agent_boost=%f: must be >= 0", s.AgentBoost)
+	}
+	if s.ImportanceWeight < 0 {
+		return fmt.Errorf("config: invalid search.importance_weight=%f: must be >= 0", s.ImportanceWeight)
+	}
+	if s.ImportanceCap != 0 && s.ImportanceCap < 1.0 {
+		return fmt.Errorf("config: invalid search.importance_cap=%f: must be >= 1.0", s.ImportanceCap)
 	}
 	if s.Reranker != "" {
 		switch strings.ToLower(s.Reranker) {
@@ -252,6 +267,21 @@ func Load() (Config, error) {
 	if v := os.Getenv("CENTMEM_SEARCH_AGENT_BOOST"); v != "" {
 		if b, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.Search.AgentBoost = b
+		}
+	}
+	if v := os.Getenv("CENTMEM_SEARCH_IMPORTANCE_BOOST_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Search.ImportanceBoostEnabled = b
+		}
+	}
+	if v := os.Getenv("CENTMEM_SEARCH_IMPORTANCE_WEIGHT"); v != "" {
+		if w, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Search.ImportanceWeight = w
+		}
+	}
+	if v := os.Getenv("CENTMEM_SEARCH_IMPORTANCE_CAP"); v != "" {
+		if c, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Search.ImportanceCap = c
 		}
 	}
 

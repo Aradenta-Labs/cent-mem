@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -34,6 +35,7 @@ var ErrNotFound = sql.ErrNoRows
 type Store struct {
 	db     *sql.DB
 	dbPath string
+	wg     sync.WaitGroup
 }
 
 // Open opens (or creates) the SQLite database at cfg.DBPath, applies pending
@@ -78,8 +80,9 @@ func Open(cfg config.Config) (*Store, error) {
 	return s, nil
 }
 
-// Close releases the database connection.
+// Close releases the database connection after waiting for in-flight async writes.
 func (s *Store) Close() error {
+	s.wg.Wait()
 	return s.db.Close()
 }
 
@@ -625,7 +628,8 @@ func (s *Store) GetFact(ctx context.Context, scopePath, key string, inherit bool
 func (s *Store) GetMemory(ctx context.Context, id int64) (*Memory, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT m.id, m.scope_id, s.path, m.type, m.content, m.key, m.value_json, m.tags,
-		       m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at, m.created_at, m.updated_at
+		       m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at,
+		       m.access_count, m.last_accessed_at, m.created_at, m.updated_at
 		FROM memories m
 		JOIN scopes s ON s.id = m.scope_id
 		WHERE m.id = ?`, id)
@@ -706,7 +710,8 @@ func (s *Store) List(ctx context.Context, q ListQuery) ([]Memory, error) {
 	where, args := s.buildListWhere(q)
 
 	query := `SELECT m.id, m.scope_id, s.path, m.type, m.content, m.key, m.value_json, m.tags,
-		m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at, m.created_at, m.updated_at
+		m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at,
+		m.access_count, m.last_accessed_at, m.created_at, m.updated_at
 		FROM memories m JOIN scopes s ON s.id = m.scope_id
 		WHERE ` + strings.Join(where, " AND ") +
 		` ORDER BY m.created_at DESC LIMIT ? OFFSET ?`
@@ -846,6 +851,29 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	}
 	st.LastCompactAt = lastCompact
 
+	var dist ImportanceDistribution
+	err = s.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(COUNT(CASE WHEN access_count = 0 THEN 1 END), 0),
+			COALESCE(COUNT(CASE WHEN access_count BETWEEN 1 AND 5 THEN 1 END), 0),
+			COALESCE(COUNT(CASE WHEN access_count BETWEEN 6 AND 20 THEN 1 END), 0),
+			COALESCE(COUNT(CASE WHEN access_count >= 21 THEN 1 END), 0),
+			COALESCE(MAX(access_count), 0),
+			COALESCE(AVG(access_count), 0.0)
+		FROM memories
+		WHERE status = 'active'`).Scan(
+		&dist.ZeroAccess,
+		&dist.LowAccess1to5,
+		&dist.MedAccess6to20,
+		&dist.HighAccess21Plus,
+		&dist.MaxAccessCount,
+		&dist.AvgAccessCount,
+	)
+	if err != nil {
+		return st, err
+	}
+	st.ImportanceDistribution = dist
+
 	return st, nil
 }
 
@@ -897,7 +925,8 @@ func (s *Store) EligibleMemories(ctx context.Context, scopePath string, now time
 	}
 
 	query := `SELECT m.id, m.scope_id, sc.path, m.type, m.content, m.key, m.value_json, m.tags,
-		m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at, m.created_at, m.updated_at
+		m.source_agent, m.source_session, m.content_hash, m.status, m.summarize_at,
+		m.access_count, m.last_accessed_at, m.created_at, m.updated_at
 		FROM memories m JOIN scopes sc ON sc.id = m.scope_id
 		WHERE ` + strings.Join(conds, " AND ") +
 		` ORDER BY m.created_at ASC`
@@ -1172,12 +1201,12 @@ type scanner interface {
 func scanMemory(row scanner) (*Memory, error) {
 	var m Memory
 	var tags, valueJSON, key, sourceAgent, sourceSession sql.NullString
-	var summarizeAt sql.NullInt64
+	var summarizeAt, lastAccessedAt sql.NullInt64
 	var created, updated int64
 	err := row.Scan(
 		&m.ID, &m.ScopeID, &m.ScopePath, &m.Type, &m.Content, &key, &valueJSON,
 		&tags, &sourceAgent, &sourceSession, &m.ContentHash, &m.Status,
-		&summarizeAt, &created, &updated,
+		&summarizeAt, &m.AccessCount, &lastAccessedAt, &created, &updated,
 	)
 	if err != nil {
 		return nil, err
@@ -1190,6 +1219,10 @@ func scanMemory(row scanner) (*Memory, error) {
 	if summarizeAt.Valid {
 		v := summarizeAt.Int64
 		m.SummarizeAt = &v
+	}
+	if lastAccessedAt.Valid {
+		t := time.UnixMicro(lastAccessedAt.Int64)
+		m.LastAccessedAt = &t
 	}
 	m.CreatedAt = time.UnixMicro(created)
 	m.UpdatedAt = time.UnixMicro(updated)

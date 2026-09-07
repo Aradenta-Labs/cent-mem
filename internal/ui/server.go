@@ -237,13 +237,14 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"stats": map[string]any{
-					"memories":          0,
-					"by_type":           map[string]int64{},
-					"by_scope":          map[string]int64{},
-					"pending_embedding": 0,
-					"db_size_mb":        0.0,
-					"db_path":           "",
-					"last_compact_at":   nil,
+					"memories":                0,
+					"by_type":                 map[string]int64{},
+					"by_scope":                map[string]int64{},
+					"pending_embedding":       0,
+					"db_size_mb":              0.0,
+					"db_path":                 "",
+					"last_compact_at":         nil,
+					"importance_distribution": store.ImportanceDistribution{},
 				},
 			})
 			return
@@ -263,13 +264,14 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		}
 
 		respStats := map[string]any{
-			"memories":          st.Memories,
-			"by_type":           st.ByType,
-			"by_scope":          st.ByScope,
-			"pending_embedding": st.PendingEmbedding,
-			"db_size_mb":        st.DBSizeMB,
-			"db_path":           st.DBPath,
-			"last_compact_at":   st.LastCompactAt,
+			"memories":                st.Memories,
+			"by_type":                 st.ByType,
+			"by_scope":                st.ByScope,
+			"pending_embedding":       st.PendingEmbedding,
+			"db_size_mb":              st.DBSizeMB,
+			"db_path":                 st.DBPath,
+			"last_compact_at":         st.LastCompactAt,
+			"importance_distribution": st.ImportanceDistribution,
 		}
 
 		scopeParam := strings.TrimSpace(r.URL.Query().Get("scope"))
@@ -527,19 +529,26 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 					if rkTags == nil {
 						rkTags = []string{}
 					}
+					var lastAccessed *int64
+					if rk.LastAccessedAt != nil {
+						v := rk.LastAccessedAt.Unix()
+						lastAccessed = &v
+					}
 					out = append(out, UIMemory{
-						ID:          rk.ID,
-						ScopeID:     rk.ScopeID,
-						Scope:       rk.Scope,
-						Type:        rk.Type,
-						Content:     rk.Content,
-						Tags:        rkTags,
-						SourceAgent: rk.SourceAgent,
-						Status:      "active",
-						CreatedAt:   rk.CreatedAt.Unix(),
-						UpdatedAt:   rk.CreatedAt.Unix(),
-						Score:       &score,
-						MatchedBy:   rk.MatchedBy,
+						ID:             rk.ID,
+						ScopeID:        rk.ScopeID,
+						Scope:          rk.Scope,
+						Type:           rk.Type,
+						Content:        rk.Content,
+						Tags:           rkTags,
+						SourceAgent:    rk.SourceAgent,
+						Status:         "active",
+						AccessCount:    rk.AccessCount,
+						LastAccessedAt: lastAccessed,
+						CreatedAt:      rk.CreatedAt.Unix(),
+						UpdatedAt:      rk.CreatedAt.Unix(),
+						Score:          &score,
+						MatchedBy:      rk.MatchedBy,
 					})
 				}
 			}
@@ -1579,22 +1588,24 @@ func OpenBrowser(url string) error {
 
 // UIMemory represents a serialized memory for the Web UI.
 type UIMemory struct {
-	ID            int64    `json:"id"`
-	ScopeID       int64    `json:"scope_id"`
-	Scope         string   `json:"scope"`
-	Type          string   `json:"type"`
-	Content       string   `json:"content"`
-	Key           string   `json:"key,omitempty"`
-	ValueJSON     string   `json:"value_json,omitempty"`
-	Tags          []string `json:"tags"`
-	SourceAgent   string   `json:"source_agent,omitempty"`
-	SourceSession string   `json:"source_session,omitempty"`
-	ContentHash   string   `json:"content_hash"`
-	Status        string   `json:"status"`
-	CreatedAt     int64    `json:"created_at"`
-	UpdatedAt     int64    `json:"updated_at"`
-	Score         *float64 `json:"score,omitempty"`
-	MatchedBy     []string `json:"matched_by,omitempty"`
+	ID             int64    `json:"id"`
+	ScopeID        int64    `json:"scope_id"`
+	Scope          string   `json:"scope"`
+	Type           string   `json:"type"`
+	Content        string   `json:"content"`
+	Key            string   `json:"key,omitempty"`
+	ValueJSON      string   `json:"value_json,omitempty"`
+	Tags           []string `json:"tags"`
+	SourceAgent    string   `json:"source_agent,omitempty"`
+	SourceSession  string   `json:"source_session,omitempty"`
+	ContentHash    string   `json:"content_hash"`
+	Status         string   `json:"status"`
+	AccessCount    int      `json:"access_count"`
+	LastAccessedAt *int64   `json:"last_accessed_at"`
+	CreatedAt      int64    `json:"created_at"`
+	UpdatedAt      int64    `json:"updated_at"`
+	Score          *float64 `json:"score,omitempty"`
+	MatchedBy      []string `json:"matched_by,omitempty"`
 }
 
 func toUIMemory(m *store.Memory) UIMemory {
@@ -1602,21 +1613,28 @@ func toUIMemory(m *store.Memory) UIMemory {
 	if tags == nil {
 		tags = []string{}
 	}
+	var lastAccessed *int64
+	if m.LastAccessedAt != nil {
+		v := m.LastAccessedAt.Unix()
+		lastAccessed = &v
+	}
 	return UIMemory{
-		ID:            m.ID,
-		ScopeID:       m.ScopeID,
-		Scope:         m.ScopePath,
-		Type:          m.Type,
-		Content:       m.Content,
-		Key:           m.Key,
-		ValueJSON:     m.ValueJSON,
-		Tags:          tags,
-		SourceAgent:   m.SourceAgent,
-		SourceSession: m.SourceSession,
-		ContentHash:   m.ContentHash,
-		Status:        m.Status,
-		CreatedAt:     m.CreatedAt.Unix(),
-		UpdatedAt:     m.UpdatedAt.Unix(),
+		ID:             m.ID,
+		ScopeID:        m.ScopeID,
+		Scope:          m.ScopePath,
+		Type:           m.Type,
+		Content:        m.Content,
+		Key:            m.Key,
+		ValueJSON:      m.ValueJSON,
+		Tags:           tags,
+		SourceAgent:    m.SourceAgent,
+		SourceSession:  m.SourceSession,
+		ContentHash:    m.ContentHash,
+		Status:         m.Status,
+		AccessCount:    m.AccessCount,
+		LastAccessedAt: lastAccessed,
+		CreatedAt:      m.CreatedAt.Unix(),
+		UpdatedAt:      m.UpdatedAt.Unix(),
 	}
 }
 

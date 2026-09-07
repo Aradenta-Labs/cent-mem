@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 1.4.4
+**Version:** 1.5.0
 **Binary:** `centmem`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
@@ -115,7 +115,9 @@ centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags 
       "source_agent": "claude",
       "created_at": 1788000000,
       "score": 0.87,
-      "matched_by": ["semantic", "keyword"]
+      "matched_by": ["semantic", "keyword"],
+      "access_count": 18,
+      "last_accessed_at": 1788748000
     }
   ]
 }
@@ -156,7 +158,7 @@ centmem stats
 ```
 **Output:**
 ```json
-{"ok": true, "db_path": "...", "db_size_mb": 4.2, "memories": 1042, "by_type": {"fact": 30, "note": 900, "log": 112}, "by_scope": {...}, "last_compact_at": 1788000000, "pending_embeddings": 3}
+{"ok": true, "db_path": "...", "db_size_mb": 4.2, "memories": 1042, "by_type": {"fact": 30, "note": 900, "log": 112}, "by_scope": {...}, "last_compact_at": 1788000000, "pending_embeddings": 3, "importance_distribution": {"zero_access": 1105, "low_access_1_5": 215, "medium_access_6_20": 78, "high_access_21_plus": 22, "max_access_count": 84, "avg_access_count": 1.42}}
 ```
 
 ---

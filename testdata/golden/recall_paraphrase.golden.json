@@ -3,9 +3,11 @@
   "query": "how do we ship?",
   "results": [
     {
+      "access_count": 0,
       "content": "we deploy via github actions to fly.io",
       "created_at": "<TS>",
       "id": "<ID>",
+      "last_accessed_at": null,
       "matched_by": [
         "timeline",
         "semantic"

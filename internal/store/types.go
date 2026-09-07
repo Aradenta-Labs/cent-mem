@@ -16,10 +16,12 @@ type Memory struct {
 	SourceAgent   string
 	SourceSession string
 	ContentHash   string
-	Status        string // active | archived | summarized
-	SummarizeAt   *int64
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	Status         string // active | archived | summarized
+	SummarizeAt    *int64
+	AccessCount    int
+	LastAccessedAt *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Fact is a key/value structured memory (type='fact').
@@ -60,15 +62,26 @@ type ListQuery struct {
 	Offset        int
 }
 
+// ImportanceDistribution captures access-frequency distribution across active memories.
+type ImportanceDistribution struct {
+	ZeroAccess       int64   `json:"zero_access"`
+	LowAccess1to5    int64   `json:"low_access_1_5"`
+	MedAccess6to20   int64   `json:"medium_access_6_20"`
+	HighAccess21Plus int64   `json:"high_access_21_plus"`
+	MaxAccessCount   int64   `json:"max_access_count"`
+	AvgAccessCount   float64 `json:"avg_access_count"`
+}
+
 // Stats aggregates store-wide counts.
 type Stats struct {
-	DBPath           string
-	DBSizeMB         float64
-	Memories         int64
-	ByType           map[string]int64
-	ByScope          map[string]int64
-	LastCompactAt    *int64
-	PendingEmbedding int64
+	DBPath                 string
+	DBSizeMB               float64
+	Memories               int64
+	ByType                 map[string]int64
+	ByScope                map[string]int64
+	LastCompactAt          *int64
+	PendingEmbedding       int64
+	ImportanceDistribution ImportanceDistribution
 }
 
 // MemoryInput is the write input for PutMemory.

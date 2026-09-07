@@ -55,6 +55,8 @@ All memory types live in one table for unified search.
 | source_session | TEXT | agent's session/conversation id |
 | content_hash | TEXT NOT NULL | sha256(scope_path||type||key||content) for dedup |
 | status | TEXT NOT NULL DEFAULT 'active' | 'active' \| 'archived' \| 'summarized' |
+| access_count | INTEGER NOT NULL DEFAULT 0 | total recall/read count (v1.5.0) |
+| last_accessed_at | INTEGER | unix microseconds of last recall access (nullable, v1.5.0) |
 | summarize_at | INTEGER | unix seconds when eligible for compaction |
 | created_at | INTEGER NOT NULL | |
 | updated_at | INTEGER NOT NULL | |
@@ -65,6 +67,8 @@ All memory types live in one table for unified search.
 - `INDEX(content_hash)`
 - `INDEX(summarize_at) WHERE status='active' AND summarize_at IS NOT NULL`
 - `INDEX(created_at)`
+- `INDEX(access_count)` (`idx_memories_access_count`)
+- `INDEX(last_accessed_at)` (`idx_memories_last_accessed_at`)
 
 ### 2.3 `memories_fts` (FTS5 contentless)
 
@@ -131,7 +135,7 @@ Powers v2 sync and debugging.
 
 | key TEXT PK | value TEXT |
 |---|---|
-| schema_version | current migration version (`3`) |
+| schema_version | current migration version (`4`) |
 | embedding_version | embedding format version (`2`) |
 | embedding_model | active model name (`bge-small-en-v1.5`) |
 | embedding_dims | vector dims (`384`) |
@@ -146,6 +150,10 @@ Tags: <comma-separated tags>
 Content: <content>
 ```
 Omitting `Key:` and `Tags:` sections when empty. This boosts semantic weighting of keys and tags during embedding inference.
+
+### 2.9 Importance & Access Telemetry
+
+As of migration `m0004_importance.sql`, memories record access count and timestamps upon recall retrieval.
 
 ## 3. Scope Inheritance
 
@@ -177,6 +185,15 @@ Compaction moves originals to `status='archived'` (kept in `events`) and inserts
 | `search.rerank_window` | integer | `30` | Number of candidate results to pass to the Stage-2 re-ranker. |
 | `search.session_boost` | float | `1.25` | Score multiplier for memories in exact matching session scope (+25%). |
 | `search.agent_boost` | float | `1.15` | Score multiplier for memories authored by caller agent (+15%). |
+| `search.importance_boost_enabled` | boolean | `true` | Enable frequency-based logarithmic importance score boosting. |
+| `search.importance_weight` | float | `0.1` | Weight parameter in importance multiplier curve. |
+| `search.importance_cap` | float | `2.0` | Maximum cap on importance score multiplier. |
+
+When `search.importance_boost_enabled` is true, memories with prior recalls receive a logarithmic score multiplier applied during Stage 2 re-ranking before recency decay and candidate sorting:
+
+$$\text{importance}(c) = \min\left(\text{cap},\, 1.0 + \ln(1 + c) \times \text{weight}\right)$$
+
+Where $c = \text{access\_count} \ge 0$.
 
 When `search.decay_half_life_days` > 0, memories older than the half-life receive an exponential score penalty applied after RRF fusion / re-ranking and before final rank sorting:
 
@@ -195,6 +212,9 @@ reranker = "composite"     # none | composite | cross-encoder | llm
 rerank_window = 30         # candidate window for Stage 2 re-ranking
 session_boost = 1.25       # 1.25x (+25%) score boost for current session memories
 agent_boost = 1.15         # 1.15x (+15%) score boost for caller agent memories
+importance_boost_enabled = true # Enable logarithmic importance boosting
+importance_weight = 0.1    # Multiplier scaling factor
+importance_cap = 2.0       # Maximum score ceiling multiplier
 ```
 
 **Environment Variable Overrides:**
@@ -203,6 +223,9 @@ agent_boost = 1.15         # 1.15x (+15%) score boost for caller agent memories
 - `CENTMEM_SEARCH_RERANK_WINDOW`: Overrides `search.rerank_window` (e.g. `export CENTMEM_SEARCH_RERANK_WINDOW=30`).
 - `CENTMEM_SEARCH_SESSION_BOOST`: Overrides `search.session_boost` (e.g. `export CENTMEM_SEARCH_SESSION_BOOST=1.25`).
 - `CENTMEM_SEARCH_AGENT_BOOST`: Overrides `search.agent_boost` (e.g. `export CENTMEM_SEARCH_AGENT_BOOST=1.15`).
+- `CENTMEM_SEARCH_IMPORTANCE_BOOST_ENABLED`: Overrides `search.importance_boost_enabled` (e.g. `export CENTMEM_SEARCH_IMPORTANCE_BOOST_ENABLED=true`).
+- `CENTMEM_SEARCH_IMPORTANCE_WEIGHT`: Overrides `search.importance_weight` (e.g. `export CENTMEM_SEARCH_IMPORTANCE_WEIGHT=0.1`).
+- `CENTMEM_SEARCH_IMPORTANCE_CAP`: Overrides `search.importance_cap` (e.g. `export CENTMEM_SEARCH_IMPORTANCE_CAP=2.0`).
 
 ## 5. Example Rows
 

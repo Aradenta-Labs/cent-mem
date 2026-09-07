@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Terminal, Clock, User, Tag, Hash, Sparkles, Trash2 } from 'lucide-react';
+import { X, Copy, Check, Terminal, Clock, User, Tag, Hash, Sparkles, Trash2, Zap } from 'lucide-react';
 import { Memory } from '../types/memory';
 import { Badge } from './Badge';
 import { Button } from './Button';
@@ -311,6 +311,67 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
               </span>
             </div>
           )}
+
+          {/* Access Telemetry Section */}
+          <div
+            style={{
+              backgroundColor: 'var(--surface-secondary)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-lg)',
+              padding: 'var(--space-4)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Zap size={13} color="var(--accent-primary)" />
+              Access Telemetry & Importance
+            </span>
+
+            {/* Total Access Count */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 'var(--text-xs)' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Recall Access Count</span>
+              <span
+                className="tabular-nums"
+                style={{
+                  fontWeight: 600,
+                  color: (memory.access_count ?? 0) > 0 ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                {(memory.access_count ?? 0) > 0 && <Zap size={11} />}
+                {memory.access_count ?? 0} times
+              </span>
+            </div>
+
+            {/* Last Accessed Timestamp */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 'var(--text-xs)' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Last Recalled</span>
+              <span
+                className="tabular-nums"
+                style={{ color: 'var(--text-primary)' }}
+                title={memory.last_accessed_at ? new Date(memory.last_accessed_at * 1000).toISOString() : undefined}
+              >
+                {memory.last_accessed_at
+                  ? new Date(memory.last_accessed_at * 1000).toLocaleString()
+                  : 'Never'}
+              </span>
+            </div>
+          </div>
 
           {/* Metadata Grid */}
           <div

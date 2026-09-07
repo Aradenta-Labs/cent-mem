@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, KeyRound, Terminal, HardDrive, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
+import { FileText, KeyRound, Terminal, HardDrive, CheckCircle2, Clock, AlertTriangle, Zap } from 'lucide-react';
 import { StoreStats } from '../types/stats';
 import { Memory } from '../types/memory';
 import { Skeleton } from './Skeleton';
@@ -34,7 +34,9 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
           gap: 'var(--space-4)',
         }}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--space-3)' }}>
+          <Skeleton height="70px" variant="rect" style={{ borderRadius: 'var(--radius-md)' }} />
+          <Skeleton height="70px" variant="rect" style={{ borderRadius: 'var(--radius-md)' }} />
           <Skeleton height="70px" variant="rect" style={{ borderRadius: 'var(--radius-md)' }} />
           <Skeleton height="70px" variant="rect" style={{ borderRadius: 'var(--radius-md)' }} />
           <Skeleton height="70px" variant="rect" style={{ borderRadius: 'var(--radius-md)' }} />
@@ -54,6 +56,12 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
   const noteCount = typeMap['note'] || 0;
   const factCount = typeMap['fact'] || 0;
   const logCount = typeMap['log'] || 0;
+
+  const dist = stats.importance_distribution;
+  const activeAccessedCount = dist ? (dist.low_access_1_5 + dist.medium_access_6_20 + dist.high_access_21_plus) : 0;
+  const activeBrainPct = dist && stats.memories > 0
+    ? Math.round((activeAccessedCount / stats.memories) * 100)
+    : 0;
 
   const formatTimeAgo = (unixSeconds: number) => {
     if (!unixSeconds) return 'Never';
@@ -82,7 +90,7 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
           gap: 'var(--space-3)',
         }}
       >
@@ -280,6 +288,44 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
           >
             {stats.pending_embedding === 0 ? 'Clean' : `${stats.pending_embedding} pending`}
           </span>
+        </div>
+
+        {/* Active Brain Index */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: 'var(--space-3)',
+            backgroundColor: 'var(--surface-secondary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+          }}
+          title={
+            dist
+              ? `Active Brain Index: ${activeAccessedCount} of ${stats.memories} memories recalled (max access: ${dist.max_access_count}, avg: ${dist.avg_access_count.toFixed(2)})`
+              : 'Active Brain Index'
+          }
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <Zap size={16} color="var(--accent-primary)" />
+            <span style={{ fontSize: 'var(--text-xs)', fontWeight: 500, color: 'var(--text-primary)' }}>
+              Brain Index
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+            <span
+              className="tabular-nums"
+              style={{
+                fontSize: 'var(--text-md)',
+                fontWeight: 700,
+                color: 'var(--accent-primary)',
+              }}
+            >
+              {activeBrainPct}%
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>active</span>
+          </div>
         </div>
       </div>
 

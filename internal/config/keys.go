@@ -34,6 +34,9 @@ var KnownConfigKeys = []string{
 	"search.rerank_window",
 	"search.session_boost",
 	"search.agent_boost",
+	"search.importance_boost_enabled",
+	"search.importance_weight",
+	"search.importance_cap",
 }
 
 // GetConfigValue retrieves a config property by its dot-notation key or table name.
@@ -109,6 +112,12 @@ func GetConfigValue(cfg Config, key string) (any, error) {
 		return cfg.Search.SessionBoost, nil
 	case "search.agent_boost":
 		return cfg.Search.AgentBoost, nil
+	case "search.importance_boost_enabled":
+		return cfg.Search.ImportanceBoostEnabled, nil
+	case "search.importance_weight":
+		return cfg.Search.ImportanceWeight, nil
+	case "search.importance_cap":
+		return cfg.Search.ImportanceCap, nil
 
 	default:
 		return nil, fmt.Errorf("unknown config key %q", key)
@@ -299,6 +308,27 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 			return fmt.Errorf("invalid search.agent_boost %q: must be >= 0", val)
 		}
 		cfg.Search.AgentBoost = b
+
+	case "search.importance_boost_enabled":
+		b, err := parseBoolFlexible(val)
+		if err != nil {
+			return fmt.Errorf("invalid search.importance_boost_enabled %q: must be a boolean", val)
+		}
+		cfg.Search.ImportanceBoostEnabled = b
+
+	case "search.importance_weight":
+		w, err := strconv.ParseFloat(val, 64)
+		if err != nil || w < 0 {
+			return fmt.Errorf("invalid search.importance_weight %q: must be >= 0", val)
+		}
+		cfg.Search.ImportanceWeight = w
+
+	case "search.importance_cap":
+		c, err := strconv.ParseFloat(val, 64)
+		if err != nil || c < 1.0 {
+			return fmt.Errorf("invalid search.importance_cap %q: must be >= 1.0", val)
+		}
+		cfg.Search.ImportanceCap = c
 
 	default:
 		return fmt.Errorf("unknown config key %q", key)

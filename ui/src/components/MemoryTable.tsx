@@ -33,28 +33,60 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
   onResetFilters,
   onRetry,
 }) => {
+  const [sortBy, setSortBy] = React.useState<'time' | 'access' | null>(null);
+  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (col: 'time' | 'access') => {
+    if (sortBy === col) {
+      if (sortDir === 'desc') {
+        setSortDir('asc');
+      } else {
+        setSortBy(null);
+        setSortDir('desc');
+      }
+    } else {
+      setSortBy(col);
+      setSortDir('desc');
+    }
+  };
+
+  const sortedMemories = React.useMemo(() => {
+    if (!sortBy) return memories;
+    return [...memories].sort((a, b) => {
+      if (sortBy === 'access') {
+        const aCount = a.access_count ?? 0;
+        const bCount = b.access_count ?? 0;
+        return sortDir === 'desc' ? bCount - aCount : aCount - bCount;
+      }
+      if (sortBy === 'time') {
+        return sortDir === 'desc' ? b.created_at - a.created_at : a.created_at - b.created_at;
+      }
+      return 0;
+    });
+  }, [memories, sortBy, sortDir]);
+
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-      if (isInput || memories.length === 0) return;
+      if (isInput || sortedMemories.length === 0) return;
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault();
-        const currentIndex = memories.findIndex((m) => m.id === selectedMemoryId);
-        const nextIndex = currentIndex === -1 ? 0 : Math.min(currentIndex + 1, memories.length - 1);
-        onSelectMemory(memories[nextIndex]);
+        const currentIndex = sortedMemories.findIndex((m) => m.id === selectedMemoryId);
+        const nextIndex = currentIndex === -1 ? 0 : Math.min(currentIndex + 1, sortedMemories.length - 1);
+        onSelectMemory(sortedMemories[nextIndex]);
       } else if (e.key === 'k' || e.key === 'ArrowUp') {
         e.preventDefault();
-        const currentIndex = memories.findIndex((m) => m.id === selectedMemoryId);
+        const currentIndex = sortedMemories.findIndex((m) => m.id === selectedMemoryId);
         const prevIndex = currentIndex === -1 ? 0 : Math.max(currentIndex - 1, 0);
-        onSelectMemory(memories[prevIndex]);
+        onSelectMemory(sortedMemories[prevIndex]);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [memories, selectedMemoryId, onSelectMemory]);
+  }, [sortedMemories, selectedMemoryId, onSelectMemory]);
   if (errorMessage) {
     return (
       <EmptyState
@@ -112,13 +144,32 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
               <th style={{ padding: 'var(--space-2) var(--space-4)', width: '160px' }}>Scope</th>
               <th style={{ padding: 'var(--space-2) var(--space-4)', width: '110px' }}>Agent</th>
               <th
+                onClick={() => handleSort('access')}
+                title="Click to sort by access count"
+                style={{
+                  padding: 'var(--space-2) var(--space-3)',
+                  width: '80px',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  color: sortBy === 'access' ? 'var(--accent-primary)' : undefined,
+                }}
+              >
+                Access {sortBy === 'access' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+              </th>
+              <th
+                onClick={() => handleSort('time')}
+                title="Click to sort by time"
                 style={{
                   padding: 'var(--space-2) var(--space-3)',
                   width: '90px',
                   textAlign: 'right',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  color: sortBy === 'time' ? 'var(--accent-primary)' : undefined,
                 }}
               >
-                Time
+                Time {sortBy === 'time' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
               </th>
               <th
                 style={{
@@ -134,7 +185,7 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
             {isLoading ? (
               <MemorySkeleton rows={6} />
             ) : (
-              memories.map((memory) => (
+              sortedMemories.map((memory) => (
                 <MemoryRow
                   key={memory.id}
                   memory={memory}

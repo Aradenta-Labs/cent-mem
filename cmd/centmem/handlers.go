@@ -298,7 +298,8 @@ func cmdRecall(args []string) int {
 			WithRerankerName(rerankerChoice).
 			WithRerankWindow(cfg.Search.RerankWindow).
 			WithSessionBoost(cfg.Search.SessionBoost).
-			WithAgentBoost(cfg.Search.AgentBoost)
+			WithAgentBoost(cfg.Search.AgentBoost).
+			WithImportance(cfg.Search.ImportanceBoostEnabled, cfg.Search.ImportanceWeight, cfg.Search.ImportanceCap)
 		text := query
 
 		top := intFlag(fs, "top", 5)
@@ -339,17 +340,31 @@ func cmdRecall(args []string) int {
 			return cli.Internalf("recall: %v", err)
 		}
 
+		if len(results) > 0 {
+			returnedIDs := make([]int64, len(results))
+			for i, r := range results {
+				returnedIDs[i] = r.ID
+			}
+			s.RecordAccessAsync(returnedIDs)
+		}
+
 		out := make([]map[string]any, 0, len(results))
 		for _, r := range results {
+			var lastAccessed any
+			if r.LastAccessedAt != nil {
+				lastAccessed = r.LastAccessedAt.Unix()
+			}
 			out = append(out, map[string]any{
-				"id":         r.ID,
-				"type":       r.Type,
-				"scope":      r.Scope,
-				"content":    r.Content,
-				"tags":       r.Tags,
-				"created_at": r.CreatedAt.Unix(),
-				"score":      round4(r.Score),
-				"matched_by": r.MatchedBy,
+				"id":               r.ID,
+				"type":             r.Type,
+				"scope":            r.Scope,
+				"content":          r.Content,
+				"tags":             r.Tags,
+				"created_at":       r.CreatedAt.Unix(),
+				"score":            round4(r.Score),
+				"matched_by":       r.MatchedBy,
+				"access_count":     r.AccessCount,
+				"last_accessed_at": lastAccessed,
 			})
 		}
 
@@ -548,14 +563,15 @@ func cmdStats(args []string) int {
 		}
 
 		return prettyPrint(fs, map[string]any{
-			"ok":                 true,
-			"db_path":            st.DBPath,
-			"db_size_mb":         round2(st.DBSizeMB),
-			"memories":           st.Memories,
-			"by_type":            st.ByType,
-			"by_scope":           st.ByScope,
-			"last_compact_at":    lastCompact,
-			"pending_embeddings": st.PendingEmbedding,
+			"ok":                      true,
+			"db_path":                 st.DBPath,
+			"db_size_mb":              round2(st.DBSizeMB),
+			"memories":                st.Memories,
+			"by_type":                 st.ByType,
+			"by_scope":                st.ByScope,
+			"last_compact_at":         lastCompact,
+			"pending_embeddings":      st.PendingEmbedding,
+			"importance_distribution": st.ImportanceDistribution,
 		})
 	})
 }

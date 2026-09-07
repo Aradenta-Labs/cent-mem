@@ -13,6 +13,8 @@ export interface Memory {
   source_session?: string;
   content_hash: string;
   status: string;
+  access_count?: number;
+  last_accessed_at?: number | null;
   created_at: number; // Unix epoch seconds
   updated_at: number; // Unix epoch seconds
   score?: number;

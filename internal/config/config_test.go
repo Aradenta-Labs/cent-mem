@@ -258,7 +258,7 @@ func TestConfigCaptureEnvOverrides(t *testing.T) {
 
 func TestConfigCaptureRejectsInvalidBackend(t *testing.T) {
 	os.Clearenv()
-	os.Setenv("CENTMEM_CAPTURE_BACKEND", "invalid-backend")
+	t.Setenv("CENTMEM_CAPTURE_BACKEND", "invalid-backend")
 	if _, err := config.Load(); err == nil {
 		t.Fatal("expected error for invalid capture backend")
 	}
@@ -377,3 +377,49 @@ func TestCaptureConfig_TOML_APIKey(t *testing.T) {
 }
 
 
+
+func TestConfigSearch_Importance_EnvAndValidation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CENTMEM_HOME", home)
+
+	// Verify defaults
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Search.ImportanceBoostEnabled {
+		t.Errorf("expected ImportanceBoostEnabled default true")
+	}
+	if cfg.Search.ImportanceWeight != 0.1 {
+		t.Errorf("expected ImportanceWeight default 0.1, got %f", cfg.Search.ImportanceWeight)
+	}
+	if cfg.Search.ImportanceCap != 2.0 {
+		t.Errorf("expected ImportanceCap default 2.0, got %f", cfg.Search.ImportanceCap)
+	}
+
+	// Env overrides
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_BOOST_ENABLED", "false")
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_WEIGHT", "0.25")
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_CAP", "3.5")
+
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("Load with env overrides: %v", err)
+	}
+	if cfg.Search.ImportanceBoostEnabled {
+		t.Errorf("expected ImportanceBoostEnabled=false from env")
+	}
+	if cfg.Search.ImportanceWeight != 0.25 {
+		t.Errorf("expected ImportanceWeight=0.25 from env, got %f", cfg.Search.ImportanceWeight)
+	}
+	if cfg.Search.ImportanceCap != 3.5 {
+		t.Errorf("expected ImportanceCap=3.5 from env, got %f", cfg.Search.ImportanceCap)
+	}
+
+	// Validation rejection
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_CAP", "0.5") // < 1.0
+	_, err = config.Load()
+	if err == nil {
+		t.Errorf("expected error for importance_cap < 1.0, got nil")
+	}
+}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Trash2 } from 'lucide-react';
+import { Sparkles, Trash2, Zap } from 'lucide-react';
 import { Memory } from '../types/memory';
 import { Badge } from './Badge';
 
@@ -263,6 +263,41 @@ export const MemoryRow: React.FC<MemoryRowProps> = ({
           </span>
         ) : (
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>—</span>
+        )}
+      </td>
+
+      {/* Access Count Column */}
+      <td
+        className="tabular-nums"
+        style={{
+          padding: 'var(--space-2) var(--space-3)',
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
+          fontSize: 'var(--text-xs)',
+        }}
+      >
+        {Boolean(memory.access_count && memory.access_count > 0) ? (
+          <span
+            title={`Recalled ${memory.access_count} times${
+              memory.last_accessed_at ? ` (last: ${new Date(memory.last_accessed_at * 1000).toLocaleString()})` : ''
+            }`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '2px',
+              fontWeight: 600,
+              color: 'var(--accent-primary)',
+              backgroundColor: 'var(--accent-lightest, rgba(99, 102, 241, 0.1))',
+              padding: '1px 6px',
+              borderRadius: 'var(--radius-xs)',
+              fontSize: '11px',
+            }}
+          >
+            <Zap size={10} />
+            {memory.access_count}
+          </span>
+        ) : (
+          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>0</span>
         )}
       </td>
 

@@ -398,11 +398,23 @@ func TestServer_Memories(t *testing.T) {
 			if m.Score == nil {
 				t.Errorf("expected search result to contain score")
 			}
+			if m.AccessCount != 0 {
+				t.Errorf("expected initial AccessCount 0, got %d", m.AccessCount)
+			}
 			break
 		}
 	}
 	if !foundNote {
 		t.Errorf("expected noteID %d in search results, got %+v", noteID, searchData.Memories)
+	}
+
+	// Verify that web UI search is strictly read-only and did not increment access_count
+	mCheck, err := st.GetMemory(ctx, noteID)
+	if err != nil {
+		t.Fatalf("get memory after search: %v", err)
+	}
+	if mCheck.AccessCount != 0 {
+		t.Errorf("expected AccessCount to remain 0 after UI search, got %d", mCheck.AccessCount)
 	}
 
 	// 7. GET /api/memories/:id (valid ID)
@@ -512,12 +524,13 @@ func TestServer_StatsAPI(t *testing.T) {
 	var statsData struct {
 		OK    bool `json:"ok"`
 		Stats struct {
-			Memories         int64            `json:"memories"`
-			ByType           map[string]int64 `json:"by_type"`
-			ByScope          map[string]int64 `json:"by_scope"`
-			PendingEmbedding int64            `json:"pending_embedding"`
-			DBSizeMB         float64          `json:"db_size_mb"`
-			LastCompactAt    *int64           `json:"last_compact_at"`
+			Memories               int64                       `json:"memories"`
+			ByType                 map[string]int64            `json:"by_type"`
+			ByScope                map[string]int64            `json:"by_scope"`
+			PendingEmbedding       int64                       `json:"pending_embedding"`
+			DBSizeMB               float64                     `json:"db_size_mb"`
+			LastCompactAt          *int64                      `json:"last_compact_at"`
+			ImportanceDistribution store.ImportanceDistribution `json:"importance_distribution"`
 		} `json:"stats"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&statsData); err != nil {
@@ -526,6 +539,9 @@ func TestServer_StatsAPI(t *testing.T) {
 
 	if !statsData.OK || statsData.Stats.Memories != 4 {
 		t.Errorf("expected 4 memories, got %+v", statsData)
+	}
+	if statsData.Stats.ImportanceDistribution.ZeroAccess != 4 {
+		t.Errorf("expected zero_access = 4, got %d", statsData.Stats.ImportanceDistribution.ZeroAccess)
 	}
 	if statsData.Stats.ByType["note"] != 2 || statsData.Stats.ByType["fact"] != 1 || statsData.Stats.ByType["log"] != 1 {
 		t.Errorf("unexpected by_type counts: %+v", statsData.Stats.ByType)

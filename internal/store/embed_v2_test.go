@@ -57,8 +57,8 @@ func TestMigration_M0003_Enqueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if version != "3" {
-		t.Errorf("expected schema_version = '3', got %q", version)
+	if version < "3" {
+		t.Errorf("expected schema_version >= '3', got %q", version)
 	}
 
 	// Verify embedding_version in meta

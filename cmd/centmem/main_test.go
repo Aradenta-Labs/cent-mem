@@ -444,3 +444,67 @@ func TestRestore_RejectsCorrupt(t *testing.T) {
 		t.Errorf("live db should remain: %v", err)
 	}
 }
+
+func TestCLI_Recall_Importance_AccessCountAndStats(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	putOut, _, code := runCLI(t, home, "put", "--scope", "global", "--type", "note", "--content", "testing recall importance access tracking", "--tags", "test,importance")
+	if code != 0 {
+		t.Fatalf("put failed: %v", code)
+	}
+	putJSON := parseJSON(t, putOut)
+	memID := int64(putJSON["id"].(float64))
+
+	// First recall: access_count should be 0 before this recall, and last_accessed_at should be null
+	stdout1, _, code := runCLI(t, home, "recall", "testing recall importance", "--scope", "global")
+	if code != 0 {
+		t.Fatalf("recall 1 failed: %d", code)
+	}
+	m1 := parseJSON(t, stdout1)
+	results1, ok := m1["results"].([]any)
+	if !ok || len(results1) == 0 {
+		t.Fatalf("expected results in recall 1: %v", m1)
+	}
+	item1 := results1[0].(map[string]any)
+	if int64(item1["id"].(float64)) != memID {
+		t.Fatalf("expected id %d, got %v", memID, item1["id"])
+	}
+	if item1["access_count"].(float64) != 0 {
+		t.Errorf("expected initial recall access_count = 0, got %v", item1["access_count"])
+	}
+	if item1["last_accessed_at"] != nil {
+		t.Errorf("expected initial recall last_accessed_at = null, got %v", item1["last_accessed_at"])
+	}
+
+	// Second recall: after the first recall executed RecordAccessAsync and s.Close() waited,
+	// access_count should now be 1 and last_accessed_at should be a non-nil unix timestamp
+	stdout2, _, code := runCLI(t, home, "recall", "testing recall importance", "--scope", "global")
+	if code != 0 {
+		t.Fatalf("recall 2 failed: %d", code)
+	}
+	m2 := parseJSON(t, stdout2)
+	results2 := m2["results"].([]any)
+	item2 := results2[0].(map[string]any)
+	if item2["access_count"].(float64) != 1 {
+		t.Errorf("expected second recall access_count = 1, got %v", item2["access_count"])
+	}
+	if item2["last_accessed_at"] == nil {
+		t.Errorf("expected second recall last_accessed_at != nil")
+	}
+
+	// Verify stats includes importance_distribution
+	statsOut, _, code := runCLI(t, home, "stats")
+	if code != 0 {
+		t.Fatalf("stats failed: %d", code)
+	}
+	statsJSON := parseJSON(t, statsOut)
+	dist, ok := statsJSON["importance_distribution"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected importance_distribution object in stats: %v", statsJSON)
+	}
+	if dist["low_access_1_5"].(float64) < 1 {
+		t.Errorf("expected low_access_1_5 >= 1, got %v", dist["low_access_1_5"])
+	}
+}
