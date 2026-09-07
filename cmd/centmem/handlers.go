@@ -351,7 +351,7 @@ func cmdRecall(args []string) int {
 		out := make([]map[string]any, 0, len(results))
 		for _, r := range results {
 			var lastAccessed any
-			if r.LastAccessedAt != nil {
+			if r.AccessCount > 0 && r.LastAccessedAt != nil {
 				lastAccessed = r.LastAccessedAt.Unix()
 			}
 			out = append(out, map[string]any{

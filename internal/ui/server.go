@@ -52,7 +52,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "1.4.0",
+		Version:  "1.5.0",
 		Store:    nil,
 		Searcher: nil,
 	}
@@ -77,7 +77,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "1.4.0"
+		cfg.Version = "1.5.0"
 	}
 
 	if cfg.Searcher == nil && cfg.Store != nil {
@@ -530,7 +530,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 						rkTags = []string{}
 					}
 					var lastAccessed *int64
-					if rk.LastAccessedAt != nil {
+					if rk.AccessCount > 0 && rk.LastAccessedAt != nil {
 						v := rk.LastAccessedAt.Unix()
 						lastAccessed = &v
 					}
@@ -1614,7 +1614,7 @@ func toUIMemory(m *store.Memory) UIMemory {
 		tags = []string{}
 	}
 	var lastAccessed *int64
-	if m.LastAccessedAt != nil {
+	if m.AccessCount > 0 && m.LastAccessedAt != nil {
 		v := m.LastAccessedAt.Unix()
 		lastAccessed = &v
 	}

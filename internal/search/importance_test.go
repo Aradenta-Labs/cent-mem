@@ -159,6 +159,26 @@ func TestApplyImportanceBoost_NilSafety(t *testing.T) {
 	if r.Score != 1.0 {
 		t.Errorf("expected score 1.0, got %f", r.Score)
 	}
+
+	// Zero or negative weight is treated as no boost
+	rZeroWeight := &Ranked{AccessCount: 50, Score: 1.0}
+	applyImportanceBoost(rZeroWeight, true, 0.0, 2.0)
+	if rZeroWeight.Score != 1.0 {
+		t.Errorf("expected score 1.0 with weight=0, got %f", rZeroWeight.Score)
+	}
+
+	rNegWeight := &Ranked{AccessCount: 50, Score: 1.0}
+	applyImportanceBoost(rNegWeight, true, -0.5, 2.0)
+	if rNegWeight.Score != 1.0 {
+		t.Errorf("expected score 1.0 with weight < 0, got %f", rNegWeight.Score)
+	}
+
+	// Cap < 1.0 clamped to 1.0 (cannot reduce score)
+	rLowCap := &Ranked{AccessCount: 100, Score: 1.5}
+	applyImportanceBoost(rLowCap, true, 0.1, 0.5)
+	if rLowCap.Score < 1.5 {
+		t.Errorf("expected score >= 1.5 with low cap, got %f", rLowCap.Score)
+	}
 }
 
 func TestRecall_ImportanceScore_Promotion(t *testing.T) {

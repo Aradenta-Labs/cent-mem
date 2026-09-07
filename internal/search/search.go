@@ -360,10 +360,10 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 				if item.Key != "" && existing.Key == "" {
 					existing.Key = item.Key
 				}
-				if existing.AccessCount == 0 && item.AccessCount > 0 {
+				if item.AccessCount > existing.AccessCount {
 					existing.AccessCount = item.AccessCount
 				}
-				if existing.LastAccessedAt == nil && item.LastAccessedAt != nil {
+				if existing.LastAccessedAt == nil || (item.LastAccessedAt != nil && item.LastAccessedAt.After(*existing.LastAccessedAt)) {
 					existing.LastAccessedAt = item.LastAccessedAt
 				}
 				if !contains(existing.MatchedBy, l.name) {

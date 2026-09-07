@@ -153,15 +153,24 @@ func TestCLI_Recall_SemanticMatched(t *testing.T) {
 			item["id"] = "<ID>"
 			item["created_at"] = "<TS>"
 			item["score"] = "<SCORE>"
+			if item["last_accessed_at"] != nil {
+				item["last_accessed_at"] = "<TS>"
+			}
 		}
 	}
 
-	// Contract: the top result for a paraphrase query is matched semantically.
+	// Contract: the top result for a paraphrase query is matched semantically and has v1.5.0 telemetry.
 	if results, ok := got["results"].([]any); ok && len(results) > 0 {
 		top := results[0].(map[string]any)
 		matched, _ := top["matched_by"].([]any)
 		if !hasStrAny(matched, "semantic") {
 			t.Errorf("expected top result matched_by to include semantic, got %v", top["matched_by"])
+		}
+		if _, ok := top["access_count"]; !ok {
+			t.Errorf("expected access_count in recall item")
+		}
+		if _, ok := top["last_accessed_at"]; !ok {
+			t.Errorf("expected last_accessed_at in recall item")
 		}
 	}
 

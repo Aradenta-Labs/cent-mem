@@ -281,8 +281,14 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("CENTMEM_SEARCH_IMPORTANCE_CAP"); v != "" {
 		if c, err := strconv.ParseFloat(v, 64); err == nil {
+			if c < 1.0 {
+				return Config{}, fmt.Errorf("config: invalid search.importance_cap=%f: must be >= 1.0", c)
+			}
 			cfg.Search.ImportanceCap = c
 		}
+	}
+	if cfg.Search.ImportanceCap == 0 {
+		cfg.Search.ImportanceCap = 2.0
 	}
 
 	// 6. Validate retention, capture, and search values.

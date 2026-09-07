@@ -63,7 +63,14 @@ func (s *Store) RecordAccessAsync(ids []int64) {
 		return
 	}
 
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return
+	}
 	s.wg.Add(1)
+	s.mu.RUnlock()
+
 	go func(targetIDs []int64) {
 		defer s.wg.Done()
 		bgCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

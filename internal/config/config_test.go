@@ -416,10 +416,35 @@ func TestConfigSearch_Importance_EnvAndValidation(t *testing.T) {
 		t.Errorf("expected ImportanceCap=3.5 from env, got %f", cfg.Search.ImportanceCap)
 	}
 
-	// Validation rejection
-	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_CAP", "0.5") // < 1.0
+	// Validation rejection: cap < 1.0 including 0.0
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_CAP", "0.5")
 	_, err = config.Load()
 	if err == nil {
-		t.Errorf("expected error for importance_cap < 1.0, got nil")
+		t.Errorf("expected error for importance_cap = 0.5, got nil")
+	}
+
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_CAP", "0.0")
+	_, err = config.Load()
+	if err == nil {
+		t.Errorf("expected error for importance_cap = 0.0, got nil")
+	}
+
+	// TOML zero weight preservation
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_CAP", "")
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_WEIGHT", "")
+	t.Setenv("CENTMEM_SEARCH_IMPORTANCE_BOOST_ENABLED", "")
+	tomlPath := filepath.Join(home, "config.toml")
+	if err := os.WriteFile(tomlPath, []byte("[search]\nimportance_weight = 0.0\n"), 0644); err != nil {
+		t.Fatalf("write toml: %v", err)
+	}
+	cfgTOML, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load with toml: %v", err)
+	}
+	if cfgTOML.Search.ImportanceWeight != 0.0 {
+		t.Errorf("expected ImportanceWeight = 0.0 preserved from TOML, got %f", cfgTOML.Search.ImportanceWeight)
+	}
+	if cfgTOML.Search.ImportanceCap != 2.0 {
+		t.Errorf("expected default ImportanceCap = 2.0 preserved from TOML, got %f", cfgTOML.Search.ImportanceCap)
 	}
 }

@@ -35,6 +35,8 @@ var ErrNotFound = sql.ErrNoRows
 type Store struct {
 	db     *sql.DB
 	dbPath string
+	mu     sync.RWMutex
+	closed bool
 	wg     sync.WaitGroup
 }
 
@@ -82,6 +84,14 @@ func Open(cfg config.Config) (*Store, error) {
 
 // Close releases the database connection after waiting for in-flight async writes.
 func (s *Store) Close() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	s.mu.Unlock()
+
 	s.wg.Wait()
 	return s.db.Close()
 }

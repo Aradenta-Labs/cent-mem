@@ -236,3 +236,44 @@ func TestStore_ImportanceDistribution(t *testing.T) {
 	}
 	_ = id0
 }
+
+func TestStore_RecordAccessAsync_ClosedStore(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	id, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "test"})
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	// Close store
+	if err := s.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	// Double close should be idempotent
+	if err := s.Close(); err != nil {
+		t.Fatalf("double close: %v", err)
+	}
+
+	// RecordAccessAsync on closed store must not panic or block
+	s.RecordAccessAsync([]int64{id})
+}
+
+func TestStore_ImportanceDistribution_EmptyStore(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	stats, err := s.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats on empty store: %v", err)
+	}
+	if stats.ImportanceDistribution.ZeroAccess != 0 {
+		t.Errorf("expected 0 zero_access, got %d", stats.ImportanceDistribution.ZeroAccess)
+	}
+	if stats.ImportanceDistribution.MaxAccessCount != 0 {
+		t.Errorf("expected 0 max_access_count, got %d", stats.ImportanceDistribution.MaxAccessCount)
+	}
+	if stats.ImportanceDistribution.AvgAccessCount != 0.0 {
+		t.Errorf("expected 0.0 avg_access_count, got %f", stats.ImportanceDistribution.AvgAccessCount)
+	}
+}

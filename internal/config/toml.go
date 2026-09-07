@@ -63,13 +63,6 @@ func LoadTOML(path string) (Config, error) {
 	cfg.Capture = schema.Capture
 	cfg.Search = schema.Search
 
-	if cfg.Search.ImportanceCap == 0 {
-		cfg.Search.ImportanceCap = 2.0
-	}
-	if cfg.Search.ImportanceWeight == 0 {
-		cfg.Search.ImportanceWeight = 0.1
-	}
-
 	return cfg, nil
 }
 
