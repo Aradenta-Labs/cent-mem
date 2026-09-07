@@ -58,7 +58,7 @@ global
                                      ▼
                     ┌─────────────────────────────────┐
                     │   Stage 1: Multi-Signal Search   │
-                    │   (FTS5 + Vec Cosine + Timeline)│
+                    │   (Vec + FTS5 + Facts + Timeline)│
                     └────────────────┬────────────────┘
                                      │
                                      ▼
@@ -96,7 +96,7 @@ global
                   ┌──────────────────┴──────────────────┐
                   │                                     │
                   ▼ (synchronous return)                ▼ (asynchronous background)
-      Return Top-N JSON to caller             RecordAccessAsync Channel
+      Return Top-N JSON to caller             RecordAccessAsync Goroutine
       {"id": 42, "access_count": 14, ...}                │
                                                          ▼
                                               Batch Update SQLite:
@@ -162,12 +162,13 @@ $$\text{score} \leftarrow \text{score} \times \text{importance}(c)$$
 ### Asynchronous Feedback Loop (Agent Recall Reinforcement)
 When `centmem recall` finishes ranking and slices the top-$N$ winning results:
 1. The JSON response containing `access_count` and `last_accessed_at` is returned synchronously to the caller with zero latency overhead.
-2. A non-blocking background goroutine (`RecordAccessAsync`) queues the returned memory IDs over an asynchronous channel.
-3. The store batches an atomic SQLite update:
+2. A non-blocking background goroutine (`RecordAccessAsync`) is launched and tracked via `sync.WaitGroup` (`Store.wg`), avoiding data races by snapshotting and deduplicating IDs.
+3. The store executes an atomic batch SQLite update within a 2-second timeout:
    ```sql
    UPDATE memories
    SET access_count = access_count + 1,
        last_accessed_at = ?
    WHERE id IN (...)
    ```
-4. Over time, memories actively recalled across agent workflows naturally float higher in future queries, while unused memories remain at baseline until pruned or summarized by compaction.
+4. Upon shutdown, `Store.Close()` awaits `s.wg.Wait()`, guaranteeing all in-flight access updates are persisted without data loss.
+5. Over time, memories actively recalled across agent workflows naturally float higher in future queries, while unused memories remain at baseline until pruned or summarized by compaction.

@@ -160,7 +160,7 @@ project:<name>/agent:<agent>/session:<id>
 | `recall` | `centmem recall <query> --scope <s> [--top N] [--type t] [--tags a,b]` | Hybrid search (vector + FTS5 bm25 + facts + timeline via RRF) |
 | `timeline` | `centmem timeline --scope <s> [--since d] [--until d] [--limit N]` | Chronological view of logs and memories |
 | `list` | `centmem list --scope <s> [--type t] [--tags a,b] [--limit N]` | Browse and filter memories |
-| `forget` | `forget --id N` or `--scope <s> --key <k>` | Delete memory entries |
+| `forget` | `centmem forget --id N` or `--scope <s> --key <k>` | Delete memory entries |
 | `stats` | `centmem stats` | View memory counts, database size, and status |
 | `compact` | `centmem compact [--scope <s>] [--dry-run]` | Consolidate and archive old memories |
 | `doctor` | `centmem doctor` | Health check (DB integrity, schema, model, FTS5) |

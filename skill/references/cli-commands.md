@@ -131,12 +131,23 @@ centmem recall "<query>" \
       "scope": "project:my-app",
       "content": "We deploy via GitHub Actions to Fly.io",
       "tags": ["deploy", "ci"],
-      "source_agent": "claude",
       "score": 0.8742,
       "matched_by": ["semantic", "keyword"],
       "access_count": 18,
       "last_accessed_at": 1788748000,
       "created_at": 1788000000
+    },
+    {
+      "id": 45,
+      "type": "note",
+      "scope": "project:my-app",
+      "content": "Fly.io staging environment secrets are synchronized via 1Password CLI",
+      "tags": ["deploy", "secrets"],
+      "score": 0.7415,
+      "matched_by": ["keyword"],
+      "access_count": 0,
+      "last_accessed_at": null,
+      "created_at": 1788700000
     }
   ]
 }
@@ -160,8 +171,15 @@ centmem timeline --scope <scope> [--since <duration>] [--until <duration>] [--li
 ```json
 {
   "ok": true,
-  "scope": "project:my-app",
-  "memories": [...]
+  "entries": [
+    {
+      "id": 14,
+      "content": "Completed deployment pipeline configuration",
+      "created_at": 1788000000,
+      "scope": "project:my-app",
+      "tags": ["deploy", "ci"]
+    }
+  ]
 }
 ```
 
@@ -251,7 +269,7 @@ centmem stats [--pretty]
   "last_compact_at": 1788000000,
   "pending_embeddings": 3,
   "importance_distribution": {
-    "zero_access": 1105,
+    "zero_access": 727,
     "low_access_1_5": 215,
     "medium_access_6_20": 78,
     "high_access_21_plus": 22,
