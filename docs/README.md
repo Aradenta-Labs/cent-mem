@@ -38,6 +38,14 @@ Roadmaps and per-phase specifications tracking project milestones from inception
 | [plans/plan-v1.2.0.md](plans/plan-v1.2.0.md) | v1.2.0 | Completed | Frictionless UX: npx installer, slash commands, instruction injection |
 | [plans/plan-v1.4.0.md](plans/plan-v1.4.0.md) | v1.4.0 | Completed | **Web UI Memory Browser Dashboard** (design + phased plan) |
 | [plans/plan-v1.4.1.md](plans/plan-v1.4.1.md) | v1.4.1 | Completed | **Web UI Configuration & Settings** (design + phased plan) |
+| [plans/plan-v1.4.4.md](plans/plan-v1.4.4.md) | v1.4.4 | Completed | Recall Accuracy Enhancements (Phase C Re-Ranking) |
+| [plans/plan-v1.4.5.md](plans/plan-v1.4.5.md) | v1.4.5 | Completed | Smart Skills Installer |
+| [plans/roadmap-v1.5.x.md](plans/roadmap-v1.5.x.md) | v1.5.x | In Progress | **v1.5.x Feature Roadmap** (5 themes, priority matrix) |
+| [plans/plan-v1.5.0.md](plans/plan-v1.5.0.md) | v1.5.0 | Planned | Search & Recall: Importance Scoring |
+| [plans/plan-v1.5.1.md](plans/plan-v1.5.1.md) | v1.5.1 | Planned | Richer Capture (Git, Docs, Shell, Comments) |
+| [plans/plan-v1.5.2.md](plans/plan-v1.5.2.md) | v1.5.2 | Planned | Memory Relationships: Link Graph & Auto-Suggest |
+| [plans/plan-v1.5.3.md](plans/plan-v1.5.3.md) | v1.5.3 | Planned | Integrations (MCP Server/Client, Remote REST, VS Code) |
+| [plans/plan-v1.5.4.md](plans/plan-v1.5.4.md) | v1.5.4 | Planned | Sync: `centmemd` gRPC Daemon |
 
 ---
 
