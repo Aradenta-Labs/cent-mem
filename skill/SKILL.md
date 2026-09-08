@@ -131,6 +131,22 @@ centmem ui
 centmem ui --port 8080 --no-open
 ```
 
+### 9. Memory Relationships: Link Graph (v1.5.2)
+```bash
+# Explicitly link memories with typed semantic relationships
+centmem link 42 87 --relation supersedes
+
+# Recall context expanded with 1-hop relationship graph edges
+centmem recall "deploy architecture" --scope "project:$CENTMEM_PROJ" --include-links
+
+# Inspect incoming and outgoing graph edges for a memory
+centmem links 42 --all
+
+# Confirm or dismiss auto-suggested relationships
+centmem link confirm 12
+centmem link dismiss 12
+```
+
 ---
 
 ## Scope Grammar & Hierarchy
@@ -185,6 +201,9 @@ project:<name>/agent:<agent>/session:<id>
 | `config` | `centmem config <get|set> [key] [value]` | Manage configuration settings in `config.toml` |
 | `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open]` | Launch embedded Web UI memory browser dashboard |
 | `reindex` | `centmem reindex [--all] [--batch N] [--max-time d] [--dry-run]` | Re-embed memories into vector index |
+| `link` | `centmem link <from_id> <to_id> --relation <rel> \| link <confirm\|dismiss> <link_id>` | Create or manage relationship links |
+| `unlink` | `centmem unlink <from_id> <to_id> [--relation <rel>] \| unlink --id <link_id>` | Remove relationship links between memories |
+| `links` | `centmem links <memory_id> [--all]` | List relationship links for a memory |
 
 ---
 

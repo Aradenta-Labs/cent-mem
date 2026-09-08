@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 1.5.0
+**Version:** 1.5.2
 **Binary:** `centmem`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
@@ -49,10 +49,11 @@ centmem init [--model bge-small-en-v1.5] [--force]
 
 ### 3.2 `put` — write a note/log memory
 ```
-centmem put --scope <scope> --type note|log --content <text> [--tags a,b] [--source-agent claude] [--source-session s1] [--ttl 30d]
+centmem put --scope <scope> --type note|log --content <text> [--tags a,b] [--source-agent claude] [--source-session s1] [--no-suggest]
 ```
 - `--scope` format: `global`, `project:<name>`, `project:<name>/agent:<agent>`, `project:<name>/agent:<agent>/session:<id>`. Auto-creates scope + ancestors.
 - `--type log` appends to chronological log; `note` is a free-text memory.
+- `--no-suggest`: bypass post-write relationship auto-suggestion. When omitted, candidate relationships are evaluated and returned in `"suggested_links": [...]` if detected.
 
 **Output:**
 ```json
@@ -91,7 +92,7 @@ Not found → exit 2.
 
 ### 3.5 `recall` — hybrid search (THE main read command)
 ```
-centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags a,b] [--since 7d] [--until 1d] [--agent claude] [--inherit] [--children] [--caller-agent a] [--reranker r]
+centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags a,b] [--since 7d] [--until 1d] [--agent claude] [--inherit] [--children] [--caller-agent a] [--reranker r] [--include-links] [--include-suggested]
 ```
 
 - `--inherit` (default true): include ancestor scopes (global).
@@ -99,6 +100,8 @@ centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags 
 - `--top N` default 5, max 20.
 - `--caller-agent <name>`: calling agent identifier for affinity boosting (+15% when matching author). Defaults to `$CENTMEM_AGENT`.
 - `--reranker <strategy>`: re-ranker strategy override (`composite`, `none`, `cross_encoder`, `llm`). Defaults to `composite`.
+- `--include-links`: enrich results with 1-hop connected memory relationships (`links`). Returns confirmed links by default.
+- `--include-suggested`: include auto-suggested links pending confirmation in `links` expansion.
 
 **Output:**
 ```json
@@ -335,6 +338,87 @@ centmem reindex [--all] [--batch 32] [--max-time 30s] [--dry-run]
   "pending": 0,
   "duration_ms": 1284,
   "model": "bge-small-en-v1.5"
+}
+```
+
+---
+
+### 3.18 `link` — create or manage memory relationships
+Create a confirmed relationship or confirm/dismiss auto-suggested links.
+
+```
+centmem link <from_id> <to_id> --relation <rel>
+centmem link confirm <link_id>
+centmem link dismiss <link_id>
+```
+
+- `--relation`: relationship type (`supports`, `refines`, `contradicts`, `depends-on`, `supersedes`). Required when creating a link.
+- `link confirm <link_id>`: promote an auto-suggested link (`suggested = 1`) to confirmed (`suggested = 0`).
+- `link dismiss <link_id>`: remove a pending auto-suggested link.
+
+**Output (`centmem link 42 87 --relation supersedes`):**
+```json
+{
+  "ok": true,
+  "link": {
+    "id": 12,
+    "from_id": 42,
+    "to_id": 87,
+    "relation": "supersedes",
+    "suggested": false,
+    "created_at": 1788749000
+  }
+}
+```
+
+---
+
+### 3.19 `unlink` — delete memory relationships
+Remove relationship links between two memories or by primary key link ID.
+
+```
+centmem unlink <from_id> <to_id> [--relation <rel>]
+centmem unlink --id <link_id>
+```
+
+- `--relation`: optionally restrict deletion to a specific relation type. When omitted, all links between `<from_id>` and `<to_id>` are removed.
+- `--id <link_id>`: delete a specific link by its primary key ID.
+
+**Output:**
+```json
+{
+  "ok": true,
+  "deleted": 1
+}
+```
+
+---
+
+### 3.20 `links` — inspect memory relationships
+List outgoing and incoming relationship graph edges for a given memory.
+
+```
+centmem links <memory_id> [--all] [--include-suggested]
+```
+
+- `--all` / `--include-suggested`: include auto-suggested links pending confirmation (defaults to confirmed links only).
+
+**Output (`centmem links 42`):**
+```json
+{
+  "ok": true,
+  "memory_id": 42,
+  "outgoing": [
+    {
+      "link_id": 12,
+      "relation": "supersedes",
+      "target_id": 87,
+      "target_type": "note",
+      "target_content": "Use custom vector store",
+      "suggested": false
+    }
+  ],
+  "incoming": []
 }
 ```
 

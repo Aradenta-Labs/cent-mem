@@ -105,6 +105,7 @@ func cmdPut(args []string) int {
 	fs.String("tags", "", "comma-separated tags")
 	fs.String("source-agent", "", "source agent id")
 	fs.String("source-session", "", "source session id")
+	fs.Bool("no-suggest", false, "bypass relationship auto-suggestion")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
 		s, err := store.Open(cfg)
 		if err != nil {
@@ -148,12 +149,27 @@ func cmdPut(args []string) int {
 
 		drainQueue(cfg, s)
 
-		return prettyPrint(fs, map[string]any{
+		out := map[string]any{
 			"ok":     true,
 			"id":     id,
 			"scope":  scopePath,
 			"status": status,
-		})
+		}
+
+		noSuggest := fs.Lookup("no-suggest") != nil && fs.Lookup("no-suggest").Value.String() == "true"
+		if !noSuggest {
+			memRow, err := s.GetMemory(context.Background(), id)
+			if err == nil && memRow != nil {
+				emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
+				searcher := search.New(s).WithEmbedder(emb)
+				suggestions, err := searcher.SuggestLinks(context.Background(), *memRow)
+				if err == nil && len(suggestions) > 0 {
+					out["suggested_links"] = suggestions
+				}
+			}
+		}
+
+		return prettyPrint(fs, out)
 	})
 }
 
@@ -269,6 +285,8 @@ func cmdRecall(args []string) int {
 	fs.String("reranker", "", "re-ranker strategy override")
 	fs.Bool("inherit", true, "include ancestor scopes")
 	fs.Bool("children", false, "include descendant scopes")
+	fs.Bool("include-links", false, "include 1-hop connected memory links")
+	fs.Bool("include-suggested", false, "include pending suggested links in link expansion")
 	return runCommandQuery(args, fs, func(cfg config.Config, fs *flag.FlagSet, query string) error {
 		s, err := store.Open(cfg)
 		if err != nil {
@@ -307,16 +325,21 @@ func cmdRecall(args []string) int {
 			top = 20
 		}
 
+		includeLinks := fs.Lookup("include-links").Value.String() == "true"
+		includeSuggested := fs.Lookup("include-suggested").Value.String() == "true"
+
 		q := search.Query{
-			Text:        text,
-			Scope:       fs.Lookup("scope").Value.String(),
-			Inherit:     fs.Lookup("inherit").Value.String() == "true",
-			Children:    fs.Lookup("children").Value.String() == "true",
-			Top:         top,
-			Type:        fs.Lookup("type").Value.String(),
-			Tags:        splitCSV(fs.Lookup("tags").Value.String()),
-			Agent:       fs.Lookup("agent").Value.String(),
-			CallerAgent: callerAgent,
+			Text:                  text,
+			Scope:                 fs.Lookup("scope").Value.String(),
+			Inherit:               fs.Lookup("inherit").Value.String() == "true",
+			Children:              fs.Lookup("children").Value.String() == "true",
+			Top:                   top,
+			Type:                  fs.Lookup("type").Value.String(),
+			Tags:                  splitCSV(fs.Lookup("tags").Value.String()),
+			Agent:                 fs.Lookup("agent").Value.String(),
+			CallerAgent:           callerAgent,
+			IncludeLinks:          includeLinks,
+			IncludeSuggestedLinks: includeSuggested,
 		}
 
 		now := time.Now()
@@ -354,7 +377,7 @@ func cmdRecall(args []string) int {
 			if r.AccessCount > 0 && r.LastAccessedAt != nil {
 				lastAccessed = r.LastAccessedAt.Unix()
 			}
-			out = append(out, map[string]any{
+			item := map[string]any{
 				"id":               r.ID,
 				"type":             r.Type,
 				"scope":            r.Scope,
@@ -365,7 +388,27 @@ func cmdRecall(args []string) int {
 				"matched_by":       r.MatchedBy,
 				"access_count":     r.AccessCount,
 				"last_accessed_at": lastAccessed,
-			})
+			}
+			if includeLinks {
+				linksList := make([]map[string]any, 0, len(r.Links))
+				for _, l := range r.Links {
+					lMap := map[string]any{
+						"relation":       l.Relation,
+						"direction":      l.Direction,
+						"linked_id":      l.LinkedID,
+						"linked_content": l.LinkedContent,
+					}
+					if l.Suggested {
+						lMap["suggested"] = true
+					}
+					if l.LinkID > 0 {
+						lMap["link_id"] = l.LinkID
+					}
+					linksList = append(linksList, lMap)
+				}
+				item["links"] = linksList
+			}
+			out = append(out, item)
 		}
 
 		return prettyPrint(fs, map[string]any{

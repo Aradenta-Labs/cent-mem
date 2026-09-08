@@ -8,6 +8,9 @@ import {
   RestoreMemoryInput,
   RestoreMemoryResponse,
   ExportFilters,
+  RelationType,
+  MemoryLink,
+  MemoryLinksResponse,
 } from '../types/memory';
 import { StoreStats, StatsResponse } from '../types/stats';
 import {
@@ -222,5 +225,66 @@ export async function testClassifierEndpoint(params: TestClassifierParams): Prom
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export async function fetchMemoryLinks(memoryId: number, includeSuggested = true): Promise<MemoryLinksResponse> {
+  const url = `/api/memories/${memoryId}/links${includeSuggested ? '?include_suggested=true' : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load memory links: HTTP ${res.status}`);
+  }
+  const data: MemoryLinksResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load memory links');
+  }
+  return data;
+}
+
+export async function createLink(fromId: number, toId: number, relation: RelationType): Promise<{ ok: boolean; link: MemoryLink }> {
+  const res = await fetch('/api/links', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from_id: fromId, to_id: toId, relation }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to create link: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function confirmLink(linkId: number): Promise<{ ok: boolean; confirmed: number }> {
+  const res = await fetch(`/api/links/${linkId}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to confirm link: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function dismissLink(linkId: number): Promise<{ ok: boolean; dismissed: number }> {
+  const res = await fetch(`/api/links/${linkId}/dismiss`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to dismiss link: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function deleteLink(linkId: number): Promise<{ ok: boolean; deleted: number }> {
+  const res = await fetch(`/api/links/${linkId}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to delete link: HTTP ${res.status}`);
+  }
+  return data;
 }
 

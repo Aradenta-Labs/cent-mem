@@ -713,6 +713,237 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// API Endpoints: Memories (Get links for memory)
+	mux.HandleFunc("GET /api/memories/{id}/links", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		rawID := r.PathValue("id")
+		id, err := strconv.ParseInt(rawID, 10, 64)
+		if err != nil || id <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_id",
+					"message": fmt.Sprintf("invalid memory id %q", rawID),
+				},
+			})
+			return
+		}
+
+		includeSuggested := r.URL.Query().Get("include_suggested") == "true" || r.URL.Query().Get("all") == "true"
+		outgoing, incoming, err := cfg.Store.GetLinksForMemory(r.Context(), id, includeSuggested)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":        true,
+			"memory_id": id,
+			"outgoing":  outgoing,
+			"incoming":  incoming,
+		})
+	})
+
+	// API Endpoints: Links (Create relationship link)
+	mux.HandleFunc("POST /api/links", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		var in struct {
+			FromID   int64  `json:"from_id"`
+			ToID     int64  `json:"to_id"`
+			Relation string `json:"relation"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_payload",
+					"message": "invalid JSON payload",
+				},
+			})
+			return
+		}
+
+		link, err := cfg.Store.CreateLink(r.Context(), in.FromID, in.ToID, in.Relation, false)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_link",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":   true,
+			"link": link,
+		})
+	})
+
+	// API Endpoints: Links (Confirm suggested link)
+	mux.HandleFunc("POST /api/links/{id}/confirm", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "store_unavailable", "message": "store persistence is not configured"},
+			})
+			return
+		}
+
+		linkID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil || linkID <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "invalid_id", "message": "invalid link id"},
+			})
+			return
+		}
+
+		if err := cfg.Store.ConfirmLink(r.Context(), linkID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{"code": "not_found", "message": fmt.Sprintf("link %d not found", linkID)},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "store_error", "message": err.Error()},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":        true,
+			"confirmed": linkID,
+		})
+	})
+
+	// API Endpoints: Links (Dismiss suggested link)
+	mux.HandleFunc("POST /api/links/{id}/dismiss", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "store_unavailable", "message": "store persistence is not configured"},
+			})
+			return
+		}
+
+		linkID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil || linkID <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "invalid_id", "message": "invalid link id"},
+			})
+			return
+		}
+
+		if err := cfg.Store.DismissLink(r.Context(), linkID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{"code": "not_found", "message": fmt.Sprintf("suggested link %d not found", linkID)},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "store_error", "message": err.Error()},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":        true,
+			"dismissed": linkID,
+		})
+	})
+
+	// API Endpoints: Links (Delete link by ID)
+	mux.HandleFunc("DELETE /api/links/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "store_unavailable", "message": "store persistence is not configured"},
+			})
+			return
+		}
+
+		linkID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil || linkID <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "invalid_id", "message": "invalid link id"},
+			})
+			return
+		}
+
+		n, err := cfg.Store.DeleteLinkByID(r.Context(), linkID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{"code": "store_error", "message": err.Error()},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":      true,
+			"deleted": n,
+			"id":      linkID,
+		})
+	})
+
 	// API Endpoints: Memories (Forget/Delete memory by ID)
 	mux.HandleFunc("POST /api/memories/{id}/forget", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

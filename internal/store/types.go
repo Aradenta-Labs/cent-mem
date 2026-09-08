@@ -118,3 +118,45 @@ type ScopeNode struct {
 	TotalCount int64        `json:"total_count"` // direct + descendant active memories
 	Children   []*ScopeNode `json:"children"`
 }
+
+// ValidLinkRelations defines the allowed values for relation in memory_links.
+var ValidLinkRelations = []string{"supports", "refines", "contradicts", "depends-on", "supersedes"}
+
+// IsValidLinkRelation returns true if rel is one of the 5 canonical relations.
+func IsValidLinkRelation(rel string) bool {
+	for _, r := range ValidLinkRelations {
+		if r == rel {
+			return true
+		}
+	}
+	return false
+}
+
+// Link represents a directional relationship between two memories.
+type Link struct {
+	ID        int64     `json:"id"`
+	FromID    int64     `json:"from_id"`
+	ToID      int64     `json:"to_id"`
+	Relation  string    `json:"relation"`
+	Suggested bool      `json:"suggested"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// LinkWithContent embeds Link along with metadata of the linked memories.
+type LinkWithContent struct {
+	Link
+	SourceContent string `json:"source_content,omitempty"`
+	TargetContent string `json:"target_content,omitempty"`
+	SourceType    string `json:"source_type,omitempty"`
+	TargetType    string `json:"target_type,omitempty"`
+	SourceScope   string `json:"source_scope,omitempty"`
+	TargetScope   string `json:"target_scope,omitempty"`
+}
+
+// MemoryLinksResult holds both outgoing and incoming links for a memory.
+type MemoryLinksResult struct {
+	MemoryID int64             `json:"memory_id"`
+	Outgoing []LinkWithContent `json:"outgoing"`
+	Incoming []LinkWithContent `json:"incoming"`
+}
+

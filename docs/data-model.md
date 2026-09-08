@@ -131,11 +131,27 @@ Powers v2 sync and debugging.
 
 **Index:** `INDEX(id)` (already PK), `INDEX(memory_id)`
 
-### 2.7 `meta`
+### 2.7 `memory_links` (v1.5.2)
+
+Represents typed, directional semantic relationships between memories.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK AUTOINCREMENT | |
+| from_id | INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE | source memory |
+| to_id | INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE | target memory |
+| relation | TEXT NOT NULL CHECK(relation IN ('supports','refines','contradicts','depends-on','supersedes')) | relation taxonomy |
+| created_at | INTEGER NOT NULL | unix microseconds |
+| suggested | INTEGER NOT NULL DEFAULT 0 | 0 = confirmed, 1 = auto-suggested pending confirmation |
+
+**Constraints:** `UNIQUE(from_id, to_id, relation)`, `CHECK(from_id != to_id)`  
+**Indexes:** `INDEX(from_id)`, `INDEX(to_id)`, `INDEX(suggested)`
+
+### 2.8 `meta`
 
 | key TEXT PK | value TEXT |
 |---|---|
-| schema_version | current migration version (`4`) |
+| schema_version | current migration version (`5`) |
 | embedding_version | embedding format version (`2`) |
 | embedding_model | active model name (`bge-small-en-v1.5`) |
 | embedding_dims | vector dims (`384`) |

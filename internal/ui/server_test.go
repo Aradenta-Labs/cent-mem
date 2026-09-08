@@ -1404,3 +1404,124 @@ func TestServer_ConfigAPI_TestClassifier_LiveUserEndpoint(t *testing.T) {
 		t.Fatalf("expected connected with user live endpoint, got %+v", res)
 	}
 }
+
+func TestServer_LinkEndpoints(t *testing.T) {
+	dir := t.TempDir()
+	stCfg := config.Config{DBPath: dir + "/centmem.db"}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	m1, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "A"})
+	if err != nil {
+		t.Fatalf("put m1: %v", err)
+	}
+	m2, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "B"})
+	if err != nil {
+		t.Fatalf("put m2: %v", err)
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:   "127.0.0.1",
+		Port:   0,
+		Store:  st,
+		Config: stCfg,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start: %v", err)
+	}
+	defer func() {
+		c, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(c)
+	}()
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// 1. POST /api/links (create link)
+	payload := fmt.Sprintf(`{"from_id": %d, "to_id": %d, "relation": "supersedes"}`, m1, m2)
+	resp, err := client.Post(srv.URL()+"/api/links", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("POST /api/links: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/links status %d", resp.StatusCode)
+	}
+	var createRes struct {
+		OK   bool       `json:"ok"`
+		Link store.Link `json:"link"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&createRes); err != nil {
+		t.Fatalf("decode create link: %v", err)
+	}
+	if !createRes.OK || createRes.Link.ID <= 0 {
+		t.Fatalf("unexpected create response: %+v", createRes)
+	}
+	linkID := createRes.Link.ID
+
+	// 2. GET /api/memories/{id}/links
+	resp2, err := client.Get(fmt.Sprintf("%s/api/memories/%d/links", srv.URL(), m1))
+	if err != nil {
+		t.Fatalf("GET links: %v", err)
+	}
+	defer resp2.Body.Close()
+	var linksRes struct {
+		OK       bool                    `json:"ok"`
+		Outgoing []store.LinkWithContent `json:"outgoing"`
+		Incoming []store.LinkWithContent `json:"incoming"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&linksRes); err != nil {
+		t.Fatalf("decode links: %v", err)
+	}
+	if !linksRes.OK || len(linksRes.Outgoing) != 1 {
+		t.Fatalf("expected 1 outgoing link, got %+v", linksRes)
+	}
+
+	// 3. Create a suggested link directly in store
+	sugLink, err := st.CreateLink(ctx, m2, m1, "supports", true)
+	if err != nil {
+		t.Fatalf("create suggested link: %v", err)
+	}
+
+	// 4. POST /api/links/{id}/confirm
+	respConfirm, err := client.Post(fmt.Sprintf("%s/api/links/%d/confirm", srv.URL(), sugLink.ID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST confirm: %v", err)
+	}
+	defer respConfirm.Body.Close()
+	if respConfirm.StatusCode != http.StatusOK {
+		t.Fatalf("confirm status %d", respConfirm.StatusCode)
+	}
+
+	// 5. Create another suggested link to dismiss
+	m3, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "C"})
+	sugLink2, _ := st.CreateLink(ctx, m3, m1, "refines", true)
+
+	respDismiss, err := client.Post(fmt.Sprintf("%s/api/links/%d/dismiss", srv.URL(), sugLink2.ID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST dismiss: %v", err)
+	}
+	defer respDismiss.Body.Close()
+	if respDismiss.StatusCode != http.StatusOK {
+		t.Fatalf("dismiss status %d", respDismiss.StatusCode)
+	}
+
+	// 6. DELETE /api/links/{id}
+	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/links/%d", srv.URL(), linkID), nil)
+	respDel, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE link: %v", err)
+	}
+	defer respDel.Body.Close()
+	if respDel.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE status %d", respDel.StatusCode)
+	}
+}
+

@@ -3,7 +3,7 @@ import { Copy, Check, Sparkles, X, Database, Download } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { Memory, MemoryFilters } from '../types/memory';
 import { StoreStats } from '../types/stats';
-import { fetchMemories, fetchStats, forgetMemory, restoreMemory, getExportUrl } from '../services/api';
+import { fetchMemories, fetchMemoryDetail, fetchStats, forgetMemory, restoreMemory, getExportUrl } from '../services/api';
 import { Badge } from './Badge';
 import { Button } from './Button';
 import { FiltersPanel } from './FiltersPanel';
@@ -613,6 +613,14 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
           setSelectedMemory(null);
         }}
         onForget={setPendingForgetMemory}
+        onSelectMemory={async (id) => {
+          try {
+            const mem = await fetchMemoryDetail(id);
+            setSelectedMemory(mem);
+          } catch (e) {
+            console.error('Failed to load memory detail', e);
+          }
+        }}
       />
 
       {/* Forget Confirmation Modal */}

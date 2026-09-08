@@ -91,3 +91,34 @@ export interface ExportFilters extends MemoryFilters {
   format?: 'json' | 'csv';
 }
 
+export type RelationType = 'supports' | 'refines' | 'contradicts' | 'depends-on' | 'supersedes';
+
+export interface MemoryLink {
+  id: number;
+  from_id: number;
+  to_id: number;
+  relation: RelationType;
+  suggested: boolean;
+  created_at: number; // Unix epoch microseconds or seconds
+}
+
+export interface MemoryLinkWithContent extends MemoryLink {
+  source_content?: string;
+  target_content?: string;
+  source_type?: string;
+  target_type?: string;
+  source_scope?: string;
+  target_scope?: string;
+}
+
+export interface MemoryLinksResponse {
+  ok: boolean;
+  memory_id: number;
+  outgoing: MemoryLinkWithContent[];
+  incoming: MemoryLinkWithContent[];
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+

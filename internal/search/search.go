@@ -33,8 +33,20 @@ type Query struct {
 	Tags        []string
 	Since       time.Time
 	Until       time.Time
-	Agent       string
-	CallerAgent string
+	Agent                 string
+	CallerAgent           string
+	IncludeLinks          bool
+	IncludeSuggestedLinks bool
+}
+
+// LinkedMemory describes an edge connected to a ranked memory result.
+type LinkedMemory struct {
+	LinkID        int64  `json:"link_id,omitempty"`
+	Relation      string `json:"relation"`
+	Direction     string `json:"direction"` // "outgoing" | "incoming"
+	LinkedID      int64  `json:"linked_id"`
+	LinkedContent string `json:"linked_content"`
+	Suggested     bool   `json:"suggested,omitempty"`
 }
 
 // Ranked is a single search result.
@@ -54,6 +66,7 @@ type Ranked struct {
 	Score          float64
 	MatchedBy      []string
 	SemanticScore  float64 // dense semantic similarity (1.0 - cosDist)
+	Links          []LinkedMemory
 }
 
 // Searcher executes hybrid search against a Store.
@@ -444,6 +457,37 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 
 	if len(results) > top {
 		results = results[:top]
+	}
+
+	if q.IncludeLinks && len(results) > 0 {
+		ids := make([]int64, len(results))
+		for i, r := range results {
+			ids[i] = r.ID
+		}
+		linksMap, err := s.store.GetLinksForMemories(ctx, ids, q.IncludeSuggestedLinks)
+		if err == nil {
+			for _, r := range results {
+				attached := linksMap[r.ID]
+				r.Links = make([]LinkedMemory, 0, len(attached))
+				for _, l := range attached {
+					lm := LinkedMemory{
+						LinkID:    l.ID,
+						Relation:  l.Relation,
+						Suggested: l.Suggested,
+					}
+					if l.FromID == r.ID {
+						lm.Direction = "outgoing"
+						lm.LinkedID = l.ToID
+						lm.LinkedContent = l.TargetContent
+					} else {
+						lm.Direction = "incoming"
+						lm.LinkedID = l.FromID
+						lm.LinkedContent = l.SourceContent
+					}
+					r.Links = append(r.Links, lm)
+				}
+			}
+		}
 	}
 
 	out := make([]Ranked, 0, len(results))

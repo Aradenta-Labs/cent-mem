@@ -460,5 +460,87 @@ centmem ui [--port <port>] [--host <host>] [--no-open]
 
 **Stdout JSON:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.0"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.2"}
 ```
+
+---
+
+## 11. Memory Relationships: `link`, `unlink`, `links` (v1.5.2)
+
+Establishes and navigates directional semantic links between memories (`supports`, `refines`, `contradicts`, `depends-on`, `supersedes`).
+
+### 11.1 `centmem link`
+Creates a confirmed relationship or confirms/dismisses an auto-suggested link.
+
+```bash
+# Create confirmed link
+centmem link <from_id> <to_id> --relation <rel>
+
+# Confirm auto-suggested link
+centmem link confirm <link_id>
+
+# Dismiss auto-suggested link
+centmem link dismiss <link_id>
+```
+
+**Stdout JSON (`centmem link 42 87 --relation supersedes`):**
+```json
+{
+  "ok": true,
+  "link": {
+    "id": 12,
+    "from_id": 42,
+    "to_id": 87,
+    "relation": "supersedes",
+    "suggested": false,
+    "created_at": 1788749000
+  }
+}
+```
+
+### 11.2 `centmem unlink`
+Deletes relationships between memories.
+
+```bash
+# Delete all links between two memories
+centmem unlink <from_id> <to_id>
+
+# Delete specific relation
+centmem unlink <from_id> <to_id> --relation <rel>
+
+# Delete by link ID
+centmem unlink --id <link_id>
+```
+
+**Stdout JSON:**
+```json
+{"ok": true, "deleted": 1}
+```
+
+### 11.3 `centmem links`
+Inspects graph edges for a memory.
+
+```bash
+centmem links <memory_id> [--all]
+```
+- `--all`: includes pending auto-suggested links.
+
+**Stdout JSON:**
+```json
+{
+  "ok": true,
+  "memory_id": 42,
+  "outgoing": [
+    {
+      "link_id": 12,
+      "relation": "supersedes",
+      "target_id": 87,
+      "target_type": "note",
+      "target_content": "Deprecated: custom Python vector index",
+      "suggested": false
+    }
+  ],
+  "incoming": []
+}
+```
+
