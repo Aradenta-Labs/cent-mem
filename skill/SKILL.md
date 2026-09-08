@@ -129,6 +129,9 @@ centmem ui
 
 # Run on a custom port without automatically opening browser
 centmem ui --port 8080 --no-open
+
+# Bind to remote network host with mandatory Bearer token (min 16 chars)
+centmem ui --host 0.0.0.0 --port 4231 --token "sec_0123456789abcdef" --no-open
 ```
 
 ### 9. Memory Relationships: Link Graph (v1.5.2)
@@ -145,6 +148,12 @@ centmem links 42 --all
 # Confirm or dismiss auto-suggested relationships
 centmem link confirm 12
 centmem link dismiss 12
+```
+
+### 10. Model Context Protocol: Native Agent Integration (v1.5.3)
+```bash
+# Run stdio MCP server for direct tool integration (Claude Code, Cursor, Windsurf, Zed)
+centmem serve
 ```
 
 ---

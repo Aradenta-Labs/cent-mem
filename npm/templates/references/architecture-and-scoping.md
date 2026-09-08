@@ -257,3 +257,41 @@ Standard recall returns isolated memory matches. By passing `--include-links` to
    ```
 5. **Obsolescence Guard**: When an agent recalls a decision, any outgoing `supersedes` or incoming/outgoing `contradicts` edges immediately notify the agent of newer or conflicting context before it takes action.
 
+---
+
+## Model Context Protocol (MCP) Integration (v1.5.3)
+
+In v1.5.3, centmem introduces native Model Context Protocol (MCP) support over `stdio` (`centmem serve`), enabling direct agent tool calls without shell command overhead.
+
+### MCP Stdio Architecture
+
+```
+┌────────────────────────────────────────────────────────┐
+│                   AI Agent Harness                     │
+│         (Claude Code, Cursor, Windsurf, Zed)           │
+└───────────────────────────┬────────────────────────────┘
+                            │
+               JSON-RPC 2.0 over stdio
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│             centmem serve (MCP Server)                 │
+│  - Methods: initialize, tools/list, tools/call         │
+│  - Tools: recall, put, set, get, timeline, stats, forget│
+└───────────────────────────┬────────────────────────────┘
+                            │
+              Direct SQLite Handle & Embedder
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│          SQLite Store (memories, links, facts)         │
+└────────────────────────────────────────────────────────┘
+```
+
+#### Key Architecture Benefits:
+1. **Zero-Dependency Stdio Protocol**: Built entirely on Go standard library (`encoding/json`, `bufio`, `os`), requiring no external daemon or network ports.
+2. **Process Lifecycle**: The agent harness spawns `centmem serve` as a dedicated child process. It connects directly to the local SQLite database and embedding pipeline.
+3. **Capture Context Enrichment**: External MCP tools (configured in `[capture.mcp]`) can be invoked by the classifier with a strict 5-second timeout and non-blocking fallback to enrich ambiguous commits and docs before memory classification.
+4. **Remote REST Security**: The embedded Web UI server (`centmem ui`) supports secure remote deployment with mandatory constant-time Bearer token verification on non-loopback host bindings.
+
+

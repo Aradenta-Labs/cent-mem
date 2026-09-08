@@ -40,3 +40,30 @@ Add to `.claude/settings.json`:
 ```
 
 (The exact hook surface depends on your Claude Code version; the recipes in `SKILL.md` work without hooks.)
+
+## Native MCP Server Setup (v1.5.3+)
+
+Claude Code supports Model Context Protocol (MCP) natively without requiring shell commands.
+
+Add to `~/.claude/mcp.json` (user-level) or `.claude.json` (project-level):
+
+```json
+{
+  "mcpServers": {
+    "centmem": {
+      "command": "centmem",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Once configured, Claude Code directly receives the 7 native tools:
+- `centmem_recall`
+- `centmem_put`
+- `centmem_set`
+- `centmem_get`
+- `centmem_timeline`
+- `centmem_stats`
+- `centmem_forget`
+

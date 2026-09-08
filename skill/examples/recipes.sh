@@ -59,3 +59,11 @@ centmem recall "vector database" --scope "project:$PROJ" --include-links
 
 # Remove relationship links between memories
 centmem unlink "$MEM_B" "$MEM_A" --relation supersedes
+
+echo -e "\n=== 9. Integrations (MCP & Remote Web UI) ==="
+# Start stdio MCP server for agent harnesses (e.g. Claude Code, Cursor, Windsurf)
+# centmem serve
+
+# Start remote Web UI dashboard on 0.0.0.0 with Bearer token authentication (min 16 chars)
+# centmem ui --host 0.0.0.0 --port 4231 --token "sec_0123456789abcdef" --no-open
+

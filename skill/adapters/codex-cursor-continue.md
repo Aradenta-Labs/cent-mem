@@ -19,6 +19,21 @@ These harnesses expose a shell-exec or rules mechanism. The `centmem` CLI contra
 - Cursor's agent mode reads `.cursor/rules/**` as project rules; `SKILL.md` becomes part of the agent's context.
 - To invoke the CLI, the agent uses its built-in terminal capability with the same recipes.
 
+### Native Cursor MCP Setup (v1.5.3+)
+
+Cursor supports Model Context Protocol (MCP) servers. Configure `centmem` in `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "centmem": {
+      "command": "centmem",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
 ## Continue (VS Code / JetBrains)
 
 - Add `SKILL.md` contents to a Continue "rules" file, or reference the binary in `~/.continue/config.json` under custom commands.

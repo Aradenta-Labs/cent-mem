@@ -130,3 +130,26 @@ All developer artifact capture pipelines run content through the automated secre
 - **Redaction Placeholders**: Matched secrets are replaced with deterministic placeholders (e.g. `[REDACTED]`, `[REDACTED_AWS_KEY]`, `[REDACTED_PRIVATE_KEY]`).
 - **Safety Guarantee**: Unredacted secrets and credentials never enter SQLite storage, FTS5 full-text indices, or ONNX vector embeddings.
 
+---
+
+## External MCP Context Enrichment (v1.5.3)
+
+In v1.5.3, the capture classification engine can query external Model Context Protocol (MCP) servers to retrieve additional context before categorizing candidate memories.
+
+### Configuration (`config.toml`)
+
+```toml
+[capture.mcp]
+enabled = false
+servers = [
+  { name = "docs-search", command = "npx", args = ["-y", "@modelcontextprotocol/server-everything"] }
+]
+tools = ["search_docs", "fetch_url"]
+```
+
+### Execution Flow & Safeguards
+1. **Ambiguous Context Resolution**: When evaluating commits or transcript messages that mention external documents, packages, or URLs, the classifier queries configured MCP tools to fetch summary text.
+2. **5-Second Hard Timeout**: External MCP tool invocations are bounded by a strict 5-second timeout (`context.WithTimeout(ctx, 5*time.Second)`).
+3. **Graceful Fallback**: If an external server times out, fails, or exits with an error, the classification pipeline logs a debug warning and gracefully falls back to direct classification without blocking the capture workflow.
+
+

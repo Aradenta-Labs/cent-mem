@@ -468,15 +468,16 @@ centmem stats [--pretty]
 Launches the embedded local web UI Memory Browser dashboard and REST API.
 
 ```bash
-centmem ui [--port <port>] [--host <host>] [--no-open]
+centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]
 ```
 - `--port`: Port to listen on (default `4231`, or `CENTMEM_UI_PORT`).
 - `--host`: Host IP to bind to (default `127.0.0.1`).
 - `--no-open`: Do not automatically open the default browser.
+- `--token`: Bearer token secret for authentication (or via `CENTMEM_UI_TOKEN`). Mandatory when binding to non-loopback hosts (min 16 chars).
 
 **Stdout JSON:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.2"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.3"}
 ```
 
 ---
@@ -559,4 +560,64 @@ centmem links <memory_id> [--all]
   "incoming": []
 }
 ```
+
+---
+
+## 12. Model Context Protocol: `serve` (v1.5.3)
+
+Launches the zero-dependency stdio Model Context Protocol (MCP) JSON-RPC 2.0 server. Exposes centmem memory tools directly to MCP-compliant AI agents (Claude Code, Cursor, Windsurf, Zed, Antigravity) without requiring subshell command wrappers.
+
+```bash
+centmem serve [--mcp]
+```
+
+- Defaults to MCP stdio mode without requiring flags (`centmem serve` is an alias for `centmem serve --mcp`).
+- Protocol framing: Line-delimited JSON-RPC 2.0 over standard input and standard output.
+- Concurrency: Thread-safe response serialization, graceful cancellation on `SIGINT`/`SIGTERM`.
+
+### 12.1 Supported JSON-RPC Methods
+- `initialize`: Performs MCP capability handshake (`protocolVersion: "2024-11-05"`).
+- `notifications/initialized`: Notification emitted by client when ready.
+- `ping`: Health probe (returns `{}`).
+- `tools/list`: Lists all 7 exposed tools with full JSON schemas.
+- `tools/call`: Executes a tool with provided arguments and returns structured tool results.
+
+### 12.2 Exposed MCP Tools
+
+| MCP Tool | Description | Key Arguments |
+|---|---|---|
+| `centmem_recall` | Hybrid semantic + keyword + fact retrieval with Stage 2 re-ranking | `query` (str, req), `scope` (str), `top` (int), `type` (str), `tags` (array), `reranker` (str), `include_links` (bool) |
+| `centmem_put` | Store free-form note or session log memory with auto-links | `content` (str, req), `scope` (str, req), `type` (str), `tags` (array), `no_suggest` (bool) |
+| `centmem_set` | Store or update structured key/value fact | `key` (str, req), `value` (any, req), `scope` (str, req), `tags` (array) |
+| `centmem_get` | Retrieve fact by key or memory by ID | `id` (int) or `key` (str) + `scope` (str), `inherit` (bool) |
+| `centmem_timeline` | Chronological stream of recent memories | `scope` (str), `since` (str), `until` (str), `limit` (int) |
+| `centmem_stats` | Memory counts, database size, and status breakdown | `scope` (str) |
+| `centmem_forget` | Soft-delete / tombstone memory by ID, key, or tag | `id` (int), `scope` (str), `key` (str), `tag` (str) |
+
+### 12.3 Agent Configuration Example
+
+**Claude Code (`~/.claude/mcp.json` or `.claude.json`):**
+```json
+{
+  "mcpServers": {
+    "centmem": {
+      "command": "centmem",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+**Cursor (`~/.cursor/mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "centmem": {
+      "command": "centmem",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
 
