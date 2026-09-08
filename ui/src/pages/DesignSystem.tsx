@@ -16,6 +16,7 @@ import { SegmentedControl } from '../components/SegmentedControl';
 import { TagInput } from '../components/TagInput';
 import { RetentionLifecycle } from '../components/settings/RetentionLifecycle';
 import { SettingsModal } from '../components/settings/SettingsModal';
+import { apiFetch } from '../services/api';
 
 interface HealthResponse {
   ok: boolean;
@@ -43,7 +44,7 @@ export const DesignSystemPage: React.FC = () => {
     setIsCheckingHealth(true);
     setHealthError(null);
     try {
-      const res = await fetch('/api/health');
+      const res = await apiFetch('/api/health');
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       const data = await res.json();
       setHealth(data);

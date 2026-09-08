@@ -41,11 +41,12 @@ var commands = map[string]commandEntry{
 	"restore":  {cmdRestore, "restore --from <path>", []string{"--from"}},
 	"capture":  {cmdCapture, "capture <run|summary|categories|convert> [flags]", []string{"--transcript", "--scope", "--session", "--add", "--remove", "--list", "--harness", "--input", "--output", "--watch", "--interval", "--state-file", "--once"}},
 	"config":   {cmdConfig, "config <get|set> [key] [value]", nil},
-	"ui":       {cmdUI, "ui [--port <port>] [--host <host>] [--no-open]", []string{"--port", "--host", "--no-open"}},
+	"ui":       {cmdUI, "ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]", []string{"--port", "--host", "--no-open", "--token"}},
 	"reindex":  {cmdReindex, "reindex [--all] [--batch N] [--max-time d] [--dry-run]", []string{"--all", "--batch", "--max-time", "--dry-run"}},
 	"link":     {cmdLink, "link <from_id> <to_id> --relation <rel> | link <confirm|dismiss> <link_id>", []string{"--relation"}},
 	"unlink":   {cmdUnlink, "unlink <from_id> <to_id> [--relation <rel>] | unlink --id <link_id>", []string{"--id", "--relation"}},
 	"links":    {cmdLinks, "links <memory_id> [--all] [--include-suggested]", []string{"--all", "--include-suggested"}},
+	"serve":    {cmdServe, "serve [--mcp]", []string{"--mcp"}},
 }
 
 // buildRegistry returns a *cli.Registry populated with every registered command

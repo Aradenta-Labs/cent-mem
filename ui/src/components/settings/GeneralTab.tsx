@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Database, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { FileText, Database, RefreshCw, CheckCircle2, AlertCircle, Shield, Key } from 'lucide-react';
 import { ModelConfig, ConfigMeta } from '../../types/config';
 import { StoreStats } from '../../types/stats';
-import { fetchStats } from '../../services/api';
+import { fetchStats, getStoredToken, formatTokenSnippet } from '../../services/api';
 import { Button } from '../Button';
+import { TokenAuthModal } from './TokenAuthModal';
 
 export interface GeneralTabProps {
   model: ModelConfig;
@@ -13,6 +14,16 @@ export interface GeneralTabProps {
 export const GeneralTab: React.FC<GeneralTabProps> = ({ model, meta }) => {
   const [stats, setStats] = useState<StoreStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [currentToken, setCurrentToken] = useState<string | null>(() => getStoredToken());
+
+  useEffect(() => {
+    const handleTokenChange = () => {
+      setCurrentToken(getStoredToken());
+    };
+    window.addEventListener('centmem:token-changed', handleTokenChange);
+    return () => window.removeEventListener('centmem:token-changed', handleTokenChange);
+  }, []);
 
   const loadStats = async () => {
     setIsLoadingStats(true);
@@ -160,6 +171,63 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ model, meta }) => {
         </div>
       </div>
 
+      {/* Security & Access Token Section */}
+      <div
+        style={{
+          padding: 'var(--space-3)',
+          backgroundColor: 'var(--surface-secondary)',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-3)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <Shield size={14} style={{ color: 'var(--accent-primary)' }} />
+            <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600 }}>Security & Access Token</span>
+          </div>
+
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '11px',
+              fontWeight: 500,
+              color: currentToken ? 'var(--color-success-text)' : 'var(--text-muted)',
+              backgroundColor: currentToken ? 'var(--color-success-bg)' : 'var(--surface-primary)',
+              border: `1px solid ${currentToken ? 'var(--color-success-border)' : 'var(--border-subtle)'}`,
+              padding: '1px 6px',
+              borderRadius: 'var(--radius-xs)',
+            }}
+          >
+            {currentToken ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+            <span>{formatTokenSnippet(currentToken)}</span>
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+          <div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Bearer Authentication</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              Required for non-loopback host bindings or servers configured with --token.
+            </div>
+          </div>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsTokenModalOpen(true)}
+            style={{ padding: '2px 8px', height: '26px', fontSize: '11px', flexShrink: 0 }}
+          >
+            <Key size={12} />
+            <span>{currentToken ? 'Configure Token' : 'Set Token'}</span>
+          </Button>
+        </div>
+      </div>
+
       {/* Database & Store Metrics */}
       <div
         style={{
@@ -247,6 +315,22 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ model, meta }) => {
           </div>
         )}
       </div>
+
+      <TokenAuthModal
+        isOpen={isTokenModalOpen}
+        onClose={() => {
+          setIsTokenModalOpen(false);
+          setCurrentToken(getStoredToken());
+        }}
+        onSaved={(tok) => {
+          setCurrentToken(tok);
+          setIsTokenModalOpen(false);
+        }}
+        onCleared={() => {
+          setCurrentToken(null);
+          setIsTokenModalOpen(false);
+        }}
+      />
     </div>
   );
 };

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"io"
 	"os"
@@ -35,6 +36,19 @@ type DoctorCheck struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// IsLoopbackHost returns true if the host string refers to a local loopback interface.
+func IsLoopbackHost(host string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	if h == "" || h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "[::1]" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	if ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
+}
+
 // ServerConfig configures the embedded UI web server.
 type ServerConfig struct {
 	Host     string
@@ -44,6 +58,7 @@ type ServerConfig struct {
 	Store    *store.Store
 	Searcher *search.Searcher
 	Config   config.Config
+	Token    string
 }
 
 // DefaultServerConfig returns the standard localhost:4231 config.
@@ -78,6 +93,13 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 	if cfg.Version == "" {
 		cfg.Version = "1.5.0"
+	}
+
+	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
+		return nil, errors.New("refusing to bind to non-loopback host without authentication token. Pass --token or set CENTMEM_UI_TOKEN.")
+	}
+	if cfg.Token != "" && len(cfg.Token) < 16 {
+		return nil, errors.New("token must be at least 16 characters long")
 	}
 
 	if cfg.Searcher == nil && cfg.Store != nil {
@@ -1754,8 +1776,44 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 	mux.Handle("/", staticHandler)
 
+	authAndCORSHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if cfg.Token != "" && strings.HasPrefix(r.URL.Path, "/api/") {
+			authHeader := r.Header.Get("Authorization")
+			token := ""
+			if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+				token = strings.TrimSpace(authHeader[7:])
+			}
+			if token == "" {
+				token = r.URL.Query().Get("token")
+			}
+			if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(cfg.Token)) != 1 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":    false,
+					"error": "unauthorized: invalid or missing bearer token",
+				})
+				return
+			}
+		}
+
+		mux.ServeHTTP(w, r)
+	})
+
 	s.httpServer = &http.Server{
-		Handler:      mux,
+		Handler:      authAndCORSHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

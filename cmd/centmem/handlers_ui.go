@@ -23,6 +23,7 @@ func cmdUI(args []string) int {
 	fs.Int("port", 4231, "port to listen on (default 4231 or CENTMEM_UI_PORT)")
 	fs.String("host", "127.0.0.1", "host to bind to (default 127.0.0.1)")
 	fs.Bool("no-open", false, "do not open the browser automatically")
+	fs.String("token", "", "bearer token secret for API authentication (or via CENTMEM_UI_TOKEN)")
 
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
 		st, err := store.Open(cfg)
@@ -53,6 +54,18 @@ func cmdUI(args []string) int {
 			host = fs.Lookup("host").Value.String()
 		}
 
+		token := os.Getenv("CENTMEM_UI_TOKEN")
+		if fs.Lookup("token") != nil && fs.Lookup("token").Value.String() != "" {
+			token = fs.Lookup("token").Value.String()
+		}
+
+		if !ui.IsLoopbackHost(host) && token == "" {
+			return cli.E(cli.ExitError, "ERR_INVALID_FLAG", "Refusing to bind to non-loopback host without authentication token. Pass --token or set CENTMEM_UI_TOKEN.", "")
+		}
+		if token != "" && len(token) < 16 {
+			return cli.E(cli.ExitError, "ERR_INVALID_FLAG", "token must be at least 16 characters long", "")
+		}
+
 		noOpen := false
 		if os.Getenv("CENTMEM_UI_NO_OPEN") == "1" || os.Getenv("CENTMEM_UI_NO_OPEN") == "true" {
 			noOpen = true
@@ -69,6 +82,7 @@ func cmdUI(args []string) int {
 			Store:    st,
 			Searcher: searcher,
 			Config:   cfg,
+			Token:    token,
 		})
 		if err != nil {
 			return cli.Internalf("ui server init: %v", err)
@@ -85,6 +99,7 @@ func cmdUI(args []string) int {
 			"host":    host,
 			"port":    port,
 			"version": version,
+			"auth":    token != "",
 		})
 
 		if !noOpen {

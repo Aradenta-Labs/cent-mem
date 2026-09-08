@@ -53,3 +53,18 @@ func TestCmdUI_StartAndSignal(t *testing.T) {
 		t.Fatal("cmdUI did not shut down within timeout")
 	}
 }
+
+func TestCmdUI_NonLoopbackWithoutToken(t *testing.T) {
+	code := cmdUI([]string{"--host", "0.0.0.0", "--port", "0", "--no-open"})
+	if code != cli.ExitError {
+		t.Errorf("cmdUI with 0.0.0.0 without token exited %d, want ExitError (%d)", code, cli.ExitError)
+	}
+}
+
+func TestCmdUI_ShortToken(t *testing.T) {
+	code := cmdUI([]string{"--token", "too-short", "--port", "0", "--no-open"})
+	if code != cli.ExitError {
+		t.Errorf("cmdUI with short token exited %d, want ExitError (%d)", code, cli.ExitError)
+	}
+}
+

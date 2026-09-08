@@ -6,6 +6,8 @@ import (
 
 // CaptureConfig is aliased from internal/config for package capture consumers.
 type CaptureConfig = config.CaptureConfig
+type CaptureMCPConfig = config.CaptureMCPConfig
+type MCPServerConfig = config.MCPServerConfig
 
 var (
 	// DefaultCategories returns the default list of memory capture categories.

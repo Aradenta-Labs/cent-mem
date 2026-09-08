@@ -1,7 +1,7 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` CLI to recall prior context, store decisions, save facts, and inspect timeline so every agent shares one persistent brain. Use whenever you need to remember or retrieve project context, architecture decisions, user preferences, API conventions, or session checkpoints.
-version: 1.5.2
+version: 1.5.3
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 allowed-tools:
@@ -199,11 +199,12 @@ project:<name>/agent:<agent>/session:<id>
 | `restore` | `centmem restore --from <path>` | Restore database from backup snapshot |
 | `capture` | `centmem capture <run|summary|categories|convert|git|docs|shell|comments> [flags]` | Auto-capture engine and developer artifact capture |
 | `config` | `centmem config <get|set> [key] [value]` | Manage configuration settings in `config.toml` |
-| `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open]` | Launch embedded Web UI memory browser dashboard |
+| `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]` | Launch embedded Web UI memory browser dashboard |
 | `reindex` | `centmem reindex [--all] [--batch N] [--max-time d] [--dry-run]` | Re-embed memories into vector index |
 | `link` | `centmem link <from_id> <to_id> --relation <rel> \| link <confirm\|dismiss> <link_id>` | Create or manage relationship links |
 | `unlink` | `centmem unlink <from_id> <to_id> [--relation <rel>] \| unlink --id <link_id>` | Remove relationship links between memories |
 | `links` | `centmem links <memory_id> [--all]` | List relationship links for a memory |
+| `serve` | `centmem serve [--mcp]` | Run MCP stdio JSON-RPC server for agent harnesses |
 
 ---
 

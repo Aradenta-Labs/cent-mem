@@ -356,6 +356,32 @@ func callOpenAIEndpoint(ctx context.Context, client *http.Client, url, apiKey, m
 		}
 	}
 
+	if cfg.MCP.Enabled && len(messages) > 0 {
+		hasMCPMessage := false
+		for _, m := range messages {
+			if strings.Contains(m.Content, "[") && strings.Contains(m.Content, "]:") {
+				hasMCPMessage = true
+				break
+			}
+		}
+		if !hasMCPMessage {
+			var sampleText []string
+			for i, m := range messages {
+				if i >= 5 {
+					break
+				}
+				if strings.TrimSpace(m.Content) != "" {
+					sampleText = append(sampleText, m.Content)
+				}
+			}
+			if len(sampleText) > 0 {
+				if ext := EnrichClassifierContext(ctx, cfg, strings.Join(sampleText, " ")); ext != "" {
+					recallSnippets = append(recallSnippets, "[External MCP Context]\n"+ext)
+				}
+			}
+		}
+	}
+
 	systemPrompt := BuildPrompt(cfg, recallSnippets)
 
 	transcriptBytes, err := json.Marshal(messages)
@@ -428,6 +454,26 @@ func callOpenAIEndpoint(ctx context.Context, client *http.Client, url, apiKey, m
 
 // ClassifyWithConfig selects the appropriate classifier backend based on config and filters results by categories and confidence threshold.
 func ClassifyWithConfig(ctx context.Context, messages []TranscriptMessage, cfg CaptureConfig, recallFn RecallFunc) ([]CaptureItem, error) {
+	if cfg.MCP.Enabled && len(messages) > 0 {
+		var sampleText []string
+		for i, m := range messages {
+			if i >= 5 {
+				break
+			}
+			if strings.TrimSpace(m.Content) != "" {
+				sampleText = append(sampleText, m.Content)
+			}
+		}
+		if len(sampleText) > 0 {
+			if ext := EnrichClassifierContext(ctx, cfg, strings.Join(sampleText, " ")); ext != "" {
+				messages = append(messages, TranscriptMessage{
+					Role:    "assistant",
+					Content: ext,
+				})
+			}
+		}
+	}
+
 	var c Classifier
 	backend := strings.ToLower(strings.TrimSpace(cfg.Backend))
 

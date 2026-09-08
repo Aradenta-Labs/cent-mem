@@ -24,8 +24,98 @@ import {
  * API service for communicating with embedded centmem server.
  */
 
+export function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken) {
+      localStorage.setItem('centmem_token', urlToken);
+      params.delete('token');
+      const query = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+      return urlToken;
+    }
+    return localStorage.getItem('centmem_token');
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredToken(token: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const clean = token.trim();
+    if (clean) {
+      localStorage.setItem('centmem_token', clean);
+    } else {
+      localStorage.removeItem('centmem_token');
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('token')) {
+      params.delete('token');
+      const query = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+    }
+    return true;
+  } catch (err) {
+    console.warn('Failed to persist token to localStorage:', err);
+    return false;
+  }
+}
+
+export function clearStoredToken(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem('centmem_token');
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('token')) {
+      params.delete('token');
+      const query = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+    }
+  } catch {}
+}
+
+export function formatTokenSnippet(token: string | null): string {
+  if (!token) return 'Not Set';
+  if (token.startsWith('sec_')) return 'Configured: sec_...';
+  if (token.length > 8) return `Configured: ${token.slice(0, 4)}...`;
+  return `Configured: ${token.slice(0, 2)}...`;
+}
+
+function getAuthHeaders(extraHeaders?: HeadersInit): HeadersInit {
+  const headers: Record<string, string> = {};
+  if (typeof window !== 'undefined') {
+    const token = getStoredToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+  if (extraHeaders) {
+    if (extraHeaders instanceof Headers) {
+      extraHeaders.forEach((val, key) => { headers[key] = val; });
+    } else if (Array.isArray(extraHeaders)) {
+      extraHeaders.forEach(([key, val]) => { headers[key] = val; });
+    } else {
+      Object.assign(headers, extraHeaders);
+    }
+  }
+  return headers;
+}
+
+export async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const headers = getAuthHeaders(init?.headers);
+  const res = await fetch(url, { ...init, headers });
+  if (res.status === 401 && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('centmem:auth-required', { detail: { rejectedToken: getStoredToken(), url } }));
+  }
+  return res;
+}
+
+
 export async function fetchHealth(): Promise<HealthResponse> {
-  const res = await fetch('/api/health');
+  const res = await apiFetch('/api/health');
   if (!res.ok) {
     throw new Error(`Health check failed: HTTP ${res.status}`);
   }
@@ -34,7 +124,7 @@ export async function fetchHealth(): Promise<HealthResponse> {
 
 export async function fetchStats(scope?: string): Promise<StoreStats> {
   const url = scope && scope !== 'global' ? `/api/stats?scope=${encodeURIComponent(scope)}` : '/api/stats';
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) {
     throw new Error(`Failed to load stats: HTTP ${res.status}`);
   }
@@ -46,7 +136,7 @@ export async function fetchStats(scope?: string): Promise<StoreStats> {
 }
 
 export async function fetchScopes(): Promise<ScopeNode[]> {
-  const res = await fetch('/api/scopes');
+  const res = await apiFetch('/api/scopes');
   if (!res.ok) {
     throw new Error(`Failed to load scopes: HTTP ${res.status}`);
   }
@@ -58,7 +148,7 @@ export async function fetchScopes(): Promise<ScopeNode[]> {
 }
 
 export async function createScope(path: string): Promise<CreateScopeResponse> {
-  const res = await fetch('/api/scopes', {
+  const res = await apiFetch('/api/scopes', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -88,7 +178,7 @@ export async function fetchMemories(filters: MemoryFilters = {}): Promise<Memori
   if (filters.offset !== undefined) params.set('offset', String(filters.offset));
 
   const query = params.toString();
-  const res = await fetch(`/api/memories${query ? `?${query}` : ''}`);
+  const res = await apiFetch(`/api/memories${query ? `?${query}` : ''}`);
   if (!res.ok) {
     throw new Error(`Failed to load memories: HTTP ${res.status}`);
   }
@@ -100,7 +190,7 @@ export async function fetchMemories(filters: MemoryFilters = {}): Promise<Memori
 }
 
 export async function fetchMemoryDetail(id: number): Promise<Memory> {
-  const res = await fetch(`/api/memories/${id}`);
+  const res = await apiFetch(`/api/memories/${id}`);
   if (!res.ok) {
     throw new Error(`Failed to load memory detail: HTTP ${res.status}`);
   }
@@ -112,7 +202,7 @@ export async function fetchMemoryDetail(id: number): Promise<Memory> {
 }
 
 export async function forgetMemory(id: number): Promise<ForgetMemoryResponse> {
-  const res = await fetch(`/api/memories/${id}/forget`, {
+  const res = await apiFetch(`/api/memories/${id}/forget`, {
     method: 'POST',
   });
   const data: ForgetMemoryResponse = await res.json();
@@ -123,7 +213,7 @@ export async function forgetMemory(id: number): Promise<ForgetMemoryResponse> {
 }
 
 export async function restoreMemory(input: RestoreMemoryInput): Promise<RestoreMemoryResponse> {
-  const res = await fetch('/api/memories', {
+  const res = await apiFetch('/api/memories', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -154,7 +244,7 @@ export function getExportUrl(filters: ExportFilters = {}): string {
 }
 
 export async function fetchConfig(): Promise<ConfigResponse> {
-  const res = await fetch('/api/config');
+  const res = await apiFetch('/api/config');
   const data: ConfigResponse = await res.json();
   if (!res.ok || !data.ok) {
     throw new Error(data.error?.message || `Failed to load config: HTTP ${res.status}`);
@@ -163,7 +253,7 @@ export async function fetchConfig(): Promise<ConfigResponse> {
 }
 
 export async function updateConfig(payload: UpdateConfigPayload): Promise<ConfigResponse> {
-  const res = await fetch('/api/config', {
+  const res = await apiFetch('/api/config', {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -199,7 +289,7 @@ export async function testClassifierEndpoint(params: TestClassifierParams): Prom
       api_model: params?.api_model,
       confidence_threshold: params?.confidence_threshold,
     };
-    const res = await fetch('/api/config/test-classifier', {
+    const res = await apiFetch('/api/config/test-classifier', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -229,7 +319,7 @@ export async function testClassifierEndpoint(params: TestClassifierParams): Prom
 
 export async function fetchMemoryLinks(memoryId: number, includeSuggested = true): Promise<MemoryLinksResponse> {
   const url = `/api/memories/${memoryId}/links${includeSuggested ? '?include_suggested=true' : ''}`;
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) {
     throw new Error(`Failed to load memory links: HTTP ${res.status}`);
   }
@@ -241,7 +331,7 @@ export async function fetchMemoryLinks(memoryId: number, includeSuggested = true
 }
 
 export async function createLink(fromId: number, toId: number, relation: RelationType): Promise<{ ok: boolean; link: MemoryLink }> {
-  const res = await fetch('/api/links', {
+  const res = await apiFetch('/api/links', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ from_id: fromId, to_id: toId, relation }),
@@ -254,7 +344,7 @@ export async function createLink(fromId: number, toId: number, relation: Relatio
 }
 
 export async function confirmLink(linkId: number): Promise<{ ok: boolean; confirmed: number }> {
-  const res = await fetch(`/api/links/${linkId}/confirm`, {
+  const res = await apiFetch(`/api/links/${linkId}/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -266,7 +356,7 @@ export async function confirmLink(linkId: number): Promise<{ ok: boolean; confir
 }
 
 export async function dismissLink(linkId: number): Promise<{ ok: boolean; dismissed: number }> {
-  const res = await fetch(`/api/links/${linkId}/dismiss`, {
+  const res = await apiFetch(`/api/links/${linkId}/dismiss`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -278,7 +368,7 @@ export async function dismissLink(linkId: number): Promise<{ ok: boolean; dismis
 }
 
 export async function deleteLink(linkId: number): Promise<{ ok: boolean; deleted: number }> {
-  const res = await fetch(`/api/links/${linkId}`, {
+  const res = await apiFetch(`/api/links/${linkId}`, {
     method: 'DELETE',
   });
   const data = await res.json();

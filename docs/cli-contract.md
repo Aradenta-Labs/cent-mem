@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 1.5.2
+**Version:** 1.5.3
 **Binary:** `centmem`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
@@ -304,16 +304,17 @@ centmem config get [key]
 Launch the embedded local web UI dashboard and health API.
 
 ```
-centmem ui [--port <port>] [--host <host>] [--no-open]
+centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]
 ```
 
 - `--port`: port to listen on (default `4231`, or `CENTMEM_UI_PORT`).
 - `--host`: host IP to bind to (default `127.0.0.1`).
 - `--no-open`: do not automatically open the browser.
+- `--token`: bearer token secret for API authentication (or via `CENTMEM_UI_TOKEN`). Mandatory when binding to non-loopback hosts (min 16 chars).
 
 **Output:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.4"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.3", "auth": false}
 ```
 
 ---
@@ -421,6 +422,20 @@ centmem links <memory_id> [--all] [--include-suggested]
   "incoming": []
 }
 ```
+
+---
+
+### 3.21 `serve` — Model Context Protocol (MCP) server
+Run a zero-dependency stdio Model Context Protocol (MCP) JSON-RPC 2.0 server exposing centmem tools directly to AI coding agents. Defaults to MCP mode without requiring flags.
+
+```
+centmem serve [--mcp]
+```
+
+- `--mcp`: enable MCP stdio protocol mode (default `true`).
+
+**Supported Methods:** `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`.  
+**Exposed Tools:** `centmem_recall`, `centmem_put`, `centmem_set`, `centmem_get`, `centmem_timeline`, `centmem_stats`, `centmem_forget`.
 
 ---
 

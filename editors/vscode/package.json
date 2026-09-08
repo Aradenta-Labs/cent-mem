@@ -1,0 +1,129 @@
+{
+  "name": "centmem-vscode",
+  "displayName": "cent-mem Developer Memory",
+  "description": "Fast, local-first shared memory store for AI agents in VS Code",
+  "version": "1.5.3",
+  "publisher": "aradenta-labs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aradenta-labs/cent-mem"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "centmem-sidebar",
+          "title": "cent-mem",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "centmem-sidebar": [
+        {
+          "id": "centmem.memoryView",
+          "name": "Shared Memory",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "centmem.recall",
+        "title": "Centmem: Recall Memory",
+        "category": "Centmem"
+      },
+      {
+        "command": "centmem.saveSelection",
+        "title": "Centmem: Save Selection as Memory",
+        "category": "Centmem"
+      },
+      {
+        "command": "centmem.refreshSidebar",
+        "title": "Centmem: Refresh Memory",
+        "category": "Centmem",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "centmem.openUI",
+        "title": "Centmem: Open Web UI",
+        "category": "Centmem",
+        "icon": "$(browser)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "centmem.saveSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@100"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "centmem.refreshSidebar",
+          "when": "view == centmem.memoryView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "centmem.openUI",
+          "when": "view == centmem.memoryView",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "cent-mem",
+      "properties": {
+        "centmem.binaryPath": {
+          "type": "string",
+          "default": "centmem",
+          "description": "Path to centmem CLI executable binary"
+        },
+        "centmem.scope": {
+          "type": "string",
+          "default": "",
+          "description": "Default scope filter for recall (leave empty to infer from workspace)"
+        },
+        "centmem.autoRecallOnSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically recall relevant memories when selecting text in the active editor"
+        },
+        "centmem.top": {
+          "type": "integer",
+          "default": 5,
+          "description": "Number of memories to return on recall"
+        },
+        "centmem.uiUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:4231",
+          "description": "URL for centmem embedded Web UI"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node out/test/cli.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.4.5"
+  }
+}

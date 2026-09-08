@@ -3,7 +3,7 @@ import { Copy, Check, Sparkles, X, Database, Download } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { Memory, MemoryFilters } from '../types/memory';
 import { StoreStats } from '../types/stats';
-import { fetchMemories, fetchMemoryDetail, fetchStats, forgetMemory, restoreMemory, getExportUrl } from '../services/api';
+import { fetchMemories, fetchMemoryDetail, fetchStats, forgetMemory, restoreMemory, getExportUrl, apiFetch } from '../services/api';
 import { Badge } from './Badge';
 import { Button } from './Button';
 import { FiltersPanel } from './FiltersPanel';
@@ -241,7 +241,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
   };
 
   // Export handler
-  const handleExport = (format: 'json' | 'csv') => {
+  const handleExport = async (format: 'json' | 'csv') => {
     setIsExportOpen(false);
     const url = getExportUrl({
       scope: selectedScope,
@@ -252,12 +252,25 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
       since: sinceFilter || undefined,
       children: childrenFilter,
     });
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      const res = await apiFetch(url);
+      if (!res.ok) {
+        throw new Error(`Export failed: HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      const sanitizedScope = (selectedScope || 'all').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.download = `centmem-export-${sanitizedScope}-${dateStr}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Export download error:', err);
+    }
   };
 
   // Keyboard shortcut: Backspace or Delete to forget selected memory

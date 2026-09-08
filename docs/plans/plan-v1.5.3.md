@@ -207,11 +207,11 @@ centmem ui --host 0.0.0.0
 
 ## 7. Files Affected & Implementation Checklist
 
-- [ ] **MCP Server Engine:** `internal/mcp/server.go`, `tools.go`, `protocol.go` [NEW]
-- [ ] **MCP CLI Command:** `cmd/centmem/handlers_serve.go` (`centmem serve --mcp`) [NEW]
-- [ ] **MCP Client Subsystem:** `internal/capture/mcp_client.go` [NEW]
-- [ ] **Remote Token Auth:** `internal/ui/server.go` (middleware & token validation) [MODIFY]
-- [ ] **CLI UI Flags:** `cmd/centmem/handlers_ui.go` (add `--token` flag and security guard) [MODIFY]
-- [ ] **VS Code Extension:** `editors/vscode/package.json`, `src/extension.ts`, `src/sidebar.ts` [NEW]
-- [ ] **Docs:** Update `docs/cli-contract.md` and create `docs/guides/mcp-setup.md` [NEW/MODIFY]
-- [ ] **Knowledge Graph:** Update with `graphify update .` after completion
+- [x] **MCP Server Engine:** `internal/mcp/server.go`, `tools.go`, `protocol.go` [NEW]
+- [x] **MCP CLI Command:** `cmd/centmem/handlers_serve.go` (`centmem serve --mcp`) [NEW]
+- [x] **MCP Client Subsystem:** `internal/capture/mcp_client.go` [NEW]
+- [x] **Remote Token Auth:** `internal/ui/server.go` (middleware & token validation) [MODIFY]
+- [x] **CLI UI Flags:** `cmd/centmem/handlers_ui.go` (add `--token` flag and security guard) [MODIFY]
+- [x] **VS Code Extension:** `editors/vscode/package.json`, `src/extension.ts`, `src/sidebar.ts` [NEW]
+- [x] **Docs:** Update `docs/cli-contract.md` and create `docs/guides/mcp-setup.md` [NEW/MODIFY]
+- [x] **Knowledge Graph:** Update with `graphify update .` after completion

@@ -6,22 +6,37 @@ import (
 	"strings"
 )
 
+// MCPServerConfig defines an external MCP server process command and arguments.
+type MCPServerConfig struct {
+	Name    string   `json:"name" toml:"name"`
+	Command string   `json:"command" toml:"command"`
+	Args    []string `json:"args" toml:"args"`
+}
+
+// CaptureMCPConfig holds MCP client enrichment settings.
+type CaptureMCPConfig struct {
+	Enabled bool              `json:"enabled" toml:"enabled"`
+	Servers []MCPServerConfig `json:"servers" toml:"servers"`
+	Tools   []string          `json:"tools" toml:"tools"`
+}
+
 // CaptureConfig defines configuration options for transcript auto-capture.
 type CaptureConfig struct {
-	Enabled             bool     `json:"enabled" toml:"enabled"`
-	Harness             string   `json:"harness" toml:"harness"`
-	Triggers            []string `json:"triggers" toml:"triggers"`
-	Scope               string   `json:"scope" toml:"scope"`
-	Categories          []string `json:"categories" toml:"categories"`
-	TranscriptPath      string   `json:"transcript_path" toml:"transcript_path"`
-	Backend             string   `json:"backend" toml:"backend"` // "local-llm" | "heuristic" | "openai-compatible"
-	LocalLLMEndpoint    string   `json:"local_llm_endpoint" toml:"local_llm_endpoint"`
-	LocalLLMModel       string   `json:"local_llm_model" toml:"local_llm_model"`
-	APIBaseURL          string   `json:"api_base_url" toml:"api_base_url"`
-	APIKeyEnv           string   `json:"api_key_env" toml:"api_key_env"`
-	APIKey              string   `json:"api_key,omitempty" toml:"api_key,omitempty"`
-	APIModel            string   `json:"api_model" toml:"api_model"`
-	ConfidenceThreshold float64  `json:"confidence_threshold" toml:"confidence_threshold"`
+	Enabled             bool             `json:"enabled" toml:"enabled"`
+	Harness             string           `json:"harness" toml:"harness"`
+	Triggers            []string         `json:"triggers" toml:"triggers"`
+	Scope               string           `json:"scope" toml:"scope"`
+	Categories          []string         `json:"categories" toml:"categories"`
+	TranscriptPath      string           `json:"transcript_path" toml:"transcript_path"`
+	Backend             string           `json:"backend" toml:"backend"` // "local-llm" | "heuristic" | "openai-compatible"
+	LocalLLMEndpoint    string           `json:"local_llm_endpoint" toml:"local_llm_endpoint"`
+	LocalLLMModel       string           `json:"local_llm_model" toml:"local_llm_model"`
+	APIBaseURL          string           `json:"api_base_url" toml:"api_base_url"`
+	APIKeyEnv           string           `json:"api_key_env" toml:"api_key_env"`
+	APIKey              string           `json:"api_key,omitempty" toml:"api_key,omitempty"`
+	APIModel            string           `json:"api_model" toml:"api_model"`
+	ConfidenceThreshold float64          `json:"confidence_threshold" toml:"confidence_threshold"`
+	MCP                 CaptureMCPConfig `json:"mcp" toml:"mcp"`
 }
 
 // DefaultCategories returns the default list of memory capture categories.
@@ -52,6 +67,11 @@ func DefaultCaptureConfig() CaptureConfig {
 		APIBaseURL:          "https://api.openai.com/v1",
 		APIKeyEnv:           "OPENAI_API_KEY",
 		APIModel:            "gpt-4o-mini",
+		MCP: CaptureMCPConfig{
+			Enabled: false,
+			Servers: nil,
+			Tools:   []string{"search_docs", "fetch_url"},
+		},
 	}
 }
 
