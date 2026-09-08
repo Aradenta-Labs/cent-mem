@@ -72,3 +72,61 @@ centmem capture categories --list
 centmem capture categories --add "custom-category"
 centmem capture categories --remove "preference"
 ```
+
+---
+
+## 5. Developer Artifact Capture Pipelines (v1.5.1)
+
+In v1.5.1, `centmem capture` extends beyond runtime conversational transcripts to ingest static and historical developer artifacts directly from local project repositories and toolchains.
+
+### Pipelines
+
+1. **Git Commit & Dependency Pipeline (`centmem capture git`)**:
+   - Parses Git commits from the repository history.
+   - Evaluates commit messages and diffs to distinguish architectural decisions from routine changes.
+   - Detects package dependency additions and updates across `go.mod`, `package.json`, `Cargo.toml`, `requirements.txt`, and `pyproject.toml`, creating structured `dep.<package>` facts.
+   - Resumes from the last scanned commit SHA using `.centmem/git-cursor`.
+
+2. **Documentation Ingestion Pipeline (`centmem capture docs`)**:
+   - Scans project documentation directories (Markdown, plain text, reStructuredText).
+   - Chunks documents by Markdown headings and code blocks into self-contained semantic memories.
+   - Preserves headings and relative file provenance in tags.
+   - Tracks file modification timestamps in `.centmem/docs-cursor`.
+   - **Tombstoning**: Automatically marks memories as archived when their corresponding documentation files are deleted.
+
+3. **Developer Shell History Pipeline (`centmem capture shell`)**:
+   - Scans shell history files (`~/.zsh_history`, `~/.bash_history`, `~/.local/share/fish/fish_history` or `$HISTFILE`).
+   - Strips transient flags, normalizes recurring commands, and computes frequency distributions.
+   - Persists top workflows as a structured `shell.frequent_commands` fact.
+   - Tracks read offsets in `.centmem/shell-cursor`.
+
+4. **Code Annotation Pipeline (`centmem capture comments`)**:
+   - Scans source code (`.go`, `.ts`, `.js`, `.py`, `.rs`, `.sh`, etc.) for actionable developer annotations (`TODO`, `FIXME`, `HACK`, `NOTE`, `OPTIMIZE`, `SECURITY`, `DEPRECATED`).
+   - Language-aware comment parsing respects line comments (`//`, `#`) and multi-line block comments (`/* ... */`).
+   - Formats memories with explicit line provenance: `[file: <path>:<line>] [<KEYWORD>] <comment text>`.
+   - **Line-shift tracking**: Detects when surrounding code changes move an existing comment to a different line number, updating the memory content without creating duplicate entries.
+
+### Cursor Directory & Repository Isolation (`.centmem/`)
+
+Incremental capture pipelines store their synchronization state inside a `.centmem/` directory located at the project root:
+- `.centmem/git-cursor`: Plaintext commit SHA representing the latest ingested Git commit.
+- `.centmem/docs-cursor`: JSON object mapping relative file paths to Unix modification timestamps.
+- `.centmem/shell-cursor`: Line or byte offset within the shell history file.
+
+**Automatic Isolation**:
+When `centmem` creates or accesses `.centmem/`, it automatically creates `.centmem/.gitignore` containing `*`. This guarantees that cursor files, temporary buffers, and local capture state are never committed to repository version control. State files are updated using atomic temporary file writes (`rename`) to ensure consistency during interrupted operations.
+
+### High-Entropy Secret Scrubber
+
+All developer artifact capture pipelines run content through the automated secret scrubber (`internal/capture/scrubber.go`) before memories are persisted or evaluated:
+- **Detected Patterns**:
+  - Bearer tokens (`Bearer <token>`)
+  - URLs with embedded credentials (`https://user:password@host`)
+  - AWS access keys (`AKIA...`)
+  - GitHub Personal Access Tokens and OAuth tokens (`ghp_...`, `github_pat_...`)
+  - Slack API tokens (`xoxb-...`, `xoxp-...`)
+  - PEM-encoded private keys (`-----BEGIN ... PRIVATE KEY-----`)
+  - Generic high-entropy assignments matching `api_key`, `secret`, `token`, `password`, `auth_key`, etc.
+- **Redaction Placeholders**: Matched secrets are replaced with deterministic placeholders (e.g. `[REDACTED]`, `[REDACTED_AWS_KEY]`, `[REDACTED_PRIVATE_KEY]`).
+- **Safety Guarantee**: Unredacted secrets and credentials never enter SQLite storage, FTS5 full-text indices, or ONNX vector embeddings.
+

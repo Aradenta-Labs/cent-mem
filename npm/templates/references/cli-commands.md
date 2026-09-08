@@ -186,8 +186,9 @@ centmem timeline --scope <scope> [--since <duration>] [--until <duration>] [--li
 ---
 
 ## 7. `centmem capture`
-Subcommands for the auto-capture transcript system:
+Subcommands for transcript auto-capture and developer artifact ingestion pipelines (git, docs, shell, comments).
 
+### Transcript Auto-Capture Commands
 - `centmem capture run [--transcript <path>] [--scope <s>] [--watch]`
   Executes an on-demand or background continuous capture run.
 - `centmem capture summary [--session <id>]`
@@ -196,6 +197,156 @@ Subcommands for the auto-capture transcript system:
   Inspects or manages active extraction categories.
 - `centmem capture convert --harness <name> --input <path> [--output <path>]`
   Normalizes harness-specific session logs to cent-mem standard JSONL.
+
+---
+
+### `centmem capture git`
+Extracts architectural decisions, major commit narratives, and package dependency diffs from Git history into memory notes and facts.
+
+```bash
+centmem capture git [--repo <path>] [--since <sha|date>] [--scope <scope>] [--dry-run] [--max-commits <n>]
+```
+- `--repo <path>`: Target Git repository path (default: current directory or nearest Git root).
+- `--since <sha|date>`: Commit SHA or duration/date (e.g., `24h`, `7d`, `2026-01-01`). If omitted, resumes from `.centmem/git-cursor`.
+- `--scope <scope>`: Target memory scope (default: `project:<repo-name>`, or `global`).
+- `--dry-run`: Simulate commit analysis without writing to SQLite or advancing cursor.
+- `--max-commits <n>`: Maximum number of commits to process in this run (default: `100`).
+
+**Stdout JSON:**
+```json
+{
+  "ok": true,
+  "command": "capture git",
+  "source": ".git",
+  "scanned": 15,
+  "commits_scanned": 15,
+  "memories_created": 3,
+  "memories_updated": 0,
+  "cursor": "a1b2c3d4e5f678901234567890abcdef12345678",
+  "items": [
+    {
+      "id": 105,
+      "type": "note",
+      "tags": ["git", "commit", "decision"],
+      "content": "Commit a1b2c3d: feat(auth): switch token signing from HS256 to RS256 with JWKS endpoint",
+      "dry_run": false
+    },
+    {
+      "id": 106,
+      "type": "fact",
+      "tags": ["git", "dependency"],
+      "content": "dep.golang.jwt/v5 = v5.2.1",
+      "dry_run": false
+    }
+  ]
+}
+```
+
+---
+
+### `centmem capture docs`
+Parses documentation files, splits them into semantic heading sections, and indexes them as durable reference memories with automatic deletion tombstoning.
+
+```bash
+centmem capture docs [--dir <path>] [--scope <scope>] [--ext md,txt,rst] [--dry-run]
+```
+- `--dir <path>`: Target documentation directory (default: current directory).
+- `--scope <scope>`: Target memory scope (default: `project:<repo-name>`, or `global`).
+- `--ext <exts>`: Comma-separated file extensions to scan (default: `md,txt,rst`).
+- `--dry-run`: Simulate markdown section chunking without persisting to SQLite or updating cursor.
+
+**Stdout JSON:**
+```json
+{
+  "ok": true,
+  "command": "capture docs",
+  "source": "/path/to/project/docs",
+  "scanned": 8,
+  "memories_created": 5,
+  "memories_updated": 0,
+  "cursor": "8 files tracked",
+  "items": [
+    {
+      "id": 107,
+      "type": "note",
+      "tags": ["docs", "architecture", "overview"],
+      "content": "# Architecture Overview\ncent-mem uses a hybrid search pipeline combining dense vector embeddings with SQLite FTS5...",
+      "dry_run": false
+    }
+  ]
+}
+```
+
+---
+
+### `centmem capture shell`
+Analyzes local developer shell history, scrubs sensitive arguments and tokens, and extracts recurring workflow patterns as a structured `shell.frequent_commands` fact.
+
+```bash
+centmem capture shell [--history <path>] [--shell <zsh|bash|fish>] [--scope <scope>] [--top <n>] [--dry-run]
+```
+- `--history <path>`: Custom path to shell history file (default: `$HISTFILE` or detected `~/.zsh_history`, `~/.bash_history`, `~/.local/share/fish/fish_history`).
+- `--shell <zsh|bash|fish>`: Shell dialect/type (auto-detected if omitted).
+- `--scope <scope>`: Target memory scope (default: `project:<repo-name>`, or `global`).
+- `--top <n>`: Number of top recurring command patterns to preserve (default: `15`).
+- `--dry-run`: Simulate frequency analysis without saving to SQLite or updating cursor.
+
+**Stdout JSON:**
+```json
+{
+  "ok": true,
+  "command": "capture shell",
+  "source": "/Users/user/.zsh_history",
+  "scanned": 420,
+  "memories_created": 1,
+  "memories_updated": 0,
+  "cursor": "1048576",
+  "items": [
+    {
+      "id": 108,
+      "type": "fact",
+      "tags": ["shell", "toolchain", "conventions"],
+      "content": "shell.frequent_commands = {\"go test -tags fts5 ./... -race\":42,\"git status\":35,\"centmem recall\":28}",
+      "dry_run": false
+    }
+  ]
+}
+```
+
+---
+
+### `centmem capture comments`
+Scans codebase source files for actionable annotations (`TODO`, `FIXME`, `HACK`, `SECURITY`, etc.), records line provenance, tracks line movements without duplicating entries, and scrubs credentials.
+
+```bash
+centmem capture comments [--dir <path>] [--ext <exts>] [--keywords <list>] [--scope <scope>] [--dry-run]
+```
+- `--dir <path>`: Target source code directory (default: current directory).
+- `--ext <exts>`: Comma-separated file extensions to scan (default: `go,ts,js,py,rs,sh`).
+- `--keywords <list>`: Comma-separated comment keywords (default: `TODO,FIXME,HACK,NOTE,OPTIMIZE,SECURITY,DEPRECATED`).
+- `--scope <scope>`: Target memory scope (default: `project:<repo-name>`, or `global`).
+- `--dry-run`: Simulate comment scan without writing to SQLite.
+
+**Stdout JSON:**
+```json
+{
+  "ok": true,
+  "command": "capture comments",
+  "source": "/path/to/project/src",
+  "scanned": 45,
+  "memories_created": 4,
+  "memories_updated": 1,
+  "items": [
+    {
+      "id": 109,
+      "type": "note",
+      "tags": ["comment", "todo", "jwt.go"],
+      "content": "[file: internal/auth/jwt.go:42] [TODO] Rotate JWT signing key every 30 days via KMS",
+      "dry_run": false
+    }
+  ]
+}
+```
 
 ---
 

@@ -122,6 +122,8 @@ test('injectWorkflowAndCommands creates AGENTS.md if missing', () => {
     assert(content.includes('## /centmem Command'));
     assert(content.includes('<!-- centmem:start -->'));
     assert(content.includes('<!-- centmem-command:start -->'));
+    assert(content.includes('Ingest / Capture'));
+    assert(content.includes('centmem capture git'));
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -211,6 +213,8 @@ test('Full E2E install and uninstall workflow', () => {
     assert(agentsContent.includes('.agents/skills/centmem/'));
     assert(agentsContent.includes('## /centmem Command'));
     assert(agentsContent.includes('centmem recall'));
+    assert(agentsContent.includes('Ingest / Capture'));
+    assert(agentsContent.includes('centmem capture git'));
 
     // 2. Run uninstall
     const uninstExit = run(['node', 'install.js', 'uninstall', '--home', tmpHome, '--cwd', tmpCwd]);
