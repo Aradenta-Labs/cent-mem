@@ -153,10 +153,12 @@ During write execution, centmem's heuristic classifier detects the transition cu
   "status": "queued",
   "suggested_links": [
     {
-      "link_id": 18,
+      "id": 18,
+      "from_id": 142,
       "to_id": 45,
       "relation": "supersedes",
-      "target_content": "Store embeddings in Postgres using pgvector extension."
+      "target_content": "Store embeddings in Postgres using pgvector extension.",
+      "target_type": "note"
     }
   ]
 }

@@ -214,7 +214,7 @@ Every relationship link is directed (`from_id` $\to$ `to_id`) and governed by ex
 | Relation | Direction Semantics (`from -> to`) | Use Case & Meaning | Example |
 |---|---|---|---|
 | `supersedes` | `New` replaces / obsoletes `Old` | Indicates that the source memory replaces the target memory, rendering previous guidelines or architectures obsolete. | Memory 142 ("Use sqlite-vec") $\to$ Memory 45 ("Use pgvector") |
-| `refines` | `Child` adds specific detail to `Parent` | Indicates that the source memory elaborates, constraints, or specializes an existing broader decision. | Memory 143 ("sqlite-vec 384d cosine metric") $\to$ Memory 142 ("Use sqlite-vec") |
+| `refines` | `Child` adds specific detail to `Parent` | Indicates that the source memory elaborates, constrains, or specializes an existing broader decision. | Memory 143 ("sqlite-vec 384d cosine metric") $\to$ Memory 142 ("Use sqlite-vec") |
 | `contradicts` | `Memory A` conflicts with `Memory B` | Flags a direct inconsistency or behavioral disagreement across agent sessions that requires reconciliation. | Memory 90 ("Port 8080 required") $\to$ Memory 52 ("Port 4231 required") |
 | `depends-on` | `Component X` requires `Component Y` | Expresses a prerequisite or architectural dependency between decisions, configurations, or facts. | Memory 104 ("Web UI Settings") $\to$ Memory 88 ("Config PATCH API") |
 | `supports` | `Evidence A` corroborates `Decision B` | Links supporting benchmarks, research, or audit logs that justify an architectural choice. | Memory 65 ("Benchmark: <1ms WAL latency") $\to$ Memory 40 ("Adopt SQLite WAL") |

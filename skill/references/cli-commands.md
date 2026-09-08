@@ -59,7 +59,7 @@ centmem put \
 ```json
 {"ok":true,"id":42,"scope":"project:my-app","status":"queued"}
 ```
-*(When auto-suggested relationships are detected, response includes `"suggested_links": [{"link_id": 18, "to_id": 15, "relation": "supersedes", "target_content": "..."}]`)*
+*(When auto-suggested relationships are detected, response includes `"suggested_links": [{"id": 18, "from_id": 42, "to_id": 15, "relation": "supersedes", "target_content": "...", "target_type": "note"}]`)*
 
 ---
 

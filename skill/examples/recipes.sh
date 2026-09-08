@@ -40,22 +40,22 @@ centmem capture shell --scope "project:$PROJ" --top 10
 centmem capture comments --scope "project:$PROJ" --ext go,ts,js,py
 
 echo -e "\n=== 8. Managing memory relationships (Link Graph) ==="
-# Explicitly link two memories with a directional relationship
-centmem link 42 15 --relation supersedes
+# Store two related decisions and capture their IDs
+MEM_A=$(centmem put --scope "project:$PROJ" --type note --content "Decision A: Use Postgres with pgvector." --tags decision,vector | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+MEM_B=$(centmem put --scope "project:$PROJ" --type note --content "Decision B: Switch to sqlite-vec; pgvector is deprecated." --tags decision,vector | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+
+# Explicitly link memories with a directional relationship (MEM_B supersedes MEM_A)
+centmem link "$MEM_B" "$MEM_A" --relation supersedes
 
 # List relationship graph edges for a memory (including auto-suggested)
-centmem links 42 --all
+centmem links "$MEM_B" --all
 
 # Recall context expanded with 1-hop relationship graph edges
-centmem recall "logging architecture" --scope "project:$PROJ" --include-links
+centmem recall "vector database" --scope "project:$PROJ" --include-links
 
-# Confirm an auto-suggested link
-centmem link confirm 12
-
-# Dismiss an auto-suggested link
-centmem link dismiss 13
+# Confirm or dismiss auto-suggested links when suggested_links are returned:
+# centmem link confirm <link_id>
+# centmem link dismiss <link_id>
 
 # Remove relationship links between memories
-centmem unlink 42 15
-
-
+centmem unlink "$MEM_B" "$MEM_A" --relation supersedes
