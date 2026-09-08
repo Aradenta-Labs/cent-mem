@@ -128,7 +128,108 @@ The agent retrieves the pgx migration decision and uses `pgx/v5` natively withou
 
 ---
 
-## Scenario 3: Responding to `/centmem` User Invocations
+## Scenario 3: Superseding & Refining Decisions (Link Graph)
+
+When project requirements evolve, older architectural decisions may be replaced, refined, or contradicted. Rather than leaving obsolete decisions active in retrieval, agents use typed relationships (`supersedes`, `refines`, `contradicts`, `depends-on`, `supports`) to link memories into an explorable relationship graph.
+
+### Step 1: Writing an Updated Decision & Handling Auto-Suggestions
+
+The agent writes a new decision that obsoletes an earlier choice:
+```bash
+centmem put \
+  --scope "project:backend-api" \
+  --type note \
+  --content "Switched vector database from pgvector to sqlite-vec for 100% embedded offline operation; pgvector is deprecated." \
+  --tags decision,vector,storage
+```
+
+During write execution, centmem's heuristic classifier detects the transition cue ("switched ... from ... deprecated") and performs an automatic similarity pass. The JSON response returns the new memory alongside `suggested_links`:
+
+```json
+{
+  "ok": true,
+  "id": 142,
+  "scope": "project:backend-api",
+  "status": "queued",
+  "suggested_links": [
+    {
+      "link_id": 18,
+      "to_id": 45,
+      "relation": "supersedes",
+      "target_content": "Store embeddings in Postgres using pgvector extension."
+    }
+  ]
+}
+```
+
+### Step 2: Confirming or Establishing Links
+
+The agent reviews the suggested link and promotes it from pending to confirmed:
+```bash
+centmem link confirm 18
+```
+
+Alternatively, if creating an explicit relationship without relying on auto-suggestions, the agent links them directly:
+```bash
+centmem link 142 45 --relation supersedes
+```
+
+If another sub-decision refines this architecture (e.g., embedding model dimensions), the agent links it with `refines`:
+```bash
+centmem put \
+  --scope "project:backend-api" \
+  --type note \
+  --content "sqlite-vec index uses 384-dimensional cosine distance for bge-small-en-v1.5." \
+  --tags decision,vector,sqlite-vec
+
+# Link as a refinement of memory #142
+centmem link 143 142 --relation refines
+```
+
+### Step 3: Verifying with Graph-Enriched Recall
+
+Future agents recalling vector database conventions pass `--include-links` to receive 1-hop relationship context:
+
+```bash
+centmem recall "vector database choice" --scope "project:backend-api" --include-links
+```
+
+**Output returned to agent:**
+```json
+{
+  "ok": true,
+  "query": "vector database choice",
+  "results": [
+    {
+      "id": 142,
+      "type": "note",
+      "scope": "project:backend-api",
+      "content": "Switched vector database from pgvector to sqlite-vec for 100% embedded offline operation; pgvector is deprecated.",
+      "score": 0.412,
+      "links": [
+        {
+          "relation": "supersedes",
+          "direction": "outgoing",
+          "linked_id": 45,
+          "linked_content": "Store embeddings in Postgres using pgvector extension."
+        },
+        {
+          "relation": "refines",
+          "direction": "incoming",
+          "linked_id": 143,
+          "linked_content": "sqlite-vec index uses 384-dimensional cosine distance for bge-small-en-v1.5."
+        }
+      ]
+    }
+  ]
+}
+```
+
+By inspecting `links`, the agent immediately sees that Memory #142 supersedes #45 and is refined by #143, eliminating the risk of acting on the deprecated Postgres/pgvector decision.
+
+---
+
+## Scenario 4: Responding to `/centmem` User Invocations
 
 When the user types:
 > `/centmem what database are we using and what were the migration rules?`
@@ -151,3 +252,12 @@ centmem put \
   --tags decision,database,convention
 ```
 It confirms to the user that the convention is saved.
+
+When the user types:
+> `/centmem link memory 142 to 45 with supersedes`
+
+The agent recognizes the **Relationships / Links Intent** and executes:
+```bash
+centmem link 142 45 --relation supersedes
+```
+It returns confirmation to the user.

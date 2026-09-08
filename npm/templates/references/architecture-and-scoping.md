@@ -172,3 +172,88 @@ When `centmem recall` finishes ranking and slices the top-$N$ winning results:
    ```
 4. Upon shutdown, `Store.Close()` awaits `s.wg.Wait()`, guaranteeing all in-flight access updates are persisted without data loss.
 5. Over time, memories actively recalled across agent workflows naturally float higher in future queries, while unused memories remain at baseline until pruned or summarized by compaction.
+
+---
+
+## Memory Relationships: Link Graph (v1.5.2)
+
+In v1.5.2, centmem introduces a relational graph layer on top of SQLite, allowing memories to form directional semantic links. This addresses memory obsolescence, historical divergence, and prerequisite dependencies across agent sessions.
+
+### Relational Schema (`memory_links`)
+
+Relationship edges are stored in the `memory_links` table with strict referential integrity:
+
+```sql
+CREATE TABLE IF NOT EXISTS memory_links (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_id     INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    to_id       INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    relation    TEXT NOT NULL CHECK(relation IN ('supports', 'refines', 'contradicts', 'depends-on', 'supersedes')),
+    created_at  INTEGER NOT NULL, -- unix microseconds
+    suggested   INTEGER NOT NULL DEFAULT 0, -- 0 = confirmed, 1 = auto-suggested pending confirmation
+    UNIQUE(from_id, to_id, relation),
+    CHECK(from_id != to_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_links_from ON memory_links(from_id);
+CREATE INDEX IF NOT EXISTS idx_memory_links_to ON memory_links(to_id);
+CREATE INDEX IF NOT EXISTS idx_memory_links_suggested ON memory_links(suggested);
+```
+
+#### Key Properties:
+- **Foreign Key Cascade (`ON DELETE CASCADE`)**: When a memory is pruned or forgotten (`centmem forget`), any connecting relationship links are deleted automatically by SQLite, preventing dangling references.
+- **Cycle-Safe Traversal**: Indexes on `from_id` and `to_id` support fast bidirectional lookup without deep recursive traversal overhead.
+- **Confirmation Lifecycle (`suggested`)**: Auto-suggested links created during `centmem put` start with `suggested = 1`. Agents or users can promote them to confirmed (`suggested = 0`) via `centmem link confirm <id>` or remove them via `centmem link dismiss <id>`.
+
+---
+
+### The 5 Directional Relations
+
+Every relationship link is directed (`from_id` $\to$ `to_id`) and governed by explicit semantic rules:
+
+| Relation | Direction Semantics (`from -> to`) | Use Case & Meaning | Example |
+|---|---|---|---|
+| `supersedes` | `New` replaces / obsoletes `Old` | Indicates that the source memory replaces the target memory, rendering previous guidelines or architectures obsolete. | Memory 142 ("Use sqlite-vec") $\to$ Memory 45 ("Use pgvector") |
+| `refines` | `Child` adds specific detail to `Parent` | Indicates that the source memory elaborates, constraints, or specializes an existing broader decision. | Memory 143 ("sqlite-vec 384d cosine metric") $\to$ Memory 142 ("Use sqlite-vec") |
+| `contradicts` | `Memory A` conflicts with `Memory B` | Flags a direct inconsistency or behavioral disagreement across agent sessions that requires reconciliation. | Memory 90 ("Port 8080 required") $\to$ Memory 52 ("Port 4231 required") |
+| `depends-on` | `Component X` requires `Component Y` | Expresses a prerequisite or architectural dependency between decisions, configurations, or facts. | Memory 104 ("Web UI Settings") $\to$ Memory 88 ("Config PATCH API") |
+| `supports` | `Evidence A` corroborates `Decision B` | Links supporting benchmarks, research, or audit logs that justify an architectural choice. | Memory 65 ("Benchmark: <1ms WAL latency") $\to$ Memory 40 ("Adopt SQLite WAL") |
+
+---
+
+### 1-Hop Graph-Enriched Recall Expansion
+
+Standard recall returns isolated memory matches. By passing `--include-links` to `centmem recall`, retrieval performs a fast 1-hop bidirectional graph expansion:
+
+```
+[Candidate Memory from Recall]
+       │
+       ├─ (outgoing) ──[relation]──► [Target Memory]
+       └─ (incoming) ◄──[relation]── [Source Memory]
+```
+
+#### Retrieval Behavior:
+1. **Candidate Retrieval**: Hybrid search generates the top-$N$ ranked memories.
+2. **1-Hop Link Expansion**: For each returned memory ID, `memory_links` is queried for all adjacent incoming and outgoing edges.
+3. **Confirmed vs. Suggested Links**:
+   - By default, `--include-links` returns only confirmed edges (`suggested = 0`).
+   - Adding `--include-suggested` surfaces unconfirmed candidate links (`suggested = 1`) as well.
+4. **Enriched Result Shape**:
+   Each item in `results` includes a `links` array:
+   ```json
+   {
+     "id": 142,
+     "content": "Switched vector database from pgvector to sqlite-vec...",
+     "score": 0.412,
+     "links": [
+       {
+         "relation": "supersedes",
+         "direction": "outgoing",
+         "linked_id": 45,
+         "linked_content": "Store embeddings in Postgres using pgvector extension."
+       }
+     ]
+   }
+   ```
+5. **Obsolescence Guard**: When an agent recalls a decision, any outgoing `supersedes` or incoming/outgoing `contradicts` edges immediately notify the agent of newer or conflicting context before it takes action.
+

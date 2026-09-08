@@ -39,3 +39,23 @@ centmem capture shell --scope "project:$PROJ" --top 10
 # Scan code annotations (TODOs, FIXMEs)
 centmem capture comments --scope "project:$PROJ" --ext go,ts,js,py
 
+echo -e "\n=== 8. Managing memory relationships (Link Graph) ==="
+# Explicitly link two memories with a directional relationship
+centmem link 42 15 --relation supersedes
+
+# List relationship graph edges for a memory (including auto-suggested)
+centmem links 42 --all
+
+# Recall context expanded with 1-hop relationship graph edges
+centmem recall "logging architecture" --scope "project:$PROJ" --include-links
+
+# Confirm an auto-suggested link
+centmem link confirm 12
+
+# Dismiss an auto-suggested link
+centmem link dismiss 13
+
+# Remove relationship links between memories
+centmem unlink 42 15
+
+

@@ -44,7 +44,8 @@ centmem put \
   --content "<text>" \
   [--tags <tag1,tag2>] \
   [--source-agent <agent>] \
-  [--source-session <session-id>]
+  [--source-session <session-id>] \
+  [--no-suggest]
 ```
 - `--scope`: Required scope path (e.g. `project:my-app`).
 - `--type`: `note` (default) or `log`.
@@ -52,11 +53,13 @@ centmem put \
 - `--tags`: Comma-separated tags (lowercase, no spaces).
 - `--source-agent`: Agent identifier (e.g., `claude`, `antigravity`).
 - `--source-session`: Session or conversation identifier.
+- `--no-suggest`: Bypass post-write relationship auto-suggestion. When omitted, candidate relationships are evaluated and returned in `"suggested_links": [...]` if detected.
 
 **Stdout JSON:**
 ```json
 {"ok":true,"id":42,"scope":"project:my-app","status":"queued"}
 ```
+*(When auto-suggested relationships are detected, response includes `"suggested_links": [{"link_id": 18, "to_id": 15, "relation": "supersedes", "target_content": "..."}]`)*
 
 ---
 
@@ -111,13 +114,17 @@ centmem recall "<query>" \
   [--caller-agent <agent>] \
   [--reranker <strategy>] \
   [--inherit] \
-  [--children]
+  [--children] \
+  [--include-links] \
+  [--include-suggested]
 ```
 - `--top`: Maximum items to return (default: `5`, max: `20`).
 - `--inherit`: Search ancestor scopes (default: `true`).
 - `--children`: Include descendant scopes in search.
 - `--caller-agent`: Calling agent identifier for affinity boosting (+15% when matching author; defaults to `$CENTMEM_AGENT`).
 - `--reranker`: Re-ranker strategy override (`composite`, `none`, `cross_encoder`, `llm`; defaults to `composite`).
+- `--include-links`: Enrich results with 1-hop connected memory relationships (`links`). Returns confirmed links by default.
+- `--include-suggested`: Include auto-suggested links pending confirmation in `links` expansion.
 
 **Stdout JSON:**
 ```json
@@ -135,7 +142,15 @@ centmem recall "<query>" \
       "matched_by": ["semantic", "keyword"],
       "access_count": 18,
       "last_accessed_at": 1788748000,
-      "created_at": 1788000000
+      "created_at": 1788000000,
+      "links": [
+        {
+          "relation": "supersedes",
+          "direction": "outgoing",
+          "linked_id": 4,
+          "linked_content": "Legacy deployment used Capistrano to EC2"
+        }
+      ]
     },
     {
       "id": 45,
@@ -157,6 +172,7 @@ centmem recall "<query>" \
   - `last_accessed_at`: Unix timestamp (integer) of the most recent recall, or `null` if never previously recalled.
   - `score`: Calibrated relevance score (incorporating Stage 1 RRF, Stage 2 composite features, affinity/proximity boosts, and importance multipliers).
   - `matched_by`: List of search pipelines that matched this memory (`"semantic"`, `"keyword"`, `"fact"`, `"timeline"`).
+  - `links`: (optional, present when `--include-links` is set) Array of 1-hop connected relationships (`relation`, `direction` ["outgoing"|"incoming"], `linked_id`, `linked_content`).
 
 ---
 
