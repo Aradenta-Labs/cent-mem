@@ -161,6 +161,9 @@ func cmdPut(args []string) int {
 			memRow, err := s.GetMemory(context.Background(), id)
 			if err == nil && memRow != nil {
 				emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
+				if emb != nil {
+					defer emb.Close()
+				}
 				searcher := search.New(s).WithEmbedder(emb)
 				suggestions, err := searcher.SuggestLinks(context.Background(), *memRow)
 				if err == nil && len(suggestions) > 0 {
@@ -325,8 +328,8 @@ func cmdRecall(args []string) int {
 			top = 20
 		}
 
-		includeLinks := fs.Lookup("include-links").Value.String() == "true"
 		includeSuggested := fs.Lookup("include-suggested").Value.String() == "true"
+		includeLinks := fs.Lookup("include-links").Value.String() == "true" || includeSuggested
 
 		q := search.Query{
 			Text:                  text,

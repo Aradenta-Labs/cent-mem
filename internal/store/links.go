@@ -97,6 +97,10 @@ WHERE id = ?`, linkID).
 // If relation is empty, all links between fromID and toID are deleted.
 // Returns the count of deleted rows.
 func (s *Store) DeleteLink(ctx context.Context, fromID, toID int64, relation string) (int64, error) {
+	if relation != "" && !IsValidLinkRelation(relation) {
+		return 0, fmt.Errorf("store: invalid link relation %q; must be one of: %s",
+			relation, strings.Join(ValidLinkRelations, ", "))
+	}
 	var res sql.Result
 	var err error
 	if relation != "" {

@@ -163,4 +163,45 @@ func TestCLI_Links(t *testing.T) {
 	if _, hasSug := noSugRes["suggested_links"]; hasSug {
 		t.Errorf("expected suggested_links to be omitted with --no-suggest, got %v", noSugRes["suggested_links"])
 	}
+
+	// 11. Links on nonexistent memory returns ExitNotFound (code 2)
+	_, _, code = runCLI(t, home, "links", "999999")
+	if code != 2 {
+		t.Errorf("expected exit code 2 for links on nonexistent memory, got %d", code)
+	}
+
+	// 12. Link creation on nonexistent memory returns ExitNotFound (code 2)
+	_, _, code = runCLI(t, home, "link", "999999", fmt.Sprintf("%d", m1ID), "--relation", "supports")
+	if code != 2 {
+		t.Errorf("expected exit code 2 for link with nonexistent source, got %d", code)
+	}
+
+	// 13. Unlink with invalid relation returns ExitError (code 1)
+	_, _, code = runCLI(t, home, "unlink", fmt.Sprintf("%d", m1ID), fmt.Sprintf("%d", m2ID), "--relation", "invalid_rel")
+	if code != 1 {
+		t.Errorf("expected exit code 1 for unlink with invalid relation, got %d", code)
+	}
+
+	// 14. Recall with --include-suggested alone includes links
+	// Create an auto-suggested link from m2 to m1
+	_, _, code = runCLI(t, home, "put", "--scope", "project:alpha", "--type", "note", "--content", "Instead of Fly.io we now deploy with ECS")
+	if code != 0 {
+		t.Fatalf("put for suggest test failed: %d", code)
+	}
+	outRecallSug, _, code := runCLI(t, home, "recall", "ECS", "--scope", "project:alpha", "--include-suggested")
+	if code != 0 {
+		t.Fatalf("recall --include-suggested failed: %d", code)
+	}
+	var recallSugRes map[string]any
+	if err := json.Unmarshal([]byte(outRecallSug), &recallSugRes); err != nil {
+		t.Fatalf("unmarshal recall --include-suggested: %v", err)
+	}
+	sugResults := recallSugRes["results"].([]any)
+	if len(sugResults) == 0 {
+		t.Fatalf("expected recall results for --include-suggested")
+	}
+	sugItem := sugResults[0].(map[string]any)
+	if _, hasLinks := sugItem["links"]; !hasLinks {
+		t.Errorf("expected 'links' array in results when --include-suggested is passed")
+	}
 }

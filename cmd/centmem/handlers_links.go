@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"strconv"
 	"strings"
@@ -30,12 +31,14 @@ func reorderFlags(args []string, fs *flag.FlagSet) []string {
 					flagArgs = append(flagArgs, arg)
 					continue
 				}
+				flagArgs = append(flagArgs, arg)
+				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+					i++
+					flagArgs = append(flagArgs, args[i])
+				}
+				continue
 			}
 			flagArgs = append(flagArgs, arg)
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				i++
-				flagArgs = append(flagArgs, args[i])
-			}
 		} else {
 			posArgs = append(posArgs, arg)
 		}
@@ -80,7 +83,7 @@ func cmdLink(args []string) int {
 
 			if action == "confirm" {
 				if err := s.ConfirmLink(ctx, linkID); err != nil {
-					if err == store.ErrNotFound {
+					if errors.Is(err, store.ErrNotFound) {
 						return cli.NotFoundf("link %d not found", linkID)
 					}
 					return cli.Internalf("confirm link: %v", err)
@@ -93,7 +96,7 @@ func cmdLink(args []string) int {
 
 			if action == "dismiss" {
 				if err := s.DismissLink(ctx, linkID); err != nil {
-					if err == store.ErrNotFound {
+					if errors.Is(err, store.ErrNotFound) {
 						return cli.NotFoundf("suggested link %d not found", linkID)
 					}
 					return cli.Internalf("dismiss link: %v", err)
@@ -126,6 +129,9 @@ func cmdLink(args []string) int {
 
 		link, err := s.CreateLink(ctx, fromID, toID, relation, false)
 		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return cli.NotFoundf("%v", err)
+			}
 			return cli.Invalidf("link: %v", err)
 		}
 
@@ -189,6 +195,10 @@ func cmdUnlink(args []string) int {
 		}
 
 		relation := fs.Lookup("relation").Value.String()
+		if relation != "" && !store.IsValidLinkRelation(relation) {
+			return cli.Invalidf("unlink: invalid relation %q; must be one of: %s",
+				relation, strings.Join(store.ValidLinkRelations, ", "))
+		}
 		n, err := s.DeleteLink(ctx, fromID, toID, relation)
 		if err != nil {
 			return cli.Internalf("unlink: %v", err)
@@ -231,6 +241,15 @@ func cmdLinks(args []string) int {
 		defer s.Close()
 
 		ctx := context.Background()
+
+		// Verify memory exists before querying its links
+		if _, err := s.GetMemory(ctx, memoryID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return cli.NotFoundf("memory %d not found", memoryID)
+			}
+			return cli.Internalf("get memory %d: %v", memoryID, err)
+		}
+
 		outgoing, incoming, err := s.GetLinksForMemory(ctx, memoryID, includeSuggested)
 		if err != nil {
 			return cli.Internalf("get links: %v", err)

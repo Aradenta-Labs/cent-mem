@@ -459,7 +459,7 @@ func (s *Searcher) Recall(ctx context.Context, q Query) ([]Ranked, error) {
 		results = results[:top]
 	}
 
-	if q.IncludeLinks && len(results) > 0 {
+	if (q.IncludeLinks || q.IncludeSuggestedLinks) && len(results) > 0 {
 		ids := make([]int64, len(results))
 		for i, r := range results {
 			ids[i] = r.ID

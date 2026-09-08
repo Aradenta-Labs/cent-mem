@@ -175,6 +175,11 @@ func TestLinks_CRUDAndLifecycle(t *testing.T) {
 		t.Errorf("expected link2 to be gone after dismissal")
 	}
 
+	// Test DeleteLink with invalid relation
+	if _, err := s.DeleteLink(ctx, m2, m1, "invalid_rel"); err == nil {
+		t.Errorf("expected DeleteLink with invalid relation to fail, got nil")
+	}
+
 	// Test DeleteLink by endpoints
 	deleted, err := s.DeleteLink(ctx, m2, m1, "supersedes")
 	if err != nil {

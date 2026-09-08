@@ -268,4 +268,28 @@ func TestRecall_IncludeLinks(t *testing.T) {
 	if len(m2Res.Links) != 2 {
 		t.Fatalf("expected 2 links when including suggested, got %d", len(m2Res.Links))
 	}
+
+	// 4. Recall with IncludeSuggestedLinks = true even when IncludeLinks = false
+	res4, err := searcher.Recall(ctx, search.Query{
+		Text:                  "connection pooling",
+		Scope:                 "project:app",
+		Top:                   5,
+		IncludeLinks:          false,
+		IncludeSuggestedLinks: true,
+	})
+	if err != nil {
+		t.Fatalf("Recall 4: %v", err)
+	}
+	for i := range res4 {
+		if res4[i].ID == m2ID {
+			m2Res = &res4[i]
+			break
+		}
+	}
+	if m2Res == nil {
+		t.Fatalf("expected m2 in recall 4 results")
+	}
+	if len(m2Res.Links) != 2 {
+		t.Fatalf("expected 2 links when IncludeSuggestedLinks=true alone, got %d", len(m2Res.Links))
+	}
 }
