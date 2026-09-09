@@ -147,11 +147,59 @@ Represents typed, directional semantic relationships between memories.
 **Constraints:** `UNIQUE(from_id, to_id, relation)`, `CHECK(from_id != to_id)`  
 **Indexes:** `INDEX(from_id)`, `INDEX(to_id)`, `INDEX(suggested)`
 
-### 2.8 `meta`
+### 2.8 `agent_proposals` (v2.0.0)
+
+Human-in-the-loop staging queue for merges, links, updates, and archives.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK AUTOINCREMENT | |
+| scope_id | INTEGER NOT NULL REFERENCES scopes(id) ON DELETE CASCADE | scope isolation |
+| proposal_type | TEXT NOT NULL CHECK(proposal_type IN ('link','merge','update','archive')) | proposal taxonomy |
+| status | TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','applied','dismissed')) | lifecycle state |
+| title | TEXT NOT NULL | concise human-readable title |
+| reasoning | TEXT NOT NULL | agent explanation for the proposal |
+| payload_json | TEXT NOT NULL | structured JSON payload for execution |
+| created_at | INTEGER NOT NULL | unix microseconds |
+| applied_at | INTEGER | unix microseconds (nullable) |
+
+**Indexes:** `INDEX(scope_id, status, created_at DESC)`
+
+### 2.9 `agent_conversations` (v2.0.0)
+
+Interactive chat threads for Web UI and CLI sessions.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | TEXT PRIMARY KEY | conversation thread ID |
+| scope_id | INTEGER NOT NULL REFERENCES scopes(id) ON DELETE CASCADE | scope context |
+| title | TEXT NOT NULL | conversation title |
+| created_at | INTEGER NOT NULL | unix microseconds |
+| updated_at | INTEGER NOT NULL | unix microseconds |
+
+**Indexes:** `INDEX(scope_id, updated_at DESC)`
+
+### 2.10 `agent_messages` (v2.0.0)
+
+Sequential dialog turns within conversation threads.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK AUTOINCREMENT | |
+| conversation_id | TEXT NOT NULL REFERENCES agent_conversations(id) ON DELETE CASCADE | parent thread |
+| role | TEXT NOT NULL CHECK(role IN ('user','assistant','system','tool')) | dialog role |
+| content | TEXT NOT NULL | message content |
+| citations_json | TEXT | JSON array of citation objects |
+| tool_calls_json | TEXT | JSON array of tool execution records |
+| created_at | INTEGER NOT NULL | unix microseconds |
+
+**Indexes:** `INDEX(conversation_id, created_at ASC)`
+
+### 2.11 `meta`
 
 | key TEXT PK | value TEXT |
 |---|---|
-| schema_version | current migration version (`5`) |
+| schema_version | current migration version (`6`) |
 | embedding_version | embedding format version (`2`) |
 | embedding_model | active model name (`bge-small-en-v1.5`) |
 | embedding_dims | vector dims (`384`) |

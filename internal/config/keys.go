@@ -37,6 +37,17 @@ var KnownConfigKeys = []string{
 	"search.importance_boost_enabled",
 	"search.importance_weight",
 	"search.importance_cap",
+	"llm.backend",
+	"llm.endpoint",
+	"llm.model",
+	"llm.api_key",
+	"llm.timeout_seconds",
+	"llm.max_tokens",
+	"llm.temperature",
+	"agent.enabled",
+	"agent.max_reasoning_steps",
+	"agent.confidence_threshold",
+	"agent.auto_apply_safe_links",
 }
 
 // GetConfigValue retrieves a config property by its dot-notation key or table name.
@@ -118,6 +129,34 @@ func GetConfigValue(cfg Config, key string) (any, error) {
 		return cfg.Search.ImportanceWeight, nil
 	case "search.importance_cap":
 		return cfg.Search.ImportanceCap, nil
+
+	case "llm":
+		return cfg.LLM, nil
+	case "llm.backend":
+		return cfg.LLM.Backend, nil
+	case "llm.endpoint":
+		return cfg.LLM.Endpoint, nil
+	case "llm.model":
+		return cfg.LLM.Model, nil
+	case "llm.api_key":
+		return cfg.LLM.APIKey, nil
+	case "llm.timeout_seconds":
+		return cfg.LLM.TimeoutSeconds, nil
+	case "llm.max_tokens":
+		return cfg.LLM.MaxTokens, nil
+	case "llm.temperature":
+		return cfg.LLM.Temperature, nil
+
+	case "agent":
+		return cfg.Agent, nil
+	case "agent.enabled":
+		return cfg.Agent.Enabled, nil
+	case "agent.max_reasoning_steps":
+		return cfg.Agent.MaxReasoningSteps, nil
+	case "agent.confidence_threshold":
+		return cfg.Agent.ConfidenceThreshold, nil
+	case "agent.auto_apply_safe_links":
+		return cfg.Agent.AutoApplySafeLinks, nil
 
 	default:
 		return nil, fmt.Errorf("unknown config key %q", key)
@@ -330,6 +369,72 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 		}
 		cfg.Search.ImportanceCap = c
 
+	case "llm.backend":
+		switch strings.ToLower(val) {
+		case "ollama", "openai_compatible", "openai-compatible", "disabled":
+			cfg.LLM.Backend = strings.ToLower(val)
+		default:
+			return fmt.Errorf("invalid llm.backend %q (expected ollama, openai_compatible, or disabled)", val)
+		}
+
+	case "llm.endpoint":
+		cfg.LLM.Endpoint = val
+
+	case "llm.model":
+		cfg.LLM.Model = val
+
+	case "llm.api_key":
+		cfg.LLM.APIKey = val
+
+	case "llm.timeout_seconds":
+		s, err := strconv.Atoi(val)
+		if err != nil || s < 0 {
+			return fmt.Errorf("invalid llm.timeout_seconds %q: must be >= 0", val)
+		}
+		cfg.LLM.TimeoutSeconds = s
+
+	case "llm.max_tokens":
+		m, err := strconv.Atoi(val)
+		if err != nil || m < 0 {
+			return fmt.Errorf("invalid llm.max_tokens %q: must be >= 0", val)
+		}
+		cfg.LLM.MaxTokens = m
+
+	case "llm.temperature":
+		t, err := strconv.ParseFloat(val, 64)
+		if err != nil || t < 0.0 {
+			return fmt.Errorf("invalid llm.temperature %q: must be >= 0.0", val)
+		}
+		cfg.LLM.Temperature = t
+
+	case "agent.enabled":
+		b, err := parseBoolFlexible(val)
+		if err != nil {
+			return fmt.Errorf("invalid agent.enabled %q: must be a boolean", val)
+		}
+		cfg.Agent.Enabled = b
+
+	case "agent.max_reasoning_steps":
+		s, err := strconv.Atoi(val)
+		if err != nil || s < 0 {
+			return fmt.Errorf("invalid agent.max_reasoning_steps %q: must be >= 0", val)
+		}
+		cfg.Agent.MaxReasoningSteps = s
+
+	case "agent.confidence_threshold":
+		c, err := strconv.ParseFloat(val, 64)
+		if err != nil || c < 0.0 || c > 1.0 {
+			return fmt.Errorf("invalid agent.confidence_threshold %q: must be between 0.0 and 1.0", val)
+		}
+		cfg.Agent.ConfidenceThreshold = c
+
+	case "agent.auto_apply_safe_links":
+		b, err := parseBoolFlexible(val)
+		if err != nil {
+			return fmt.Errorf("invalid agent.auto_apply_safe_links %q: must be a boolean", val)
+		}
+		cfg.Agent.AutoApplySafeLinks = b
+
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}
@@ -341,6 +446,12 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 		return err
 	}
 	if err := validateSearchConfig(cfg.Search); err != nil {
+		return err
+	}
+	if err := validateLLMConfig(cfg.LLM); err != nil {
+		return err
+	}
+	if err := validateAgentConfig(cfg.Agent); err != nil {
 		return err
 	}
 

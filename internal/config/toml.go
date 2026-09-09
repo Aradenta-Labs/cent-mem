@@ -25,6 +25,8 @@ type tomlFileSchema struct {
 	Capture   CaptureConfig `toml:"capture"`
 	Search    SearchConfig  `toml:"search"`
 	Daemon    DaemonConfig  `toml:"daemon"`
+	LLM       LLMConfig     `toml:"llm"`
+	Agent     AgentConfig   `toml:"agent"`
 }
 
 // LoadTOML reads a TOML configuration file and overlays it onto the default Config.
@@ -39,6 +41,8 @@ func LoadTOML(path string) (Config, error) {
 		Capture:   DefaultCaptureConfig(),
 		Search:    DefaultSearchConfig(),
 		Daemon:    DefaultDaemonConfig(),
+		LLM:       DefaultLLMConfig(),
+		Agent:     DefaultAgentConfig(),
 	}
 
 	data, err := os.ReadFile(path)
@@ -55,6 +59,8 @@ func LoadTOML(path string) (Config, error) {
 		Capture:   cfg.Capture,
 		Search:    cfg.Search,
 		Daemon:    cfg.Daemon,
+		LLM:       cfg.LLM,
+		Agent:     cfg.Agent,
 	}
 
 	if err := toml.Unmarshal(data, &schema); err != nil {
@@ -66,6 +72,8 @@ func LoadTOML(path string) (Config, error) {
 	cfg.Capture = schema.Capture
 	cfg.Search = schema.Search
 	cfg.Daemon = schema.Daemon
+	cfg.LLM = schema.LLM
+	cfg.Agent = schema.Agent
 
 	return cfg, nil
 }
@@ -83,6 +91,8 @@ func SaveTOML(path string, cfg Config) error {
 		Capture:   cfg.Capture,
 		Search:    cfg.Search,
 		Daemon:    cfg.Daemon,
+		LLM:       cfg.LLM,
+		Agent:     cfg.Agent,
 	}
 
 	data, err := toml.Marshal(schema)

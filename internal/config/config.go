@@ -17,6 +17,45 @@ type Config struct {
 	Capture   CaptureConfig `json:"capture" toml:"capture"`
 	Search    SearchConfig  `json:"search" toml:"search"`
 	Daemon    DaemonConfig  `json:"daemon" toml:"daemon"`
+	LLM       LLMConfig     `json:"llm" toml:"llm"`
+	Agent     AgentConfig   `json:"agent" toml:"agent"`
+}
+
+type LLMConfig struct {
+	Backend        string  `json:"backend" toml:"backend"` // "ollama" | "openai_compatible" | "disabled"
+	Endpoint       string  `json:"endpoint" toml:"endpoint"`
+	Model          string  `json:"model" toml:"model"`
+	APIKey         string  `json:"api_key,omitempty" toml:"api_key,omitempty"`
+	TimeoutSeconds int     `json:"timeout_seconds" toml:"timeout_seconds"`
+	MaxTokens      int     `json:"max_tokens" toml:"max_tokens"`
+	Temperature    float64 `json:"temperature" toml:"temperature"`
+}
+
+func DefaultLLMConfig() LLMConfig {
+	return LLMConfig{
+		Backend:        "ollama",
+		Endpoint:       "http://127.0.0.1:11434/v1",
+		Model:          "deepseek-r1:8b",
+		TimeoutSeconds: 60,
+		MaxTokens:      4096,
+		Temperature:    0.2,
+	}
+}
+
+type AgentConfig struct {
+	Enabled             bool    `json:"enabled" toml:"enabled"`
+	MaxReasoningSteps   int     `json:"max_reasoning_steps" toml:"max_reasoning_steps"`
+	ConfidenceThreshold float64 `json:"confidence_threshold" toml:"confidence_threshold"`
+	AutoApplySafeLinks  bool    `json:"auto_apply_safe_links" toml:"auto_apply_safe_links"`
+}
+
+func DefaultAgentConfig() AgentConfig {
+	return AgentConfig{
+		Enabled:             true,
+		MaxReasoningSteps:   8,
+		ConfidenceThreshold: 0.75,
+		AutoApplySafeLinks:  false,
+	}
 }
 
 type DaemonConfig struct {
@@ -323,7 +362,86 @@ func Load() (Config, error) {
 		}
 	}
 
-	// 7. Validate retention, capture, and search values.
+	// 7. Apply LLM defaults and env overrides (CENTMEM_LLM_*).
+	if v := os.Getenv("CENTMEM_LLM_BACKEND"); v != "" {
+		cfg.LLM.Backend = v
+	}
+	if v := os.Getenv("CENTMEM_LLM_ENDPOINT"); v != "" {
+		cfg.LLM.Endpoint = v
+	}
+	if v := os.Getenv("CENTMEM_LLM_MODEL"); v != "" {
+		cfg.LLM.Model = v
+	}
+	if v := os.Getenv("CENTMEM_LLM_API_KEY"); v != "" {
+		cfg.LLM.APIKey = v
+	}
+	if v := os.Getenv("CENTMEM_LLM_TIMEOUT_SECONDS"); v != "" {
+		if s, err := strconv.Atoi(v); err == nil {
+			cfg.LLM.TimeoutSeconds = s
+		}
+	}
+	if v := os.Getenv("CENTMEM_LLM_MAX_TOKENS"); v != "" {
+		if m, err := strconv.Atoi(v); err == nil {
+			cfg.LLM.MaxTokens = m
+		}
+	}
+	if v := os.Getenv("CENTMEM_LLM_TEMPERATURE"); v != "" {
+		if t, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.LLM.Temperature = t
+		}
+	}
+
+	// 8. Apply Agent defaults and env overrides (CENTMEM_AGENT_*).
+	if v := os.Getenv("CENTMEM_AGENT_ENABLED"); v != "" {
+		if b, err := parseBoolFlexible(v); err == nil {
+			cfg.Agent.Enabled = b
+		}
+	}
+	if v := os.Getenv("CENTMEM_AGENT_MAX_REASONING_STEPS"); v != "" {
+		if s, err := strconv.Atoi(v); err == nil {
+			cfg.Agent.MaxReasoningSteps = s
+		}
+	}
+	if v := os.Getenv("CENTMEM_AGENT_CONFIDENCE_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Agent.ConfidenceThreshold = f
+		}
+	}
+	if v := os.Getenv("CENTMEM_AGENT_AUTO_APPLY_SAFE_LINKS"); v != "" {
+		if b, err := parseBoolFlexible(v); err == nil {
+			cfg.Agent.AutoApplySafeLinks = b
+		}
+	}
+
+	// 9. Fallback logic: If llm.backend is unconfigured, inherit from capture config.
+	if cfg.LLM.Backend == "" {
+		if cfg.Capture.Backend == "openai-compatible" {
+			cfg.LLM.Backend = "openai_compatible"
+			if cfg.Capture.APIBaseURL != "" {
+				cfg.LLM.Endpoint = cfg.Capture.APIBaseURL
+			}
+			if cfg.Capture.APIModel != "" {
+				cfg.LLM.Model = cfg.Capture.APIModel
+			}
+			if cfg.Capture.APIKey != "" {
+				cfg.LLM.APIKey = cfg.Capture.APIKey
+			} else if cfg.Capture.APIKeyEnv != "" {
+				cfg.LLM.APIKey = cfg.Capture.APIKeyEnv
+			}
+		} else if cfg.Capture.Backend == "local-llm" {
+			cfg.LLM.Backend = "ollama"
+			if cfg.Capture.LocalLLMEndpoint != "" {
+				cfg.LLM.Endpoint = cfg.Capture.LocalLLMEndpoint
+			}
+			if cfg.Capture.LocalLLMModel != "" {
+				cfg.LLM.Model = cfg.Capture.LocalLLMModel
+			}
+		} else {
+			cfg.LLM = DefaultLLMConfig()
+		}
+	}
+
+	// 10. Validate retention, capture, search, llm, and agent values.
 	if err := validateRetention(cfg.Retention); err != nil {
 		return Config{}, err
 	}
@@ -333,8 +451,44 @@ func Load() (Config, error) {
 	if err := validateSearchConfig(cfg.Search); err != nil {
 		return Config{}, err
 	}
+	if err := validateLLMConfig(cfg.LLM); err != nil {
+		return Config{}, err
+	}
+	if err := validateAgentConfig(cfg.Agent); err != nil {
+		return Config{}, err
+	}
 
 	return cfg, nil
+}
+
+func validateLLMConfig(l LLMConfig) error {
+	if l.Backend != "" {
+		switch strings.ToLower(l.Backend) {
+		case "ollama", "openai_compatible", "openai-compatible", "disabled":
+		default:
+			return fmt.Errorf("config: invalid llm.backend=%q (expected ollama, openai_compatible, or disabled)", l.Backend)
+		}
+	}
+	if l.TimeoutSeconds < 0 {
+		return fmt.Errorf("config: invalid llm.timeout_seconds=%d: must be >= 0", l.TimeoutSeconds)
+	}
+	if l.MaxTokens < 0 {
+		return fmt.Errorf("config: invalid llm.max_tokens=%d: must be >= 0", l.MaxTokens)
+	}
+	if l.Temperature < 0.0 {
+		return fmt.Errorf("config: invalid llm.temperature=%f: must be >= 0.0", l.Temperature)
+	}
+	return nil
+}
+
+func validateAgentConfig(a AgentConfig) error {
+	if a.MaxReasoningSteps < 0 {
+		return fmt.Errorf("config: invalid agent.max_reasoning_steps=%d: must be >= 0", a.MaxReasoningSteps)
+	}
+	if a.ConfidenceThreshold < 0.0 || a.ConfidenceThreshold > 1.0 {
+		return fmt.Errorf("config: invalid agent.confidence_threshold=%f: must be between 0.0 and 1.0", a.ConfidenceThreshold)
+	}
+	return nil
 }
 
 // validateRetention rejects nonsensical retention values.

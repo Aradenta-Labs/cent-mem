@@ -160,3 +160,92 @@ type MemoryLinksResult struct {
 	Incoming []LinkWithContent `json:"incoming"`
 }
 
+// ValidProposalTypes defines the allowed values for proposal_type in agent_proposals.
+var ValidProposalTypes = []string{"link", "merge", "update", "archive"}
+
+// ValidProposalStatuses defines the allowed lifecycle states for agent_proposals.
+var ValidProposalStatuses = []string{"pending", "applied", "dismissed"}
+
+// Proposal represents a staged agent curation action in agent_proposals.
+type Proposal struct {
+	ID           int64      `json:"id"`
+	ScopeID      int64      `json:"scope_id"`
+	ScopePath    string     `json:"scope_path,omitempty"`
+	ProposalType string     `json:"proposal_type"`
+	Status       string     `json:"status"`
+	Title        string     `json:"title"`
+	Reasoning    string     `json:"reasoning"`
+	PayloadJSON  string     `json:"payload_json"`
+	CreatedAt    time.Time  `json:"created_at"`
+	AppliedAt    *time.Time `json:"applied_at,omitempty"`
+}
+
+// ProposalListQuery parameterizes ListProposals().
+type ProposalListQuery struct {
+	ScopeID      int64  `json:"scope_id"`
+	ScopePath    string `json:"scope_path"`
+	Status       string `json:"status"`
+	ProposalType string `json:"proposal_type"`
+	Limit        int    `json:"limit"`
+	Offset       int    `json:"offset"`
+}
+
+// LinkProposalPayload represents the structured payload for a 'link' proposal.
+type LinkProposalPayload struct {
+	FromID   int64  `json:"from_id"`
+	ToID     int64  `json:"to_id"`
+	Relation string `json:"relation"`
+}
+
+// MergeProposalPayload represents the structured payload for a 'merge' proposal.
+type MergeProposalPayload struct {
+	SourceIDs     []int64  `json:"source_ids"`
+	TargetTitle   string   `json:"target_title,omitempty"`
+	TargetContent string   `json:"target_content"`
+	TargetTags    []string `json:"target_tags,omitempty"`
+}
+
+// UpdateProposalPayload represents the structured payload for an 'update' proposal.
+type UpdateProposalPayload struct {
+	TargetID int64    `json:"target_id"`
+	Content  string   `json:"content"`
+	Tags     []string `json:"tags,omitempty"`
+}
+
+// ArchiveProposalPayload represents the structured payload for an 'archive' proposal.
+type ArchiveProposalPayload struct {
+	TargetID int64  `json:"target_id"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// Conversation represents an interactive chat thread in agent_conversations.
+type Conversation struct {
+	ID        string    `json:"id"`
+	ScopeID   int64     `json:"scope_id"`
+	ScopePath string    `json:"scope_path,omitempty"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Message represents a dialog turn within an agent_conversation.
+type Message struct {
+	ID             int64     `json:"id"`
+	ConversationID string    `json:"conversation_id"`
+	Role           string    `json:"role"`
+	Content        string    `json:"content"`
+	CitationsJSON  string    `json:"citations_json,omitempty"`
+	ToolCallsJSON  string    `json:"tool_calls_json,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// Citation models a cited memory node in a response or message.
+type Citation struct {
+	ID      int64   `json:"id"`
+	Type    string  `json:"type,omitempty"`
+	Scope   string  `json:"scope,omitempty"`
+	Snippet string  `json:"snippet,omitempty"`
+	Score   float64 `json:"score,omitempty"`
+}
+
+

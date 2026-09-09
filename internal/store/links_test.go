@@ -13,8 +13,8 @@ func TestLinks_MigrationAndSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != "5" {
-		t.Fatalf("expected schema_version '5', got %q", v)
+	if v < "5" {
+		t.Fatalf("expected schema_version >= '5', got %q", v)
 	}
 }
 

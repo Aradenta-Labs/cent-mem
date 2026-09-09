@@ -473,3 +473,117 @@ func TestConfigSearch_Importance_EnvAndValidation(t *testing.T) {
 		t.Errorf("expected default ImportanceCap = 2.0 preserved from TOML, got %f", cfgTOML.Search.ImportanceCap)
 	}
 }
+
+func TestConfig_LLMAndAgent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CENTMEM_HOME", home)
+
+	// 1. Defaults
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load defaults: %v", err)
+	}
+	if cfg.LLM.Backend != "ollama" {
+		t.Errorf("expected LLM.Backend default 'ollama', got %q", cfg.LLM.Backend)
+	}
+	if cfg.LLM.Endpoint != "http://127.0.0.1:11434/v1" {
+		t.Errorf("expected LLM.Endpoint default 'http://127.0.0.1:11434/v1', got %q", cfg.LLM.Endpoint)
+	}
+	if cfg.LLM.Model != "deepseek-r1:8b" {
+		t.Errorf("expected LLM.Model default 'deepseek-r1:8b', got %q", cfg.LLM.Model)
+	}
+	if cfg.LLM.TimeoutSeconds != 60 {
+		t.Errorf("expected LLM.TimeoutSeconds default 60, got %d", cfg.LLM.TimeoutSeconds)
+	}
+	if cfg.LLM.MaxTokens != 4096 {
+		t.Errorf("expected LLM.MaxTokens default 4096, got %d", cfg.LLM.MaxTokens)
+	}
+	if cfg.LLM.Temperature != 0.2 {
+		t.Errorf("expected LLM.Temperature default 0.2, got %f", cfg.LLM.Temperature)
+	}
+	if !cfg.Agent.Enabled {
+		t.Errorf("expected Agent.Enabled default true")
+	}
+	if cfg.Agent.MaxReasoningSteps != 8 {
+		t.Errorf("expected Agent.MaxReasoningSteps default 8, got %d", cfg.Agent.MaxReasoningSteps)
+	}
+	if cfg.Agent.ConfidenceThreshold != 0.75 {
+		t.Errorf("expected Agent.ConfidenceThreshold default 0.75, got %f", cfg.Agent.ConfidenceThreshold)
+	}
+	if cfg.Agent.AutoApplySafeLinks {
+		t.Errorf("expected Agent.AutoApplySafeLinks default false")
+	}
+
+	// 2. Env overrides
+	t.Setenv("CENTMEM_LLM_BACKEND", "openai_compatible")
+	t.Setenv("CENTMEM_LLM_ENDPOINT", "https://api.openai.com/v1")
+	t.Setenv("CENTMEM_LLM_MODEL", "gpt-4o")
+	t.Setenv("CENTMEM_LLM_API_KEY", "sk-test-llm-key")
+	t.Setenv("CENTMEM_LLM_TIMEOUT_SECONDS", "45")
+	t.Setenv("CENTMEM_LLM_MAX_TOKENS", "2048")
+	t.Setenv("CENTMEM_LLM_TEMPERATURE", "0.5")
+
+	t.Setenv("CENTMEM_AGENT_ENABLED", "false")
+	t.Setenv("CENTMEM_AGENT_MAX_REASONING_STEPS", "12")
+	t.Setenv("CENTMEM_AGENT_CONFIDENCE_THRESHOLD", "0.85")
+	t.Setenv("CENTMEM_AGENT_AUTO_APPLY_SAFE_LINKS", "true")
+
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("Load with env overrides: %v", err)
+	}
+	if cfg.LLM.Backend != "openai_compatible" || cfg.LLM.Endpoint != "https://api.openai.com/v1" ||
+		cfg.LLM.Model != "gpt-4o" || cfg.LLM.APIKey != "sk-test-llm-key" ||
+		cfg.LLM.TimeoutSeconds != 45 || cfg.LLM.MaxTokens != 2048 || cfg.LLM.Temperature != 0.5 {
+		t.Errorf("LLM env overrides mismatch: %+v", cfg.LLM)
+	}
+	if cfg.Agent.Enabled || cfg.Agent.MaxReasoningSteps != 12 ||
+		cfg.Agent.ConfidenceThreshold != 0.85 || !cfg.Agent.AutoApplySafeLinks {
+		t.Errorf("Agent env overrides mismatch: %+v", cfg.Agent)
+	}
+
+	// 3. Dot-notation keys: GetConfigValue and SetConfigValue
+	val, err := config.GetConfigValue(cfg, "llm.backend")
+	if err != nil || val != "openai_compatible" {
+		t.Errorf("GetConfigValue llm.backend: %v, val: %v", err, val)
+	}
+	val, err = config.GetConfigValue(cfg, "agent.max_reasoning_steps")
+	if err != nil || val != 12 {
+		t.Errorf("GetConfigValue agent.max_reasoning_steps: %v, val: %v", err, val)
+	}
+
+	if err := config.SetConfigValue(&cfg, "llm.model", "claude-3-5-sonnet"); err != nil {
+		t.Fatalf("SetConfigValue llm.model: %v", err)
+	}
+	if cfg.LLM.Model != "claude-3-5-sonnet" {
+		t.Errorf("expected updated LLM.Model, got %q", cfg.LLM.Model)
+	}
+	if err := config.SetConfigValue(&cfg, "agent.auto_apply_safe_links", "false"); err != nil {
+		t.Fatalf("SetConfigValue agent.auto_apply_safe_links: %v", err)
+	}
+	if cfg.Agent.AutoApplySafeLinks {
+		t.Errorf("expected Agent.AutoApplySafeLinks false")
+	}
+
+	// 4. Validation errors
+	if err := config.SetConfigValue(&cfg, "llm.backend", "unsupported-backend"); err == nil {
+		t.Errorf("expected error for unsupported llm.backend, got nil")
+	}
+	if err := config.SetConfigValue(&cfg, "agent.confidence_threshold", "1.5"); err == nil {
+		t.Errorf("expected error for invalid confidence threshold, got nil")
+	}
+
+	// 5. TOML round-trip
+	cfgPath := filepath.Join(home, "config.toml")
+	if err := config.SaveTOML(cfgPath, cfg); err != nil {
+		t.Fatalf("SaveTOML failed: %v", err)
+	}
+	loaded, err := config.LoadTOML(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadTOML failed: %v", err)
+	}
+	if loaded.LLM.Model != "claude-3-5-sonnet" {
+		t.Errorf("expected loaded.LLM.Model to be claude-3-5-sonnet, got %q", loaded.LLM.Model)
+	}
+}
+
