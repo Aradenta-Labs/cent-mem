@@ -79,6 +79,13 @@ func (e *Engine) Ask(ctx context.Context, question string, opts InquiryOptions) 
 	if e.isOffline() {
 		res := e.offlineAsk(ctx, question, scope)
 		res.ConversationID = convID
+		if opts.StreamCallback != nil {
+			_ = opts.StreamCallback(&StreamChunk{
+				DeltaRole:    "assistant",
+				DeltaContent: res.Answer,
+				FinishReason: "stop",
+			})
+		}
 		e.persistAssistantMessage(ctx, convID, res)
 		return res, nil
 	}
@@ -194,10 +201,15 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 		}
 	}
 
+	var scannedCount int
+	if count, countErr := e.store.Count(ctx, store.ListQuery{ScopePath: scope, Status: "active"}); countErr == nil {
+		scannedCount = int(count)
+	}
+
 	return &CurateResult{
 		ProposalsCreated: createdIDs,
 		ProposalsApplied: appliedIDs,
-		ScannedMemories:  len(afterProps),
+		ScannedMemories:  scannedCount,
 		FallbackUsed:     false,
 	}, nil
 }
@@ -289,7 +301,7 @@ func (e *Engine) RunReActLoop(ctx context.Context, initialMessages []ChatMessage
 		var resp *ChatResponse
 		var err error
 
-		if onStream != nil && isLastStep {
+		if onStream != nil {
 			resp, err = e.client.StreamChat(ctx, req, onStream)
 		} else {
 			resp, err = e.client.Chat(ctx, req)
@@ -471,7 +483,7 @@ func (e *Engine) offlineSummarize(ctx context.Context, scope string) (*Summarize
 	}
 
 	for typ, list := range byType {
-		sb.WriteString(fmt.Sprintf("## %s Memories (%d)\n\n", strings.Title(typ), len(list)))
+		sb.WriteString(fmt.Sprintf("## %s Memories (%d)\n\n", titleCase(typ), len(list)))
 		for _, m := range list {
 			sb.WriteString(fmt.Sprintf("- **[id: %d]** `%s`: %s\n", m.ID, m.ScopePath, m.Content))
 		}
@@ -558,4 +570,11 @@ func truncateSnippet(s string, maxLen int) string {
 		return cleaned
 	}
 	return cleaned[:maxLen-3] + "..."
+}
+
+func titleCase(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

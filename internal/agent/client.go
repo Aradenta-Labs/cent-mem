@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -142,20 +143,21 @@ func (c *Client) Config() config.LLMConfig {
 
 // Chat sends a non-streaming chat request with retries for transient errors.
 func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-	req.Stream = false
-	if req.Model == "" {
-		req.Model = c.cfg.Model
+	r := *req
+	r.Stream = false
+	if r.Model == "" {
+		r.Model = c.cfg.Model
 	}
-	if req.Temperature == nil && c.cfg.Temperature >= 0 {
+	if r.Temperature == nil && c.cfg.Temperature >= 0 {
 		temp := c.cfg.Temperature
-		req.Temperature = &temp
+		r.Temperature = &temp
 	}
-	if req.MaxTokens == nil && c.cfg.MaxTokens > 0 {
+	if r.MaxTokens == nil && c.cfg.MaxTokens > 0 {
 		maxT := c.cfg.MaxTokens
-		req.MaxTokens = &maxT
+		r.MaxTokens = &maxT
 	}
 
-	bodyBytes, err := json.Marshal(req)
+	bodyBytes, err := json.Marshal(&r)
 	if err != nil {
 		return nil, fmt.Errorf("agent: marshal chat request: %w", err)
 	}
@@ -208,20 +210,21 @@ func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 // StreamChat sends a streaming chat completion request, calling onChunk for each incoming SSE delta,
 // and returns the fully accumulated ChatResponse upon completion.
 func (c *Client) StreamChat(ctx context.Context, req *ChatRequest, onChunk func(chunk *StreamChunk) error) (*ChatResponse, error) {
-	req.Stream = true
-	if req.Model == "" {
-		req.Model = c.cfg.Model
+	r := *req
+	r.Stream = true
+	if r.Model == "" {
+		r.Model = c.cfg.Model
 	}
-	if req.Temperature == nil && c.cfg.Temperature >= 0 {
+	if r.Temperature == nil && c.cfg.Temperature >= 0 {
 		temp := c.cfg.Temperature
-		req.Temperature = &temp
+		r.Temperature = &temp
 	}
-	if req.MaxTokens == nil && c.cfg.MaxTokens > 0 {
+	if r.MaxTokens == nil && c.cfg.MaxTokens > 0 {
 		maxT := c.cfg.MaxTokens
-		req.MaxTokens = &maxT
+		r.MaxTokens = &maxT
 	}
 
-	bodyBytes, err := json.Marshal(req)
+	bodyBytes, err := json.Marshal(&r)
 	if err != nil {
 		return nil, fmt.Errorf("agent: marshal stream request: %w", err)
 	}
@@ -248,6 +251,8 @@ func (c *Client) StreamChat(ctx context.Context, req *ChatRequest, onChunk func(
 	}
 
 	scanner := bufio.NewScanner(httpResp.Body)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 10*1024*1024) // up to 10MB per line to avoid ErrTooLong on large payloads
 	var accumulatedContent strings.Builder
 	var accumulatedRole string
 	var finishReason string
@@ -346,11 +351,15 @@ func (c *Client) StreamChat(ctx context.Context, req *ChatRequest, onChunk func(
 		return nil, fmt.Errorf("agent: reading stream: %w", err)
 	}
 
+	keys := make([]int, 0, len(toolCallsMap))
+	for k := range toolCallsMap {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+
 	var toolCalls []ToolCall
-	for i := 0; i < len(toolCallsMap); i++ {
-		if tc, ok := toolCallsMap[i]; ok {
-			toolCalls = append(toolCalls, *tc)
-		}
+	for _, k := range keys {
+		toolCalls = append(toolCalls, *toolCallsMap[k])
 	}
 
 	if accumulatedRole == "" {

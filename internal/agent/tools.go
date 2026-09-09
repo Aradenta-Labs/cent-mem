@@ -122,7 +122,7 @@ func (t *SearchMemoriesTool) Execute(ctx context.Context, argsJSON string) (stri
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
-	if t.searcher == nil {
+	if t.searcher == nil || strings.TrimSpace(args.Query) == "" {
 		return "[]", nil
 	}
 	limit := args.Limit
@@ -440,9 +440,22 @@ func (t *ProposeMergeTool) Execute(ctx context.Context, argsJSON string) (string
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
-	if len(args.SourceIDs) == 0 {
-		return "", fmt.Errorf("source_ids cannot be empty")
+	seen := make(map[int64]bool)
+	var uniqueSourceIDs []int64
+	for _, sid := range args.SourceIDs {
+		if sid <= 0 {
+			return "", fmt.Errorf("invalid source id %d", sid)
+		}
+		if !seen[sid] {
+			seen[sid] = true
+			uniqueSourceIDs = append(uniqueSourceIDs, sid)
+		}
 	}
+	if len(uniqueSourceIDs) < 2 {
+		return "", fmt.Errorf("propose_merge requires at least two distinct source memories to consolidate")
+	}
+	args.SourceIDs = uniqueSourceIDs
+
 	if strings.TrimSpace(args.Content) == "" {
 		return "", fmt.Errorf("content cannot be empty")
 	}

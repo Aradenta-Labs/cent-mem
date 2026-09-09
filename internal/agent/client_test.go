@@ -225,3 +225,77 @@ func TestClient_RetryTransientErrors(t *testing.T) {
 		t.Errorf("expected 3 attempts, got %d", attempts)
 	}
 }
+
+func TestClient_StreamingNonContiguousToolIndices(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+
+		// Send tool call at index 0 and tool call at index 2 (simulating sparse/non-contiguous stream)
+		chunks := []string{
+			`{"id":"sparse-1","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_0","type":"function","function":{"name":"search_memories","arguments":"{\"query\":\"a\"}"}}]},"finish_reason":null}]}`,
+			`{"id":"sparse-1","choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"id":"call_2","type":"function","function":{"name":"read_memory","arguments":"{\"id\":42}"}}]},"finish_reason":"tool_calls"}]}`,
+		}
+		for _, chunk := range chunks {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+			flusher.Flush()
+		}
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := agent.NewClient(config.LLMConfig{
+		Endpoint: server.URL,
+		Model:    "sparse-model",
+	})
+
+	accumulated, err := client.StreamChat(context.Background(), &agent.ChatRequest{
+		Messages: []agent.ChatMessage{{Role: "user", Content: "test"}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamChat failed: %v", err)
+	}
+
+	toolCalls := accumulated.Choices[0].Message.ToolCalls
+	if len(toolCalls) != 2 {
+		t.Fatalf("expected 2 tool calls preserved from non-contiguous stream, got %d", len(toolCalls))
+	}
+	if toolCalls[0].ID != "call_0" || toolCalls[1].ID != "call_2" {
+		t.Errorf("unexpected tool calls: %+v", toolCalls)
+	}
+}
+
+func TestClient_StreamingLargeLine(t *testing.T) {
+	largeContent := make([]byte, 80*1024) // 80KB > 64KB default bufio.MaxScanTokenSize
+	for i := range largeContent {
+		largeContent[i] = 'a'
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+
+		chunk := fmt.Sprintf(`{"id":"large-1","choices":[{"index":0,"delta":{"role":"assistant","content":%q},"finish_reason":"stop"}]}`, string(largeContent))
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+		flusher.Flush()
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := agent.NewClient(config.LLMConfig{
+		Endpoint: server.URL,
+		Model:    "large-model",
+	})
+
+	accumulated, err := client.StreamChat(context.Background(), &agent.ChatRequest{
+		Messages: []agent.ChatMessage{{Role: "user", Content: "give me large data"}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamChat failed on large payload: %v", err)
+	}
+	if len(accumulated.Choices[0].Message.Content) != len(largeContent) {
+		t.Errorf("expected %d bytes, got %d", len(largeContent), len(accumulated.Choices[0].Message.Content))
+	}
+}

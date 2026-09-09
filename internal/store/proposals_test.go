@@ -423,3 +423,101 @@ func TestProposals_RollbackOnFailure(t *testing.T) {
 		t.Errorf("expected status to remain 'pending' after rollback, got %q", p.Status)
 	}
 }
+
+func TestProposals_EventsAndStateGuards(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 1. Create two memories
+	m1, _, _ := s.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:ev",
+		Type:    "note",
+		Content: "Decision 1",
+		Tags:    []string{"d1"},
+	})
+	m2, _, _ := s.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:ev",
+		Type:    "note",
+		Content: "Decision 2",
+		Tags:    []string{"d2"},
+	})
+
+	// 2. Test Merge proposal and verify events table audit entries
+	mergePayload, _ := json.Marshal(store.MergeProposalPayload{
+		SourceIDs:     []int64{m1, m2, m1}, // Contains duplicate to test deduplication
+		TargetContent: "Consolidated Decisions",
+		TargetTags:    []string{"unified"},
+	})
+	mergePropID, err := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:ev",
+		ProposalType: "merge",
+		Title:        "Merge decisions",
+		Reasoning:    "Consolidate",
+		PayloadJSON:  string(mergePayload),
+	})
+	if err != nil {
+		t.Fatalf("CreateProposal merge: %v", err)
+	}
+
+	if err := s.ApplyProposal(ctx, mergePropID); err != nil {
+		t.Fatalf("ApplyProposal merge: %v", err)
+	}
+
+	// Cannot dismiss already applied proposal
+	if err := s.DismissProposal(ctx, mergePropID); err == nil {
+		t.Fatalf("expected error dismissing applied proposal, got nil")
+	}
+
+	// Verify events table has op='insert' for new memory and op='summarize' for source memories
+	events, err := s.EventsSince(ctx, 0, 50)
+	if err != nil {
+		t.Fatalf("EventsSince: %v", err)
+	}
+	var insertCount, summarizeCount int
+	for _, ev := range events {
+		if ev.Op == "insert" {
+			insertCount++
+		}
+		if ev.Op == "summarize" {
+			summarizeCount++
+		}
+	}
+	if summarizeCount != 2 {
+		t.Errorf("expected 2 'summarize' events for source memories, got %d", summarizeCount)
+	}
+	if insertCount < 3 { // 2 initial puts + 1 merged insert
+		t.Errorf("expected at least 3 'insert' events, got %d", insertCount)
+	}
+
+	// Cannot merge non-active memories again
+	badMergePayload, _ := json.Marshal(store.MergeProposalPayload{
+		SourceIDs:     []int64{m1},
+		TargetContent: "Try merge already summarized",
+	})
+	badPropID, _ := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:ev",
+		ProposalType: "merge",
+		Title:        "Bad merge",
+		Reasoning:    "fail",
+		PayloadJSON:  string(badMergePayload),
+	})
+	if err := s.ApplyProposal(ctx, badPropID); err == nil {
+		t.Fatalf("expected error merging non-active memory, got nil")
+	}
+
+	// 3. Test Update proposal rejects non-active memory
+	updateBadPayload, _ := json.Marshal(store.UpdateProposalPayload{
+		TargetID: m1,
+		Content:  "Updated content",
+	})
+	badUpdatePropID, _ := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:ev",
+		ProposalType: "update",
+		Title:        "Bad update",
+		Reasoning:    "fail",
+		PayloadJSON:  string(updateBadPayload),
+	})
+	if err := s.ApplyProposal(ctx, badUpdatePropID); err == nil {
+		t.Fatalf("expected error updating summarized memory, got nil")
+	}
+}

@@ -302,3 +302,117 @@ func TestEngine_OfflineFallback(t *testing.T) {
 		t.Errorf("expected cited memory IDs in offline summary")
 	}
 }
+
+func TestEngine_StreamCallbackExecution(t *testing.T) {
+	s, searcher := setupTestStoreAndSearcher(t)
+	ctx := context.Background()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+
+		chunks := []string{
+			`{"id":"stream-turn-1","choices":[{"index":0,"delta":{"role":"assistant","content":"Streaming "},"finish_reason":null}]}`,
+			`{"id":"stream-turn-1","choices":[{"index":0,"delta":{"content":"answer tokens."},"finish_reason":"stop"}]}`,
+		}
+		for _, chunk := range chunks {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+			flusher.Flush()
+		}
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	cfg := config.Config{
+		LLM: config.LLMConfig{
+			Backend:        "openai_compatible",
+			Endpoint:       server.URL,
+			Model:          "stream-model",
+			TimeoutSeconds: 5,
+		},
+		Agent: config.AgentConfig{
+			Enabled:           true,
+			MaxReasoningSteps: 8,
+		},
+	}
+
+	engine := agent.NewEngine(cfg, s, searcher)
+
+	var streamTokens []string
+	res, err := engine.Ask(ctx, "Tell me something", agent.InquiryOptions{
+		Scope: "global",
+		StreamCallback: func(chunk *agent.StreamChunk) error {
+			if chunk.DeltaContent != "" {
+				streamTokens = append(streamTokens, chunk.DeltaContent)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("engine.Ask with stream failed: %v", err)
+	}
+
+	if len(streamTokens) != 2 {
+		t.Fatalf("expected 2 streamed token chunks, got %d (%v)", len(streamTokens), streamTokens)
+	}
+	if res.Answer != "Streaming answer tokens." {
+		t.Errorf("expected answer 'Streaming answer tokens.', got %q", res.Answer)
+	}
+}
+
+func TestEngine_OfflineScopeIsolation(t *testing.T) {
+	s, searcher := setupTestStoreAndSearcher(t)
+	ctx := context.Background()
+
+	// Memory in scope A
+	mA, _, _ := s.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:scope-a",
+		Type:    "note",
+		Content: "Secret config for Scope A",
+		Tags:    []string{"a"},
+	})
+	// Memory in scope B
+	mB, _, _ := s.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:scope-b",
+		Type:    "note",
+		Content: "Secret config for Scope B",
+		Tags:    []string{"b"},
+	})
+	_ = mA
+	_ = mB
+
+	cfgDisabled := config.Config{
+		LLM: config.LLMConfig{
+			Backend: "disabled",
+		},
+		Agent: config.AgentConfig{
+			Enabled: true,
+		},
+	}
+	engine := agent.NewEngine(cfgDisabled, s, searcher)
+
+	// Summarize scope A only
+	sumResA, err := engine.Summarize(ctx, agent.SummarizeOptions{
+		Scope: "project:scope-a",
+	})
+	if err != nil {
+		t.Fatalf("Summarize scope A: %v", err)
+	}
+
+	// Verify only scope-a memory is cited
+	if len(sumResA.CitedMemoryIDs) != 1 || sumResA.CitedMemoryIDs[0] != mA {
+		t.Errorf("expected only mA (%d) cited, got %v", mA, sumResA.CitedMemoryIDs)
+	}
+
+	// Curate scope B only
+	curResB, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope: "project:scope-b",
+	})
+	if err != nil {
+		t.Fatalf("Curate scope B: %v", err)
+	}
+	if curResB.ScannedMemories != 1 {
+		t.Errorf("expected 1 scanned memory in scope B, got %d", curResB.ScannedMemories)
+	}
+}

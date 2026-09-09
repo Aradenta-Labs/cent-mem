@@ -704,6 +704,20 @@ func (s *Store) buildListWhere(q ListQuery) ([]string, []any) {
 
 // Count returns the total number of memories matching a ListQuery without pagination limits.
 func (s *Store) Count(ctx context.Context, q ListQuery) (int64, error) {
+	if len(q.ScopeIDs) == 0 && q.ScopePath != "" {
+		sc, err := scope.Parse(q.ScopePath)
+		if err != nil {
+			return 0, fmt.Errorf("store: parse scope %q: %w", q.ScopePath, err)
+		}
+		ids, err := s.ResolveScopeIDs(ctx, sc, true, false)
+		if err != nil {
+			return 0, fmt.Errorf("store: resolve scope %q: %w", q.ScopePath, err)
+		}
+		if len(ids) == 0 {
+			return 0, nil
+		}
+		q.ScopeIDs = ids
+	}
 	where, args := s.buildListWhere(q)
 	query := `SELECT COUNT(*) FROM memories m JOIN scopes s ON s.id = m.scope_id WHERE ` + strings.Join(where, " AND ")
 	var count int64
@@ -713,6 +727,21 @@ func (s *Store) Count(ctx context.Context, q ListQuery) (int64, error) {
 
 // List returns memories for a query, sorted by created_at desc.
 func (s *Store) List(ctx context.Context, q ListQuery) ([]Memory, error) {
+	if len(q.ScopeIDs) == 0 && q.ScopePath != "" {
+		sc, err := scope.Parse(q.ScopePath)
+		if err != nil {
+			return nil, fmt.Errorf("store: parse scope %q: %w", q.ScopePath, err)
+		}
+		ids, err := s.ResolveScopeIDs(ctx, sc, true, false)
+		if err != nil {
+			return nil, fmt.Errorf("store: resolve scope %q: %w", q.ScopePath, err)
+		}
+		if len(ids) == 0 {
+			return nil, nil
+		}
+		q.ScopeIDs = ids
+	}
+
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 20

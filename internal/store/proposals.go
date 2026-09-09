@@ -174,6 +174,18 @@ func (s *Store) UpdateProposalStatus(ctx context.Context, id int64, status strin
 		return fmt.Errorf("store: invalid proposal status %q; must be one of: %s",
 			status, strings.Join(ValidProposalStatuses, ", "))
 	}
+	var currentStatus string
+	err := s.db.QueryRowContext(ctx, "SELECT status FROM agent_proposals WHERE id = ?", id).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("store: query proposal status: %w", err)
+	}
+	if currentStatus == "applied" && status != "applied" {
+		return fmt.Errorf("store: proposal %d already applied (cannot transition to %q)", id, status)
+	}
+
 	var appliedAt *int64
 	if status == "applied" {
 		t := nowMicro()
@@ -275,6 +287,19 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 			return fmt.Errorf("store: merge target_content cannot be empty")
 		}
 
+		// Deduplicate source IDs
+		seen := make(map[int64]bool)
+		var uniqueSourceIDs []int64
+		for _, sid := range payload.SourceIDs {
+			if sid <= 0 {
+				return fmt.Errorf("store: invalid merge source id %d", sid)
+			}
+			if !seen[sid] {
+				seen[sid] = true
+				uniqueSourceIDs = append(uniqueSourceIDs, sid)
+			}
+		}
+
 		tagSet := make(map[string]bool)
 		for _, t := range payload.TargetTags {
 			if tr := strings.TrimSpace(t); tr != "" {
@@ -284,7 +309,7 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 		primaryScopeID := p.ScopeID
 		primaryScopePath := p.ScopePath
 
-		for _, sid := range payload.SourceIDs {
+		for _, sid := range uniqueSourceIDs {
 			var memID, memScopeID int64
 			var memScopePath, memTags, memStatus string
 			err := tx.QueryRowContext(ctx, `
@@ -294,6 +319,9 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 				WHERE m.id = ?`, sid).Scan(&memID, &memScopeID, &memScopePath, &memTags, &memStatus)
 			if err != nil {
 				return fmt.Errorf("store: merge source memory %d: %w", sid, err)
+			}
+			if memStatus != "active" {
+				return fmt.Errorf("store: cannot merge non-active source memory %d (status: %q)", sid, memStatus)
 			}
 			if primaryScopeID == 0 {
 				primaryScopeID = memScopeID
@@ -332,15 +360,33 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 			return fmt.Errorf("store: enqueue merged embedding: %w", err)
 		}
 
-		for _, sid := range payload.SourceIDs {
+		evMergedPayload, _ := json.Marshal(map[string]any{
+			"memory_id":  mergedID,
+			"source_ids": uniqueSourceIDs,
+			"op":         "insert",
+		})
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
+			VALUES (?, 'insert', ?, ?, ?)`,
+			mergedID, primaryScopePath, string(evMergedPayload), nowMicros); err != nil {
+			return fmt.Errorf("store: insert merged event: %w", err)
+		}
+
+		for _, sid := range uniqueSourceIDs {
 			if _, err := tx.ExecContext(ctx,
 				`UPDATE memories SET status = 'summarized', updated_at = ? WHERE id = ?`,
 				nowMicros, sid); err != nil {
 				return fmt.Errorf("store: summarize source memory %d: %w", sid, err)
 			}
-			_, _ = tx.ExecContext(ctx, `DELETE FROM embeddings WHERE memory_id = ?`, sid)
-			_, _ = tx.ExecContext(ctx, `DELETE FROM memories_vec WHERE memory_id = ?`, sid)
-			_, _ = tx.ExecContext(ctx, `DELETE FROM embed_queue WHERE memory_id = ?`, sid)
+			if _, err := tx.ExecContext(ctx, `DELETE FROM embeddings WHERE memory_id = ?`, sid); err != nil {
+				return fmt.Errorf("store: delete embeddings for source %d: %w", sid, err)
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM memories_vec WHERE memory_id = ?`, sid); err != nil {
+				return fmt.Errorf("store: delete vector for source %d: %w", sid, err)
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM embed_queue WHERE memory_id = ?`, sid); err != nil {
+				return fmt.Errorf("store: delete embed_queue for source %d: %w", sid, err)
+			}
 
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO memory_links(from_id, to_id, relation, created_at, suggested)
@@ -353,12 +399,14 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 			evPayload, _ := json.Marshal(map[string]any{
 				"memory_id":   sid,
 				"merged_into": mergedID,
-				"op":          "merge",
+				"op":          "summarize",
 			})
-			_, _ = tx.ExecContext(ctx, `
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
-				VALUES (?, 'merge', ?, ?, ?)`,
-				sid, primaryScopePath, string(evPayload), nowMicros)
+				VALUES (?, 'summarize', ?, ?, ?)`,
+				sid, primaryScopePath, string(evPayload), nowMicros); err != nil {
+				return fmt.Errorf("store: summarize event: %w", err)
+			}
 		}
 
 	case "update":
@@ -369,13 +417,17 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 		if payload.TargetID <= 0 {
 			return fmt.Errorf("store: invalid update target_id %d", payload.TargetID)
 		}
-		var memType, memScopePath string
+		var memType, memScopePath, memStatus string
 		err := tx.QueryRowContext(ctx, `
-			SELECT m.type, s.path FROM memories m JOIN scopes s ON s.id = m.scope_id WHERE m.id = ?`,
-			payload.TargetID).Scan(&memType, &memScopePath)
+			SELECT m.type, s.path, m.status FROM memories m JOIN scopes s ON s.id = m.scope_id WHERE m.id = ?`,
+			payload.TargetID).Scan(&memType, &memScopePath, &memStatus)
 		if err != nil {
 			return fmt.Errorf("store: update target memory %d: %w", payload.TargetID, err)
 		}
+		if memStatus != "active" {
+			return fmt.Errorf("store: cannot update non-active memory %d (status: %q)", payload.TargetID, memStatus)
+		}
+
 		contentHash := hashContent(memScopePath, memType, "", payload.Content)
 		tagsStr := joinTags(payload.Tags)
 		if _, err := tx.ExecContext(ctx, `
@@ -385,17 +437,32 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 			payload.Content, tagsStr, contentHash, nowMicros, payload.TargetID); err != nil {
 			return fmt.Errorf("store: update memory: %w", err)
 		}
-		_, _ = tx.ExecContext(ctx, `
+
+		if _, err := tx.ExecContext(ctx, `DELETE FROM embeddings WHERE memory_id = ?`, payload.TargetID); err != nil {
+			return fmt.Errorf("store: delete embeddings for update: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM memories_vec WHERE memory_id = ?`, payload.TargetID); err != nil {
+			return fmt.Errorf("store: delete vector for update: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM embed_queue WHERE memory_id = ?`, payload.TargetID); err != nil {
+			return fmt.Errorf("store: delete embed_queue for update: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO embed_queue(memory_id, priority, created_at) VALUES (?, 1, ?)`,
-			payload.TargetID, nowMicros)
+			payload.TargetID, nowMicros); err != nil {
+			return fmt.Errorf("store: enqueue update embedding: %w", err)
+		}
+
 		evPayload, _ := json.Marshal(map[string]any{
 			"memory_id": payload.TargetID,
 			"op":        "update",
 		})
-		_, _ = tx.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
 			VALUES (?, 'update', ?, ?, ?)`,
-			payload.TargetID, memScopePath, string(evPayload), nowMicros)
+			payload.TargetID, memScopePath, string(evPayload), nowMicros); err != nil {
+			return fmt.Errorf("store: update event: %w", err)
+		}
 
 	case "archive":
 		var payload ArchiveProposalPayload
@@ -405,30 +472,43 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 		if payload.TargetID <= 0 {
 			return fmt.Errorf("store: invalid archive target_id %d", payload.TargetID)
 		}
-		var memScopePath string
+		var memScopePath, memStatus string
 		err := tx.QueryRowContext(ctx, `
-			SELECT s.path FROM memories m JOIN scopes s ON s.id = m.scope_id WHERE m.id = ?`,
-			payload.TargetID).Scan(&memScopePath)
+			SELECT s.path, m.status FROM memories m JOIN scopes s ON s.id = m.scope_id WHERE m.id = ?`,
+			payload.TargetID).Scan(&memScopePath, &memStatus)
 		if err != nil {
 			return fmt.Errorf("store: archive target memory %d: %w", payload.TargetID, err)
 		}
+		if memStatus == "archived" {
+			return fmt.Errorf("store: memory %d is already archived", payload.TargetID)
+		}
+
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`,
 			nowMicros, payload.TargetID); err != nil {
 			return fmt.Errorf("store: archive memory: %w", err)
 		}
-		_, _ = tx.ExecContext(ctx, `DELETE FROM embeddings WHERE memory_id = ?`, payload.TargetID)
-		_, _ = tx.ExecContext(ctx, `DELETE FROM memories_vec WHERE memory_id = ?`, payload.TargetID)
-		_, _ = tx.ExecContext(ctx, `DELETE FROM embed_queue WHERE memory_id = ?`, payload.TargetID)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM embeddings WHERE memory_id = ?`, payload.TargetID); err != nil {
+			return fmt.Errorf("store: delete embeddings for archive: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM memories_vec WHERE memory_id = ?`, payload.TargetID); err != nil {
+			return fmt.Errorf("store: delete vector for archive: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM embed_queue WHERE memory_id = ?`, payload.TargetID); err != nil {
+			return fmt.Errorf("store: delete embed_queue for archive: %w", err)
+		}
+
 		evPayload, _ := json.Marshal(map[string]any{
 			"memory_id": payload.TargetID,
 			"reason":    payload.Reason,
 			"op":        "archive",
 		})
-		_, _ = tx.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
 			VALUES (?, 'archive', ?, ?, ?)`,
-			payload.TargetID, memScopePath, string(evPayload), nowMicros)
+			payload.TargetID, memScopePath, string(evPayload), nowMicros); err != nil {
+			return fmt.Errorf("store: archive event: %w", err)
+		}
 
 	default:
 		return fmt.Errorf("store: unsupported proposal type %q", p.ProposalType)
