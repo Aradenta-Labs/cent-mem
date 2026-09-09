@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -97,6 +98,9 @@ func (s *Store) GetProposal(ctx context.Context, id int64) (*Proposal, error) {
 }
 
 // ListProposals queries agent proposals with filtering and pagination.
+// ErrProposalConflict indicates a proposal state transition or dependency conflict.
+var ErrProposalConflict = errors.New("proposal conflict")
+
 func (s *Store) ListProposals(ctx context.Context, q ProposalListQuery) ([]Proposal, error) {
 	var where []string
 	var args []any
@@ -106,15 +110,16 @@ func (s *Store) ListProposals(ctx context.Context, q ProposalListQuery) ([]Propo
 		args = append(args, q.ScopeID)
 	} else if q.ScopePath != "" {
 		sc, err := scope.Parse(q.ScopePath)
-		if err == nil {
-			var sid int64
-			if err := s.db.QueryRowContext(ctx, "SELECT id FROM scopes WHERE path = ?", sc.Path).Scan(&sid); err == nil {
-				where = append(where, "p.scope_id = ?")
-				args = append(args, sid)
-			} else {
-				where = append(where, "s.path = ?")
-				args = append(args, sc.Path)
-			}
+		if err != nil {
+			return nil, fmt.Errorf("store: parse scope %q: %w", q.ScopePath, err)
+		}
+		var sid int64
+		if err := s.db.QueryRowContext(ctx, "SELECT id FROM scopes WHERE path = ?", sc.Path).Scan(&sid); err == nil {
+			where = append(where, "p.scope_id = ?")
+			args = append(args, sid)
+		} else {
+			where = append(where, "s.path = ?")
+			args = append(args, sc.Path)
 		}
 	}
 	if q.Status != "" {
@@ -183,7 +188,7 @@ func (s *Store) UpdateProposalStatus(ctx context.Context, id int64, status strin
 		return fmt.Errorf("store: query proposal status: %w", err)
 	}
 	if currentStatus == "applied" && status != "applied" {
-		return fmt.Errorf("store: proposal %d already applied (cannot transition to %q)", id, status)
+		return fmt.Errorf("%w: proposal %d already applied (cannot transition to %q)", ErrProposalConflict, id, status)
 	}
 
 	var appliedAt *int64
@@ -239,10 +244,10 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 		return fmt.Errorf("store: query proposal: %w", err)
 	}
 	if p.Status == "applied" {
-		return fmt.Errorf("store: proposal %d already applied", id)
+		return fmt.Errorf("%w: proposal %d already applied", ErrProposalConflict, id)
 	}
 	if p.Status != "pending" {
-		return fmt.Errorf("store: proposal %d has status %q (cannot apply)", id, p.Status)
+		return fmt.Errorf("%w: proposal %d has status %q (cannot apply)", ErrProposalConflict, id, p.Status)
 	}
 
 	nowMicros := nowMicro()
@@ -261,10 +266,10 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 		}
 		var dummy int
 		if err := tx.QueryRowContext(ctx, "SELECT 1 FROM memories WHERE id = ?", payload.FromID).Scan(&dummy); err != nil {
-			return fmt.Errorf("store: source memory %d not found: %w", payload.FromID, err)
+			return fmt.Errorf("%w: source memory %d not found: %w", ErrProposalConflict, payload.FromID, err)
 		}
 		if err := tx.QueryRowContext(ctx, "SELECT 1 FROM memories WHERE id = ?", payload.ToID).Scan(&dummy); err != nil {
-			return fmt.Errorf("store: target memory %d not found: %w", payload.ToID, err)
+			return fmt.Errorf("%w: target memory %d not found: %w", ErrProposalConflict, payload.ToID, err)
 		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO memory_links(from_id, to_id, relation, created_at, suggested)
@@ -318,10 +323,10 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 				JOIN scopes s ON s.id = m.scope_id
 				WHERE m.id = ?`, sid).Scan(&memID, &memScopeID, &memScopePath, &memTags, &memStatus)
 			if err != nil {
-				return fmt.Errorf("store: merge source memory %d: %w", sid, err)
+				return fmt.Errorf("%w: merge source memory %d: %w", ErrProposalConflict, sid, err)
 			}
 			if memStatus != "active" {
-				return fmt.Errorf("store: cannot merge non-active source memory %d (status: %q)", sid, memStatus)
+				return fmt.Errorf("%w: cannot merge non-active source memory %d (status: %q)", ErrProposalConflict, sid, memStatus)
 			}
 			if primaryScopeID == 0 {
 				primaryScopeID = memScopeID

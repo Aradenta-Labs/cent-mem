@@ -7,6 +7,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/agent"
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
@@ -31,6 +32,13 @@ func cmdCurate(args []string) int {
 			return cli.Invalidf("curate: invalid --type %q (expected contradictions, dedup, or all)", curateType)
 		}
 
+		scopePath := fs.Lookup("scope").Value.String()
+		if scopePath != "" {
+			if _, err := scope.Parse(scopePath); err != nil {
+				return cli.Invalidf("curate: invalid --scope %q: %v", scopePath, err)
+			}
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("curate: %v", err)
@@ -42,7 +50,6 @@ func cmdCurate(args []string) int {
 		ctx, cancel := signalContext()
 		defer cancel()
 
-		scopePath := fs.Lookup("scope").Value.String()
 		apply := fs.Lookup("apply").Value.String() == "true"
 		dryRun := fs.Lookup("dry-run").Value.String() == "true"
 

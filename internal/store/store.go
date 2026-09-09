@@ -54,7 +54,7 @@ func Open(cfg config.Config) (*Store, error) {
 	// sqlite-vec must be initialized before opening connections.
 	sqlite_vec.Auto()
 
-	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL", cfg.DBPath)
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL&_txlock=immediate", cfg.DBPath)
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: open db: %w", err)

@@ -12,6 +12,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/agent"
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
@@ -32,6 +33,13 @@ func cmdAsk(args []string) int {
 			return cli.Invalidf("ask: question is required (or run with --interactive)")
 		}
 
+		scopePath := fs.Lookup("scope").Value.String()
+		if scopePath != "" {
+			if _, err := scope.Parse(scopePath); err != nil {
+				return cli.Invalidf("ask: invalid --scope %q: %v", scopePath, err)
+			}
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("ask: %v", err)
@@ -39,8 +47,12 @@ func cmdAsk(args []string) int {
 		defer s.Close()
 
 		engine := initAgentEngine(cfg, s)
-		scopePath := fs.Lookup("scope").Value.String()
 		top := intFlag(fs, "top", 5)
+		if top <= 0 {
+			top = 5
+		} else if top > 20 {
+			top = 20
+		}
 
 		if interactive {
 			return runInteractiveAsk(os.Stdin, os.Stdout, engine, scopePath, top, question)
@@ -107,6 +119,9 @@ func runInteractiveAsk(in io.Reader, out io.Writer, engine *agent.Engine, scopeP
 	}
 
 	scanner := bufio.NewScanner(in)
+	buf := make([]byte, 1024*1024)
+	scanner.Buffer(buf, 1024*1024)
+
 	for {
 		fmt.Fprint(out, "centmem> ")
 		if !scanner.Scan() {
@@ -119,6 +134,19 @@ func runInteractiveAsk(in io.Reader, out io.Writer, engine *agent.Engine, scopeP
 		if line == "exit" || line == "quit" || line == "/q" {
 			break
 		}
+		if line == "help" || line == "/help" {
+			fmt.Fprintln(out, "Interactive Commands:")
+			fmt.Fprintln(out, "  exit, quit, /q : Exit inquiry session")
+			fmt.Fprintln(out, "  clear, /clear  : Reset conversation context thread")
+			fmt.Fprintln(out, "  help, /help    : Show this help")
+			fmt.Fprintln(out)
+			continue
+		}
+		if line == "clear" || line == "/clear" {
+			convID = ""
+			fmt.Fprintln(out, "Cleared conversation context. Started new thread.")
+			continue
+		}
 
 		res, err := engine.Ask(ctx, line, agent.InquiryOptions{
 			Scope:          scopePath,
@@ -130,7 +158,7 @@ func runInteractiveAsk(in io.Reader, out io.Writer, engine *agent.Engine, scopeP
 			continue
 		}
 		convID = res.ConversationID
-		fmt.Fprintf(out, "\n%s\n\n", res.Answer)
+		fmt.Fprintf(out, "\nAssistant:\n%s\n\n", res.Answer)
 		if len(res.Citations) > 0 {
 			fmt.Fprintln(out, "Citations:")
 			for _, c := range res.Citations {

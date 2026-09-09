@@ -9,6 +9,7 @@ import (
 
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
@@ -54,8 +55,19 @@ func cmdProposals(args []string) int {
 			}
 
 			scopePath := fs.Lookup("scope").Value.String()
+			if scopePath != "" {
+				if _, err := scope.Parse(scopePath); err != nil {
+					return cli.Invalidf("proposals list: invalid --scope %q: %v", scopePath, err)
+				}
+			}
 			limit := intFlag(fs, "limit", 50)
+			if limit <= 0 {
+				limit = 50
+			}
 			offset := intFlag(fs, "offset", 0)
+			if offset < 0 {
+				offset = 0
+			}
 
 			proposals, err := s.ListProposals(ctx, store.ProposalListQuery{
 				ScopePath: scopePath,
@@ -112,8 +124,11 @@ func cmdProposals(args []string) int {
 					return cli.E(cli.ExitNotFound, "NOT_FOUND", fmt.Sprintf("proposal %d not found", id),
 						"use 'centmem proposals list' to view available proposals")
 				}
-				return cli.E(cli.ExitConflict, "CONFLICT", fmt.Sprintf("proposals apply: %v", err),
-					"verify proposal status with 'centmem proposals show'")
+				if errors.Is(err, store.ErrProposalConflict) || strings.Contains(err.Error(), "already applied") || strings.Contains(err.Error(), "cannot apply") {
+					return cli.E(cli.ExitConflict, "CONFLICT", fmt.Sprintf("proposals apply: %v", err),
+						"verify proposal status with 'centmem proposals show'")
+				}
+				return cli.Internalf("proposals apply: %v", err)
 			}
 
 			p, _ := s.GetProposal(ctx, id)
@@ -132,10 +147,14 @@ func cmdProposals(args []string) int {
 				return cli.Invalidf("proposals dismiss: invalid proposal id %q", posArgs[1])
 			}
 
-			if err := s.UpdateProposalStatus(ctx, id, "dismissed"); err != nil {
+			if err := s.DismissProposal(ctx, id); err != nil {
 				if errors.Is(err, store.ErrNotFound) {
 					return cli.E(cli.ExitNotFound, "NOT_FOUND", fmt.Sprintf("proposal %d not found", id),
 						"use 'centmem proposals list' to view available proposals")
+				}
+				if errors.Is(err, store.ErrProposalConflict) || strings.Contains(err.Error(), "already applied") {
+					return cli.E(cli.ExitConflict, "CONFLICT", fmt.Sprintf("proposals dismiss: %v", err),
+						"proposal cannot be dismissed once applied")
 				}
 				return cli.Internalf("proposals dismiss: %v", err)
 			}

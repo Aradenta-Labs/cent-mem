@@ -571,3 +571,311 @@ func TestAgentCLI_Proposals_Errors(t *testing.T) {
 		t.Errorf("code = %d, want 1", code)
 	}
 }
+
+func TestAgentCLI_ScopeValidation(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	badScope := "invalid:::scope!!!"
+
+	// 1. ask
+	_, stderr, code := runCLI(t, home, "ask", "hello", "--scope", badScope)
+	if code != 1 {
+		t.Errorf("ask bad scope code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "invalid --scope") {
+		t.Errorf("expected 'invalid --scope' in stderr, got: %s", stderr)
+	}
+
+	// 2. curate
+	_, stderr, code = runCLI(t, home, "curate", "--scope", badScope)
+	if code != 1 {
+		t.Errorf("curate bad scope code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "invalid --scope") {
+		t.Errorf("expected 'invalid --scope' in stderr, got: %s", stderr)
+	}
+
+	// 3. summarize
+	_, stderr, code = runCLI(t, home, "summarize", "--scope", badScope)
+	if code != 1 {
+		t.Errorf("summarize bad scope code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "invalid --scope") {
+		t.Errorf("expected 'invalid --scope' in stderr, got: %s", stderr)
+	}
+
+	// 4. proposals list
+	_, stderr, code = runCLI(t, home, "proposals", "list", "--scope", badScope)
+	if code != 1 {
+		t.Errorf("proposals list bad scope code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "invalid --scope") {
+		t.Errorf("expected 'invalid --scope' in stderr, got: %s", stderr)
+	}
+}
+
+func TestAgentCLI_Ask_TopCapping(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	runCLI(t, home, "config", "set", "llm.backend", "disabled")
+
+	// Seed 5 memories
+	for i := 1; i <= 5; i++ {
+		runCLI(t, home, "put", "--scope", "project:toptest", "--type", "note",
+			"--content", fmt.Sprintf("Architecture component number %d uses microservices", i))
+	}
+
+	// Recall with top 2
+	stdout, _, code := runCLI(t, home, "ask", "microservices architecture", "--scope", "project:toptest", "--top", "2")
+	if code != 0 {
+		t.Fatalf("ask code = %d, want 0", code)
+	}
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+	citations, ok := res["citations"].([]any)
+	if !ok || len(citations) != 2 {
+		t.Errorf("expected exactly 2 citations, got: %d", len(citations))
+	}
+
+	// Recall with top 0 -> should default to 5
+	stdout, _, code = runCLI(t, home, "ask", "microservices architecture", "--scope", "project:toptest", "--top", "0")
+	if code != 0 {
+		t.Fatalf("ask code = %d, want 0", code)
+	}
+	var resDef map[string]any
+	_ = json.Unmarshal([]byte(stdout), &resDef)
+	citationsDef, _ := resDef["citations"].([]any)
+	if len(citationsDef) != 5 {
+		t.Errorf("expected default 5 citations when --top 0, got: %d", len(citationsDef))
+	}
+}
+
+func TestAgentCLI_Proposals_ConflictVsError(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ctx := context.Background()
+	m1, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:test", Type: "note", Content: "mem1"})
+	m2, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:test", Type: "note", Content: "mem2"})
+
+	payload, _ := json.Marshal(store.LinkProposalPayload{FromID: m1, ToID: m2, Relation: "supersedes"})
+	propID, _ := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:test",
+		ProposalType: "link",
+		Title:        "Link prop",
+		PayloadJSON:  string(payload),
+	})
+
+	// Apply proposal
+	_, _, code := runCLI(t, home, "proposals", "apply", fmt.Sprintf("%d", propID))
+	if code != 0 {
+		t.Fatalf("apply code = %d, want 0", code)
+	}
+
+	// Dismissing an already applied proposal -> must return CONFLICT (exit code 3)
+	_, stderr, code := runCLI(t, home, "proposals", "dismiss", fmt.Sprintf("%d", propID))
+	if code != 3 {
+		t.Errorf("dismiss applied proposal code = %d, want 3 (conflict), stderr: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "CONFLICT") {
+		t.Errorf("expected 'CONFLICT' in stderr, got: %s", stderr)
+	}
+
+	// Create a proposal with corrupted payload JSON
+	badPropID, _ := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:test",
+		ProposalType: "link",
+		Title:        "Corrupt proposal",
+		PayloadJSON:  "{not valid json!!",
+	})
+	s.Close()
+
+	// Applying corrupt proposal -> must return error (exit code 1), NOT conflict (code 3)
+	_, stderr, code = runCLI(t, home, "proposals", "apply", fmt.Sprintf("%d", badPropID))
+	if code != 1 {
+		t.Errorf("apply corrupt proposal code = %d, want 1 (internal/error), got %d, stderr: %s", code, code, stderr)
+	}
+}
+
+func TestAgentCLI_Curate_OnlineProposalCounts(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ctx := context.Background()
+	m1, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:online", Type: "note", Content: "PostgreSQL is our database"})
+	m2, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:online", Type: "note", Content: "MySQL is our database"})
+	m3, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:online", Type: "note", Content: "Identical dupe content"})
+	_, _ = s.DB().ExecContext(ctx, "UPDATE memories SET updated_at = ? WHERE id = ?", time.Now().Add(-5*time.Minute).UnixMicro(), m3)
+	m4, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:online", Type: "note", Content: "Identical dupe content"})
+	s.Close()
+
+	var turn int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tCount := atomic.AddInt32(&turn, 1)
+		w.Header().Set("Content-Type", "application/json")
+
+		if tCount == 1 {
+			// Turn 1: Propose contradiction link
+			resp := agent.ChatResponse{
+				ID: "resp-1",
+				Choices: []agent.Choice{
+					{
+						Index: 0,
+						Message: agent.ChatMessage{
+							Role: "assistant",
+							ToolCalls: []agent.ToolCall{
+								{
+									ID:   "call_link_1",
+									Type: "function",
+									Function: agent.FunctionCall{
+										Name:      "propose_link",
+										Arguments: fmt.Sprintf(`{"from_id":%d,"to_id":%d,"relation":"contradicts","reasoning":"conflicting database choices"}`, m1, m2),
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if tCount == 2 {
+			// Turn 2: Propose duplicate merge
+			resp := agent.ChatResponse{
+				ID: "resp-2",
+				Choices: []agent.Choice{
+					{
+						Index: 0,
+						Message: agent.ChatMessage{
+							Role: "assistant",
+							ToolCalls: []agent.ToolCall{
+								{
+									ID:   "call_merge_1",
+									Type: "function",
+									Function: agent.FunctionCall{
+										Name:      "propose_merge",
+										Arguments: fmt.Sprintf(`{"source_ids":[%d,%d],"title":"Consolidate dupes","content":"Identical dupe content","reasoning":"Duplicate notes"}`, m3, m4),
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Turn 3: Complete
+		resp := agent.ChatResponse{
+			ID: "resp-3",
+			Choices: []agent.Choice{
+				{
+					Index: 0,
+					Message: agent.ChatMessage{
+						Role:    "assistant",
+						Content: "Curation complete. Identified 1 contradiction and 1 duplicate cluster.",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	runCLI(t, home, "config", "set", "llm.backend", "openai_compatible")
+	runCLI(t, home, "config", "set", "llm.endpoint", server.URL)
+	runCLI(t, home, "config", "set", "llm.model", "curate-model")
+
+	stdout, stderr, code := runCLI(t, home, "curate", "--scope", "project:online", "--type", "all")
+	if code != 0 {
+		t.Fatalf("curate code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse: %v", err)
+	}
+
+	if res["fallback_used"] != false {
+		t.Errorf("expected fallback_used=false, got %v", res["fallback_used"])
+	}
+
+	created, _ := res["proposals_created"].([]any)
+	if len(created) != 2 {
+		t.Errorf("expected 2 created proposals, got %v", res["proposals_created"])
+	}
+
+	contra, _ := res["contradictions_found"].(float64)
+	if contra != 1 {
+		t.Errorf("expected contradictions_found=1, got %v", res["contradictions_found"])
+	}
+
+	dupes, _ := res["duplicates_found"].(float64)
+	if dupes != 1 {
+		t.Errorf("expected duplicates_found=1, got %v", res["duplicates_found"])
+	}
+}
+
+func TestAgentCLI_Summarize_DeterministicOrder(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	// Seed multiple types
+	runCLI(t, home, "put", "--scope", "project:det", "--type", "note", "--content", "Note 1 about architecture")
+	runCLI(t, home, "put", "--scope", "project:det", "--type", "log", "--content", "Log 1 about deployment")
+	runCLI(t, home, "set", "--scope", "project:det", "--key", "fact.k", "--value", `"value"`)
+
+	// Run summarize twice
+	stdout1, _, code1 := runCLI(t, home, "summarize", "--scope", "project:det", "--format", "markdown")
+	stdout2, _, code2 := runCLI(t, home, "summarize", "--scope", "project:det", "--format", "markdown")
+
+	if code1 != 0 || code2 != 0 {
+		t.Fatalf("summarize failed: code1=%d, code2=%d", code1, code2)
+	}
+
+	if stdout1 != stdout2 {
+		t.Errorf("summarize outputs differ across runs!\nRun 1:\n%s\nRun 2:\n%s", stdout1, stdout2)
+	}
+}
+
+func TestAgentCLI_Ask_InteractiveCommands(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+	runCLI(t, home, "config", "set", "llm.backend", "disabled")
+
+	input := "/help\n/clear\nhello\nexit\n"
+	stdout, stderr, code := runCLIWithStdin(t, home, input, "ask", "--interactive", "--scope", "project:interactive")
+	if code != 0 {
+		t.Fatalf("interactive code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	if !strings.Contains(stdout, "Interactive Commands:") {
+		t.Errorf("expected help output in stdout, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "Cleared conversation context") {
+		t.Errorf("expected clear output in stdout, got: %s", stdout)
+	}
+}

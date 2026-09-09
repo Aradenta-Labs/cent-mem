@@ -9,6 +9,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/agent"
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
@@ -31,6 +32,13 @@ func cmdSummarize(args []string) int {
 			return cli.Invalidf("summarize: invalid --format %q (expected json or markdown)", format)
 		}
 
+		scopePath := fs.Lookup("scope").Value.String()
+		if scopePath != "" {
+			if _, err := scope.Parse(scopePath); err != nil {
+				return cli.Invalidf("summarize: invalid --scope %q: %v", scopePath, err)
+			}
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("summarize: %v", err)
@@ -42,7 +50,6 @@ func cmdSummarize(args []string) int {
 		ctx, cancel := signalContext()
 		defer cancel()
 
-		scopePath := fs.Lookup("scope").Value.String()
 		focus := fs.Lookup("focus").Value.String()
 		save := fs.Lookup("save").Value.String() == "true"
 

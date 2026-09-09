@@ -777,10 +777,103 @@ When a proposal is approved (manually via CLI/Web UI or autonomously via `agent.
 - For `archive`: Safely archives stale or obsolete memories.
 - Emits audit events to `events` table for multi-agent daemon replication (`centmemd`).
 
-### 14.5 Roadmap & Upcoming CLI Surface (Stages 2–4)
-With Stage 1 complete, subsequent v2.0.0 milestones will introduce:
-- `centmem ask "<question>"`: Interactive natural language Q&A with clickable citations.
-- `centmem curate [--type contradictions|dedup]`: Autonomous memory deduplication and link detection.
-- `centmem summarize [--scope <s>]`: Architecture briefing synthesis.
-- `centmem proposals <list|show|apply|dismiss>`: Proposal queue management CLI.
-- Embedded Web UI Assistant & Proposals Review Center (Stage 3).
+---
+
+## 15. Agent CLI Commands (v2.0.0 Stage 2)
+
+### 15.1 `centmem ask`
+Perform natural-language conversational question answering grounded in stored memories.
+```bash
+centmem ask "<question>" [--scope <scope>] [--top N] [--interactive]
+```
+- `<question>`: Natural language inquiry.
+- `--scope`: Scope path filter (default `global`).
+- `--top N`: Maximum candidate citations to retrieve (default `5`, max `20`).
+- `--interactive`: Start a multi-turn terminal chat session reading from stdin (supports `/help`, `/clear`, `exit`).
+
+**Output Shape:**
+```json
+{
+  "ok": true,
+  "answer": "...",
+  "citations": [
+    {
+      "id": 42,
+      "type": "note",
+      "scope": "project:cent-mem",
+      "snippet": "...",
+      "score": 0.0412
+    }
+  ],
+  "knowledge_gaps": [],
+  "reasoning_steps": 2,
+  "conversation_id": "conv-1234",
+  "fallback_used": false
+}
+```
+
+### 15.2 `centmem curate`
+Scan stored memories to autonomously detect contradictions, evolution, and duplicates, staging reviewable proposals into `agent_proposals`.
+```bash
+centmem curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]
+```
+- `--scope`: Scope path filter (default `global`).
+- `--type`: Curation category (`contradictions`, `dedup`, or `all`; default `all`).
+- `--apply`: Automatically apply generated proposals exceeding confidence threshold.
+- `--dry-run`: Simulate curation without persisting proposals to store.
+
+**Output Shape:**
+```json
+{
+  "ok": true,
+  "proposals_created": [101, 102],
+  "proposals_applied": [],
+  "scanned_memories": 120,
+  "contradictions_found": 1,
+  "duplicates_found": 1,
+  "fallback_used": false
+}
+```
+
+### 15.3 `centmem summarize`
+Synthesize scope briefings, developer guides, and architectural pillars.
+```bash
+centmem summarize [--scope <scope>] [--focus <topic>] [--format markdown|json] [--save]
+```
+- `--scope`: Scope path filter (default `global`).
+- `--focus`: Optional topic or architectural component.
+- `--format`: Output format (`json` or `markdown`; default `json`).
+- `--save`: Save generated summary as a new `type=note` memory tagged `summary,architecture,digest`.
+
+**Output Shape (`--format json`):**
+```json
+{
+  "ok": true,
+  "title": "Architectural Summary — project:cent-mem",
+  "summary_markdown": "# Architectural Summary\n...",
+  "cited_memory_ids": [14, 25, 33],
+  "scope": "project:cent-mem",
+  "saved_id": 99,
+  "fallback_used": false
+}
+```
+
+### 15.4 `centmem proposals`
+Manage human-in-the-loop staged curation proposals.
+```bash
+centmem proposals list [--scope <scope>] [--status pending|applied|dismissed] [--limit N] [--offset N]
+centmem proposals show <id>
+centmem proposals apply <id>
+centmem proposals dismiss <id>
+```
+- `list`: Browse proposals with status/scope filtering and pagination.
+- `show <id>`: Inspect detailed proposal metadata, rationale, and JSON payload.
+- `apply <id>`: Atomically execute proposal changes.
+- `dismiss <id>`: Mark proposal as dismissed.
+
+---
+
+## 16. Roadmap & Upcoming Milestones (Stage 3+)
+With Stage 1 (Agent Engine & Proposals) and Stage 2 (CLI Command Suite) complete:
+- **Stage 3**: Embedded Web UI Assistant & Proposals Review Center (`/api/agent/chat` SSE streaming, `AssistantTab.tsx`, `ProposalsView.tsx`).
+- **Stage 4**: Background Autonomous Daemon Curation loop (`centmemd`).

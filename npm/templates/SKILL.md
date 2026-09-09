@@ -180,6 +180,28 @@ centmem config set agent.confidence_threshold 0.75
 centmem config set agent.auto_apply_safe_links false
 ```
 
+### 12. Agent Inquiry, Curation & Proposals (v2.0.0 Stage 2)
+```bash
+# Ask questions synthesized from grounded memory citations
+centmem ask "what database do we use?" --scope "project:$CENTMEM_PROJ" --top 5
+
+# Enter interactive terminal chat inquiry session
+centmem ask --interactive --scope "project:$CENTMEM_PROJ"
+
+# Run autonomous memory curation to detect conflicts and semantic duplicates
+centmem curate --scope "project:$CENTMEM_PROJ" --type all --dry-run
+centmem curate --scope "project:$CENTMEM_PROJ" --apply
+
+# Synthesize architectural pillars and developer briefing
+centmem summarize --scope "project:$CENTMEM_PROJ" --focus "Architecture" --save
+
+# Manage human-in-the-loop proposals staged by curation or background agents
+centmem proposals list --scope "project:$CENTMEM_PROJ" --status pending
+centmem proposals show 101
+centmem proposals apply 101
+centmem proposals dismiss 102
+```
+
 ---
 
 ## Scope Grammar & Hierarchy
@@ -238,6 +260,10 @@ project:<name>/agent:<agent>/session:<id>
 | `unlink` | `centmem unlink <from_id> <to_id> [--relation <rel>] \| unlink --id <link_id>` | Remove relationship links between memories |
 | `links` | `centmem links <memory_id> [--all]` | List relationship links for a memory |
 | `serve` | `centmem serve [--mcp]` | Run MCP stdio JSON-RPC server for agent harnesses |
+| `ask` | `centmem ask "<question>" [--scope <s>] [--top N] [--interactive]` | Conversational Q&A grounded in memories with citations |
+| `curate` | `centmem curate [--scope <s>] [--type contradictions\|dedup\|all] [--apply] [--dry-run]` | Autonomous memory curation (conflicts & duplicates) |
+| `summarize` | `centmem summarize [--scope <s>] [--focus <t>] [--format json\|markdown] [--save]` | Synthesize architectural pillars and scope developer briefings |
+| `proposals` | `centmem proposals <list\|show\|apply\|dismiss> [id] [flags]` | Manage human-in-the-loop staged curation actions |
 
 ### Background Daemon (`centmemd`)
 
@@ -249,13 +275,13 @@ project:<name>/agent:<agent>/session:<id>
 
 *Note: The `centmem` CLI automatically delegates to `centmemd` over Unix domain socket IPC when active. Pass `--direct` or set `CENTMEM_DIRECT=1` to force direct embedded SQLite access.*
 
-### Built-in AI Memory Agent & Schema v6 (v2.0.0 Stage 1)
+### Built-in AI Memory Agent & Schema v6 (v2.0.0 Stage 2)
 
 In v2.0.0, centmem introduces a native autonomous reasoning engine and Schema v6:
 - **Core Agent Engine (`internal/agent`)**: Multi-turn ReAct reasoning loop (`Plan -> Act -> Think`) with tool execution, cycle guards (`agent.max_reasoning_steps`), and offline fallback.
 - **Schema v6 Staging Queue (`agent_proposals`)**: Staged human-in-the-loop proposals for merges, links, and updates, executed via atomic SQLite transactions (`ApplyProposal`).
 - **Conversations & Messages**: `agent_conversations` and `agent_messages` tables tracking interactive chat turns and structured memory citations.
-- **Upcoming v2.0.0 CLI Surface (Stages 2–4)**: `centmem ask`, `centmem curate`, `centmem summarize`, and `centmem proposals` commands.
+- **Native v2.0.0 CLI Surface (Stage 2)**: `centmem ask`, `centmem curate`, `centmem summarize`, and `centmem proposals` commands fully operational with offline synthesis and human-in-the-loop lifecycle management.
 
 ---
 

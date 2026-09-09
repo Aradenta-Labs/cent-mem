@@ -128,6 +128,9 @@ func (e *Engine) Ask(ctx context.Context, question string, opts InquiryOptions) 
 
 	// 5. Extract citations & knowledge gaps
 	citations := e.resolveCitations(ctx, answer)
+	if opts.Top > 0 && len(citations) > opts.Top {
+		citations = citations[:opts.Top]
+	}
 	gaps := e.extractKnowledgeGaps(answer)
 
 	res := &AskResult{
@@ -195,10 +198,19 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	afterProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope})
 	createdIDs := make([]int64, 0)
 	appliedIDs := make([]int64, 0)
+	var contradictionsCount, duplicatesCount int
 
 	for _, p := range afterProps {
 		if !preExistingMap[p.ID] {
 			createdIDs = append(createdIDs, p.ID)
+			if p.ProposalType == "merge" {
+				duplicatesCount++
+			} else if p.ProposalType == "link" {
+				var payload store.LinkProposalPayload
+				if err := json.Unmarshal([]byte(p.PayloadJSON), &payload); err == nil && payload.Relation == "contradicts" {
+					contradictionsCount++
+				}
+			}
 			if opts.AutoApply && !opts.DryRun {
 				if err := e.store.ApplyProposal(ctx, p.ID); err == nil {
 					appliedIDs = append(appliedIDs, p.ID)
@@ -216,8 +228,8 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 		ProposalsCreated:    createdIDs,
 		ProposalsApplied:    appliedIDs,
 		ScannedMemories:     scannedCount,
-		ContradictionsFound: 0,
-		DuplicatesFound:     0,
+		ContradictionsFound: contradictionsCount,
+		DuplicatesFound:     duplicatesCount,
 		FallbackUsed:        false,
 	}, nil
 }
@@ -444,7 +456,14 @@ func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, au
 			}
 		}
 
-		for _, group := range hashMap {
+		hashKeys := make([]string, 0, len(hashMap))
+		for k := range hashMap {
+			hashKeys = append(hashKeys, k)
+		}
+		sort.Strings(hashKeys)
+
+		for _, k := range hashKeys {
+			group := hashMap[k]
 			if len(group) > 1 {
 				duplicatesCount += len(group) - 1
 				if dryRun {
@@ -525,7 +544,14 @@ func (e *Engine) offlineSummarize(ctx context.Context, scope string, focus strin
 		citedIDs = append(citedIDs, m.ID)
 	}
 
-	for typ, list := range byType {
+	types := make([]string, 0, len(byType))
+	for typ := range byType {
+		types = append(types, typ)
+	}
+	sort.Strings(types)
+
+	for _, typ := range types {
+		list := byType[typ]
 		sb.WriteString(fmt.Sprintf("## %s Memories (%d)\n\n", titleCase(typ), len(list)))
 		for _, m := range list {
 			sb.WriteString(fmt.Sprintf("- **[id: %d]** `%s`: %s\n", m.ID, m.ScopePath, m.Content))
