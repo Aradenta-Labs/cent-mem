@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
@@ -73,6 +74,12 @@ func loadConfig(fs *flag.FlagSet) (config.Config, error) {
 	if home != "" {
 		cfg.Home = home
 		cfg.DBPath = dbOrJoin(db, home)
+		if os.Getenv("CENTMEM_DAEMON_SOCKET") == "" {
+			cfg.Daemon.SocketPath = filepath.Join(cfg.Home, "centmemd.sock")
+		}
+		if os.Getenv("CENTMEM_DAEMON_PID") == "" {
+			cfg.Daemon.PIDPath = filepath.Join(cfg.Home, "centmemd.pid")
+		}
 	} else if db != "" {
 		cfg.DBPath = db
 	}

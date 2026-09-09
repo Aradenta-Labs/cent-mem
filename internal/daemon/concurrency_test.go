@@ -11,6 +11,10 @@ import (
 	centmemv1 "github.com/aradenta-labs/cent-mem/internal/gen/centmem/v1"
 )
 
+func TestConcurrentWrites(t *testing.T) {
+	TestConcurrentWriteStress(t)
+}
+
 func TestConcurrentWriteStress(t *testing.T) {
 	_, client, cleanup := setupTestDaemon(t)
 	defer cleanup()

@@ -78,6 +78,16 @@ func loadDaemonConfig(fs *flag.FlagSet) (config.Config, error) {
 	if h := fs.Lookup("home"); h != nil && h.Value.String() != "" {
 		cfg.Home = h.Value.String()
 		cfg.DBPath = cfg.Home + "/centmem.db"
+		if fs.Lookup("socket") == nil || fs.Lookup("socket").Value.String() == "" {
+			if os.Getenv("CENTMEM_DAEMON_SOCKET") == "" {
+				cfg.Daemon.SocketPath = cfg.Home + "/centmemd.sock"
+			}
+		}
+		if fs.Lookup("pid-file") == nil || fs.Lookup("pid-file").Value.String() == "" {
+			if os.Getenv("CENTMEM_DAEMON_PID") == "" {
+				cfg.Daemon.PIDPath = cfg.Home + "/centmemd.pid"
+			}
+		}
 	}
 	if d := fs.Lookup("db"); d != nil && d.Value.String() != "" {
 		cfg.DBPath = d.Value.String()
