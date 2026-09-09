@@ -16,6 +16,19 @@ type Config struct {
 	Retention Retention     `json:"retention" toml:"retention"`
 	Capture   CaptureConfig `json:"capture" toml:"capture"`
 	Search    SearchConfig  `json:"search" toml:"search"`
+	Daemon    DaemonConfig  `json:"daemon" toml:"daemon"`
+}
+
+type DaemonConfig struct {
+	SocketPath string `json:"socket_path" toml:"socket_path"`
+	PIDPath    string `json:"pid_path" toml:"pid_path"`
+	Port       int    `json:"port" toml:"port"`
+}
+
+func DefaultDaemonConfig() DaemonConfig {
+	return DaemonConfig{
+		Port: 0,
+	}
 }
 
 type ModelConfig struct {
@@ -291,7 +304,26 @@ func Load() (Config, error) {
 		cfg.Search.ImportanceCap = 2.0
 	}
 
-	// 6. Validate retention, capture, and search values.
+	// 6. Apply daemon defaults and env overrides (CENTMEM_DAEMON_*).
+	if cfg.Daemon.SocketPath == "" {
+		cfg.Daemon.SocketPath = filepath.Join(cfg.Home, "centmemd.sock")
+	}
+	if cfg.Daemon.PIDPath == "" {
+		cfg.Daemon.PIDPath = filepath.Join(cfg.Home, "centmemd.pid")
+	}
+	if v := os.Getenv("CENTMEM_DAEMON_SOCKET"); v != "" {
+		cfg.Daemon.SocketPath = v
+	}
+	if v := os.Getenv("CENTMEM_DAEMON_PID"); v != "" {
+		cfg.Daemon.PIDPath = v
+	}
+	if v := os.Getenv("CENTMEM_DAEMON_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.Daemon.Port = p
+		}
+	}
+
+	// 7. Validate retention, capture, and search values.
 	if err := validateRetention(cfg.Retention); err != nil {
 		return Config{}, err
 	}

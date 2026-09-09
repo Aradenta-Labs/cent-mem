@@ -15,6 +15,7 @@ This reference documents the complete CLI surface for `centmem`, including all f
   - `2`: Key or entity not found (`NOT_FOUND`)
   - `3`: Conflict / duplicate (`CONFLICT`)
 - Use `--pretty` to indent JSON output for terminal inspection.
+- Use `--direct` (or `CENTMEM_DIRECT=1`) to bypass daemon socket delegation and run directly against SQLite.
 
 ---
 
@@ -619,5 +620,70 @@ centmem serve [--mcp]
   }
 }
 ```
+
+---
+
+## 13. `centmemd` — Background Daemon & Multi-Process Architecture
+
+`centmemd` is the background service binary responsible for single-writer SQLite coordination, connection pooling, background embedding queue draining, periodic retention compaction, and multi-agent IPC over Unix domain sockets.
+
+### 13.1 `centmemd start`
+Spawns the daemon in the background detached, logs to `~/.centmem/centmemd.log`, and verifies socket health.
+
+```bash
+centmemd start [--home <dir>] [--db <path>] [--socket <path>] [--pid-file <path>] [--port <port>]
+```
+
+**Stdout JSON:**
+```json
+{"ok": true, "status": "started", "pid": 48215, "socket": "/Users/user/.centmem/centmemd.sock", "port": 0}
+```
+
+### 13.2 `centmemd run`
+Runs the daemon in foreground mode (for `systemd`, `launchd`, Docker).
+
+```bash
+centmemd run [--home <dir>] [--db <path>] [--socket <path>] [--pid-file <path>] [--port <port>]
+```
+
+### 13.3 `centmemd status`
+Inspects daemon health, PID status, and memory statistics via gRPC.
+
+```bash
+centmemd status [--home <dir>] [--socket <path>]
+```
+
+**Stdout JSON (Running):**
+```json
+{
+  "ok": true,
+  "status": "running",
+  "pid": 48215,
+  "socket": "/Users/user/.centmem/centmemd.sock",
+  "port": 0,
+  "stats": {
+    "db_path": "/Users/user/.centmem/centmem.db",
+    "db_size_mb": 1.2,
+    "total_memories": 42,
+    "by_type": {"note": 30, "fact": 12},
+    "by_scope": {"project:cent-mem": 42},
+    "pending_embedding": 0,
+    "last_compact_at": "2026-09-09T08:00:00Z"
+  }
+}
+```
+
+### 13.4 `centmemd stop`
+Sends `SIGTERM` to the daemon PID, allows up to 5s for clean shutdown, unlinks socket and PID files.
+
+```bash
+centmemd stop [--home <dir>] [--socket <path>] [--pid-file <path>]
+```
+
+**Stdout JSON:**
+```json
+{"ok": true, "status": "stopped", "pid": 48215}
+```
+
 
 

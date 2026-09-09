@@ -43,6 +43,18 @@ func TestConfigDefaults(t *testing.T) {
 	if cfg.Model.Dims != 384 {
 		t.Errorf("expected dimensions 384, got %d", cfg.Model.Dims)
 	}
+
+	expectedSock := filepath.Join(expectedHome, "centmemd.sock")
+	if cfg.Daemon.SocketPath != expectedSock {
+		t.Errorf("expected socket path %q, got %q", expectedSock, cfg.Daemon.SocketPath)
+	}
+	expectedPID := filepath.Join(expectedHome, "centmemd.pid")
+	if cfg.Daemon.PIDPath != expectedPID {
+		t.Errorf("expected pid path %q, got %q", expectedPID, cfg.Daemon.PIDPath)
+	}
+	if cfg.Daemon.Port != 0 {
+		t.Errorf("expected daemon port 0, got %d", cfg.Daemon.Port)
+	}
 }
 
 func TestConfigEnvOverride(t *testing.T) {
@@ -51,6 +63,9 @@ func TestConfigEnvOverride(t *testing.T) {
 	os.Setenv("CENTMEM_DB", "/tmp/custom_db.sqlite")
 	os.Setenv("CENTMEM_MODEL", "custom_model")
 	os.Setenv("CENTMEM_MODEL_DIMS", "768")
+	os.Setenv("CENTMEM_DAEMON_SOCKET", "/tmp/custom.sock")
+	os.Setenv("CENTMEM_DAEMON_PID", "/tmp/custom.pid")
+	os.Setenv("CENTMEM_DAEMON_PORT", "50051")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -76,6 +91,16 @@ func TestConfigEnvOverride(t *testing.T) {
 
 	if cfg.Model.Dims != 768 {
 		t.Errorf("expected custom dimensions 768, got %d", cfg.Model.Dims)
+	}
+
+	if cfg.Daemon.SocketPath != "/tmp/custom.sock" {
+		t.Errorf("expected socket path /tmp/custom.sock, got %q", cfg.Daemon.SocketPath)
+	}
+	if cfg.Daemon.PIDPath != "/tmp/custom.pid" {
+		t.Errorf("expected pid path /tmp/custom.pid, got %q", cfg.Daemon.PIDPath)
+	}
+	if cfg.Daemon.Port != 50051 {
+		t.Errorf("expected daemon port 50051, got %d", cfg.Daemon.Port)
 	}
 }
 

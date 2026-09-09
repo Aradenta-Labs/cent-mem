@@ -12,7 +12,7 @@ import (
 
 // version is the current release version, set at build/release time.
 // Kept in sync with the git tag (vX.Y.Z) and CHANGELOG.md.
-const version = "1.5.3"
+const version = "1.5.4"
 
 // globalConfig holds global flags shared across subcommands.
 type globalFlags struct {
@@ -21,6 +21,7 @@ type globalFlags struct {
 	pretty  bool
 	verbose bool
 	quiet   bool
+	direct  bool
 }
 
 func main() {

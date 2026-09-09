@@ -247,13 +247,14 @@ func (s *Store) EnsureScope(ctx context.Context, sc scope.Scope) (int64, error) 
 		err := s.db.QueryRowContext(ctx,
 			`SELECT id FROM scopes WHERE path = ?`, scItem.Path).Scan(&id)
 		if err == sql.ErrNoRows {
-			res, err := s.db.ExecContext(ctx,
-				`INSERT INTO scopes(path, parent_path, kind, name, created_at) VALUES (?, ?, ?, ?, ?)`,
+			_, err := s.db.ExecContext(ctx,
+				`INSERT INTO scopes(path, parent_path, kind, name, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(path) DO NOTHING`,
 				scItem.Path, scItem.ParentPath, string(scItem.Kind), scItem.Name, now)
 			if err != nil {
 				return 0, err
 			}
-			id, err = res.LastInsertId()
+			err = s.db.QueryRowContext(ctx,
+				`SELECT id FROM scopes WHERE path = ?`, scItem.Path).Scan(&id)
 			if err != nil {
 				return 0, err
 			}
@@ -1137,6 +1138,36 @@ func (s *Store) AppendEvent(ctx context.Context, e Event) error {
 		VALUES (?, ?, ?, ?, ?)`,
 		e.MemoryID, e.Op, e.ScopePath, payload, e.CreatedAt.UnixMicro())
 	return err
+}
+
+// EventsSince returns events with id > sinceID, ordered by id ascending up to limit.
+// If limit <= 0, a default limit of 500 is used.
+func (s *Store) EventsSince(ctx context.Context, sinceID int64, limit int) ([]Event, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, memory_id, op, scope_path, payload_json, created_at
+		FROM events
+		WHERE id > ?
+		ORDER BY id ASC
+		LIMIT ?`, sinceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []Event
+	for rows.Next() {
+		var e Event
+		var createdMicro int64
+		if err := rows.Scan(&e.ID, &e.MemoryID, &e.Op, &e.ScopePath, &e.Payload, &createdMicro); err != nil {
+			return nil, err
+		}
+		e.CreatedAt = time.UnixMicro(createdMicro)
+		events = append(events, e)
+	}
+	return events, rows.Err()
 }
 
 // ---------------------------------------------------------------------------

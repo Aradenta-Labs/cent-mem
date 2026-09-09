@@ -1,11 +1,12 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` CLI to recall prior context, store decisions, save facts, and inspect timeline so every agent shares one persistent brain. Use whenever you need to remember or retrieve project context, architecture decisions, user preferences, API conventions, or session checkpoints.
-version: 1.5.3
+version: 1.5.4
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 allowed-tools:
   - Bash(centmem *)
+  - Bash(centmemd *)
 ---
 
 # Skill: centmem — Shared Memory for AI Agents
@@ -214,6 +215,16 @@ project:<name>/agent:<agent>/session:<id>
 | `unlink` | `centmem unlink <from_id> <to_id> [--relation <rel>] \| unlink --id <link_id>` | Remove relationship links between memories |
 | `links` | `centmem links <memory_id> [--all]` | List relationship links for a memory |
 | `serve` | `centmem serve [--mcp]` | Run MCP stdio JSON-RPC server for agent harnesses |
+
+### Background Daemon (`centmemd`)
+
+`centmemd` manages concurrency, background embedding, and IPC coordination:
+- `centmemd start`: Start daemon in background
+- `centmemd run`: Run daemon in foreground (for systemd / launchd)
+- `centmemd status`: Inspect daemon health and stats
+- `centmemd stop`: Gracefully terminate daemon
+
+*Note: The `centmem` CLI automatically delegates to `centmemd` over Unix domain socket IPC when active. Pass `--direct` or set `CENTMEM_DIRECT=1` to force direct embedded SQLite access.*
 
 ---
 

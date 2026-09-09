@@ -300,6 +300,17 @@ func TestAppendEvent(t *testing.T) {
 	if count != 1 {
 		t.Errorf("events count = %d, want 1", count)
 	}
+
+	evs, err := s.EventsSince(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("EventsSince len = %d, want 1", len(evs))
+	}
+	if evs[0].MemoryID != 1 || evs[0].Op != "insert" {
+		t.Errorf("unexpected event: %+v", evs[0])
+	}
 }
 
 func TestStats(t *testing.T) {

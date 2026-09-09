@@ -166,6 +166,7 @@ func TestClassifier_ConfidenceThresholdFilter(t *testing.T) {
 }
 
 func TestPromptBuilder_RecallContext(t *testing.T) {
+	t.Setenv("CENTMEM_HOME", t.TempDir())
 	cfg := capture.DefaultCaptureConfig()
 	snippets := []string{
 		"Existing memory 1: port 8080",

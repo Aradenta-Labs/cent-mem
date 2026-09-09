@@ -9,6 +9,7 @@ import (
 
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	centmemv1 "github.com/aradenta-labs/cent-mem/internal/gen/centmem/v1"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
@@ -62,12 +63,6 @@ func cmdLink(args []string) int {
 				"usage: centmem link <from_id> <to_id> --relation <rel> | link <confirm|dismiss> <link_id>")
 		}
 
-		s, err := store.Open(cfg)
-		if err != nil {
-			return cli.Internalf("link: %v", err)
-		}
-		defer s.Close()
-
 		ctx := context.Background()
 
 		// Subcommand: link confirm <link_id> | link dismiss <link_id>
@@ -80,6 +75,33 @@ func cmdLink(args []string) int {
 			if err != nil || linkID <= 0 {
 				return cli.Invalidf("link %s: invalid link_id %q", action, posArgs[1])
 			}
+
+			if client, ok := getDaemonClient(cfg, fs); ok {
+				defer client.Close()
+				resp, err := client.Link(ctx, &centmemv1.LinkRequest{
+					Action: action,
+					LinkId: linkID,
+				})
+				if err != nil {
+					return mapRPCErr(err)
+				}
+				if action == "confirm" {
+					return prettyPrint(fs, map[string]any{
+						"ok":        resp.Ok,
+						"confirmed": linkID,
+					})
+				}
+				return prettyPrint(fs, map[string]any{
+					"ok":        resp.Ok,
+					"dismissed": linkID,
+				})
+			}
+
+			s, err := store.Open(cfg)
+			if err != nil {
+				return cli.Internalf("link: %v", err)
+			}
+			defer s.Close()
 
 			if action == "confirm" {
 				if err := s.ConfirmLink(ctx, linkID); err != nil {
@@ -127,6 +149,39 @@ func cmdLink(args []string) int {
 			return cli.Invalidf("link: --relation is required (supports, refines, contradicts, depends-on, supersedes)")
 		}
 
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.Link(ctx, &centmemv1.LinkRequest{
+				FromId:   fromID,
+				ToId:     toID,
+				Relation: relation,
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			linkMap := map[string]any{}
+			if resp.Link != nil {
+				linkMap = map[string]any{
+					"id":         resp.Link.Id,
+					"from_id":    resp.Link.FromId,
+					"to_id":      resp.Link.ToId,
+					"relation":   resp.Link.Relation,
+					"suggested":  resp.Link.Suggested,
+					"created_at": resp.Link.CreatedAt,
+				}
+			}
+			return prettyPrint(fs, map[string]any{
+				"ok":   true,
+				"link": linkMap,
+			})
+		}
+
+		s, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("link: %v", err)
+		}
+		defer s.Close()
+
 		link, err := s.CreateLink(ctx, fromID, toID, relation, false)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -159,16 +214,28 @@ func cmdUnlink(args []string) int {
 	fs.String("relation", "", "specific relation type to delete")
 
 	return runCommand(reorderFlags(args, fs), fs, func(cfg config.Config, fs *flag.FlagSet) error {
-		s, err := store.Open(cfg)
-		if err != nil {
-			return cli.Internalf("unlink: %v", err)
-		}
-		defer s.Close()
-
 		ctx := context.Background()
 		linkID := int64Flag(fs, "id", 0)
 
 		if linkID > 0 {
+			if client, ok := getDaemonClient(cfg, fs); ok {
+				defer client.Close()
+				resp, err := client.Unlink(ctx, &centmemv1.UnlinkRequest{LinkId: linkID})
+				if err != nil {
+					return mapRPCErr(err)
+				}
+				return prettyPrint(fs, map[string]any{
+					"ok":      true,
+					"deleted": resp.Deleted,
+				})
+			}
+
+			s, err := store.Open(cfg)
+			if err != nil {
+				return cli.Internalf("unlink: %v", err)
+			}
+			defer s.Close()
+
 			n, err := s.DeleteLinkByID(ctx, linkID)
 			if err != nil {
 				return cli.Internalf("unlink by id: %v", err)
@@ -199,6 +266,29 @@ func cmdUnlink(args []string) int {
 			return cli.Invalidf("unlink: invalid relation %q; must be one of: %s",
 				relation, strings.Join(store.ValidLinkRelations, ", "))
 		}
+
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.Unlink(ctx, &centmemv1.UnlinkRequest{
+				FromId:   fromID,
+				ToId:     toID,
+				Relation: relation,
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			return prettyPrint(fs, map[string]any{
+				"ok":      true,
+				"deleted": resp.Deleted,
+			})
+		}
+
+		s, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("unlink: %v", err)
+		}
+		defer s.Close()
+
 		n, err := s.DeleteLink(ctx, fromID, toID, relation)
 		if err != nil {
 			return cli.Internalf("unlink: %v", err)
@@ -234,13 +324,53 @@ func cmdLinks(args []string) int {
 		includeSuggested := fs.Lookup("all").Value.String() == "true" ||
 			fs.Lookup("include-suggested").Value.String() == "true"
 
+		ctx := context.Background()
+
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.Links(ctx, &centmemv1.LinksRequest{
+				MemoryId:         memoryID,
+				All:              includeSuggested,
+				IncludeSuggested: includeSuggested,
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			outList := make([]map[string]any, 0, len(resp.Outgoing))
+			for _, l := range resp.Outgoing {
+				outList = append(outList, map[string]any{
+					"link_id":        l.Id,
+					"relation":       l.Relation,
+					"target_id":      l.ToId,
+					"target_type":    l.TargetType,
+					"target_content": l.TargetContent,
+					"suggested":      l.Suggested,
+				})
+			}
+			inList := make([]map[string]any, 0, len(resp.Incoming))
+			for _, l := range resp.Incoming {
+				inList = append(inList, map[string]any{
+					"link_id":        l.Id,
+					"relation":       l.Relation,
+					"source_id":      l.FromId,
+					"source_type":    l.SourceType,
+					"source_content": l.SourceContent,
+					"suggested":      l.Suggested,
+				})
+			}
+			return prettyPrint(fs, map[string]any{
+				"ok":        true,
+				"memory_id": memoryID,
+				"outgoing":  outList,
+				"incoming":  inList,
+			})
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("links: %v", err)
 		}
 		defer s.Close()
-
-		ctx := context.Background()
 
 		// Verify memory exists before querying its links
 		if _, err := s.GetMemory(ctx, memoryID); err != nil {

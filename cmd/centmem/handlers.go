@@ -20,6 +20,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/compact"
 	"github.com/aradenta-labs/cent-mem/internal/config"
 	"github.com/aradenta-labs/cent-mem/internal/embed"
+	centmemv1 "github.com/aradenta-labs/cent-mem/internal/gen/centmem/v1"
 	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
@@ -107,12 +108,6 @@ func cmdPut(args []string) int {
 	fs.String("source-session", "", "source session id")
 	fs.Bool("no-suggest", false, "bypass relationship auto-suggestion")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
-		s, err := store.Open(cfg)
-		if err != nil {
-			return cli.Internalf("put: %v", err)
-		}
-		defer s.Close()
-
 		scopePath := fs.Lookup("scope").Value.String()
 		typ := fs.Lookup("type").Value.String()
 		content := fs.Lookup("content").Value.String()
@@ -127,6 +122,50 @@ func cmdPut(args []string) int {
 		if typ != "note" && typ != "log" {
 			return cli.Invalidf("put: --type must be note or log")
 		}
+
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			noSuggest := fs.Lookup("no-suggest") != nil && fs.Lookup("no-suggest").Value.String() == "true"
+			resp, err := client.Put(context.Background(), &centmemv1.PutRequest{
+				Scope:         scopePath,
+				Type:          typ,
+				Content:       content,
+				Tags:          splitCSV(fs.Lookup("tags").Value.String()),
+				SourceAgent:   fs.Lookup("source-agent").Value.String(),
+				SourceSession: fs.Lookup("source-session").Value.String(),
+				NoSuggest:     noSuggest,
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			out := map[string]any{
+				"ok":     resp.Ok,
+				"id":     resp.Id,
+				"scope":  resp.Scope,
+				"status": resp.Status,
+			}
+			if len(resp.SuggestedLinks) > 0 {
+				suggs := make([]map[string]any, 0, len(resp.SuggestedLinks))
+				for _, sl := range resp.SuggestedLinks {
+					suggs = append(suggs, map[string]any{
+						"id":             sl.LinkId,
+						"from_id":        sl.FromId,
+						"to_id":          sl.ToId,
+						"relation":       sl.Relation,
+						"target_content": sl.TargetContent,
+						"target_type":    sl.TargetType,
+					})
+				}
+				out["suggested_links"] = suggs
+			}
+			return prettyPrint(fs, out)
+		}
+
+		s, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("put: %v", err)
+		}
+		defer s.Close()
 
 		var summarizeAt *int64
 		if days := retentionDays(cfg, typ); days > 0 {
@@ -187,12 +226,6 @@ func cmdSet(args []string) int {
 	fs.String("value", "", "JSON value")
 	fs.String("tags", "", "comma-separated tags")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
-		s, err := store.Open(cfg)
-		if err != nil {
-			return cli.Internalf("set: %v", err)
-		}
-		defer s.Close()
-
 		scopePath := fs.Lookup("scope").Value.String()
 		key := fs.Lookup("key").Value.String()
 		value := fs.Lookup("value").Value.String()
@@ -205,6 +238,31 @@ func cmdSet(args []string) int {
 		if err != nil {
 			return cli.Invalidf("set: invalid --value JSON: %v", err)
 		}
+
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.Set(context.Background(), &centmemv1.SetRequest{
+				Scope: scopePath,
+				Key:   key,
+				Value: norm,
+				Tags:  splitCSV(fs.Lookup("tags").Value.String()),
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			return prettyPrint(fs, map[string]any{
+				"ok":     resp.Ok,
+				"id":     resp.Id,
+				"key":    resp.Key,
+				"status": resp.Status,
+			})
+		}
+
+		s, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("set: %v", err)
+		}
+		defer s.Close()
 
 		id, status, err := s.SetFact(context.Background(), store.FactInput{
 			Scope: scopePath, Key: key, Value: norm,
@@ -235,15 +293,38 @@ func cmdGet(args []string) int {
 	fs.String("key", "", "fact key")
 	fs.Bool("inherit", true, "walk ancestor scopes")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		scopePath := fs.Lookup("scope").Value.String()
+		key := fs.Lookup("key").Value.String()
+		inherit := fs.Lookup("inherit").Value.String() == "true"
+
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.Get(context.Background(), &centmemv1.GetRequest{
+				Scope:   scopePath,
+				Key:     key,
+				Inherit: inherit,
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			var value any
+			if err := json.Unmarshal([]byte(resp.Value), &value); err != nil {
+				value = resp.Value
+			}
+			return prettyPrint(fs, map[string]any{
+				"ok":    true,
+				"key":   resp.Key,
+				"value": value,
+				"scope": resp.Scope,
+				"id":    resp.Id,
+			})
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("get: %v", err)
 		}
 		defer s.Close()
-
-		scopePath := fs.Lookup("scope").Value.String()
-		key := fs.Lookup("key").Value.String()
-		inherit := fs.Lookup("inherit").Value.String() == "true"
 
 		f, err := s.GetFact(context.Background(), scopePath, key, inherit)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -291,13 +372,6 @@ func cmdRecall(args []string) int {
 	fs.Bool("include-links", false, "include 1-hop connected memory links")
 	fs.Bool("include-suggested", false, "include pending suggested links in link expansion")
 	return runCommandQuery(args, fs, func(cfg config.Config, fs *flag.FlagSet, query string) error {
-		s, err := store.Open(cfg)
-		if err != nil {
-			return cli.Internalf("recall: %v", err)
-		}
-		defer s.Close()
-
-		emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
 		callerAgent := fs.Lookup("caller-agent").Value.String()
 		if callerAgent == "" {
 			callerAgent = os.Getenv("CENTMEM_AGENT")
@@ -313,6 +387,89 @@ func cmdRecall(args []string) int {
 			}
 		}
 
+		top := intFlag(fs, "top", 5)
+		if top > 20 {
+			top = 20
+		}
+
+		includeSuggested := fs.Lookup("include-suggested").Value.String() == "true"
+		includeLinks := fs.Lookup("include-links").Value.String() == "true" || includeSuggested
+
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			req := &centmemv1.RecallRequest{
+				Text:             query,
+				Scope:            fs.Lookup("scope").Value.String(),
+				Top:              int32(top),
+				Type:             fs.Lookup("type").Value.String(),
+				Tags:             splitCSV(fs.Lookup("tags").Value.String()),
+				Since:            fs.Lookup("since").Value.String(),
+				Until:            fs.Lookup("until").Value.String(),
+				Agent:            fs.Lookup("agent").Value.String(),
+				Inherit:          fs.Lookup("inherit").Value.String() == "true",
+				Children:         fs.Lookup("children").Value.String() == "true",
+				CallerAgent:      callerAgent,
+				Reranker:         rerankerChoice,
+				IncludeLinks:     includeLinks,
+				IncludeSuggested: includeSuggested,
+			}
+			resp, err := client.Recall(context.Background(), req)
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			out := make([]map[string]any, 0, len(resp.Results))
+			for _, r := range resp.Results {
+				var lastAccessed any
+				if r.AccessCount > 0 && r.LastAccessedAt > 0 {
+					lastAccessed = r.LastAccessedAt
+				}
+				item := map[string]any{
+					"id":               r.Id,
+					"type":             r.Type,
+					"scope":            r.Scope,
+					"content":          r.Content,
+					"tags":             r.Tags,
+					"created_at":       r.CreatedAt,
+					"score":            round4(r.Score),
+					"matched_by":       r.MatchedBy,
+					"access_count":     r.AccessCount,
+					"last_accessed_at": lastAccessed,
+				}
+				if includeLinks {
+					linksList := make([]map[string]any, 0, len(r.Links))
+					for _, l := range r.Links {
+						lMap := map[string]any{
+							"relation":       l.Relation,
+							"direction":      l.Direction,
+							"linked_id":      l.LinkedId,
+							"linked_content": l.LinkedContent,
+						}
+						if l.Suggested {
+							lMap["suggested"] = true
+						}
+						if l.LinkId > 0 {
+							lMap["link_id"] = l.LinkId
+						}
+						linksList = append(linksList, lMap)
+					}
+					item["links"] = linksList
+				}
+				out = append(out, item)
+			}
+			return prettyPrint(fs, map[string]any{
+				"ok":      true,
+				"query":   query,
+				"results": out,
+			})
+		}
+
+		s, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("recall: %v", err)
+		}
+		defer s.Close()
+
+		emb, _ := embed.New(cfg.Model.Path, cfg.Model.Dims, "")
 		searcher := search.New(s).
 			WithEmbedder(emb).
 			WithDecayDays(cfg.Search.DecayHalfLifeDays).
@@ -322,15 +479,6 @@ func cmdRecall(args []string) int {
 			WithAgentBoost(cfg.Search.AgentBoost).
 			WithImportance(cfg.Search.ImportanceBoostEnabled, cfg.Search.ImportanceWeight, cfg.Search.ImportanceCap)
 		text := query
-
-		top := intFlag(fs, "top", 5)
-		if top > 20 {
-			top = 20
-		}
-
-		includeSuggested := fs.Lookup("include-suggested").Value.String() == "true"
-		includeLinks := fs.Lookup("include-links").Value.String() == "true" || includeSuggested
-
 		q := search.Query{
 			Text:                  text,
 			Scope:                 fs.Lookup("scope").Value.String(),
@@ -433,6 +581,30 @@ func cmdTimeline(args []string) int {
 	fs.String("until", "", "until duration")
 	fs.Int("limit", 50, "max entries")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.Timeline(context.Background(), &centmemv1.TimelineRequest{
+				Scope: fs.Lookup("scope").Value.String(),
+				Since: fs.Lookup("since").Value.String(),
+				Until: fs.Lookup("until").Value.String(),
+				Limit: int32(intFlag(fs, "limit", 50)),
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			entries := make([]map[string]any, 0, len(resp.Items))
+			for _, r := range resp.Items {
+				entries = append(entries, map[string]any{
+					"id":         r.Id,
+					"content":    r.Content,
+					"created_at": r.CreatedAt,
+					"scope":      r.Scope,
+					"tags":       r.Tags,
+				})
+			}
+			return prettyPrint(fs, map[string]any{"ok": true, "entries": entries})
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("timeline: %v", err)
@@ -492,13 +664,38 @@ func cmdList(args []string) int {
 	fs.Int("limit", 20, "max results")
 	fs.Int("offset", 0, "offset")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		scopePath := fs.Lookup("scope").Value.String()
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.List(context.Background(), &centmemv1.ListRequest{
+				Scope:  scopePath,
+				Type:   fs.Lookup("type").Value.String(),
+				Tags:   splitCSV(fs.Lookup("tags").Value.String()),
+				Limit:  int32(intFlag(fs, "limit", 20)),
+				Offset: int32(intFlag(fs, "offset", 0)),
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			out := make([]map[string]any, 0, len(resp.Items))
+			for _, m := range resp.Items {
+				out = append(out, map[string]any{
+					"id":         m.Id,
+					"type":       m.Type,
+					"scope":      m.Scope,
+					"content":    m.Content,
+					"tags":       m.Tags,
+					"created_at": m.CreatedAt,
+				})
+			}
+			return prettyPrint(fs, out)
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("list: %v", err)
 		}
 		defer s.Close()
-
-		scopePath := fs.Lookup("scope").Value.String()
 		sc, err := parseScopeOpt(scopePath)
 		if err != nil {
 			return cli.Invalidf("list: %v", err)
@@ -549,12 +746,6 @@ func cmdForget(args []string) int {
 	fs.String("key", "", "fact key")
 	fs.String("tag", "", "tag")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
-		s, err := store.Open(cfg)
-		if err != nil {
-			return cli.Internalf("forget: %v", err)
-		}
-		defer s.Close()
-
 		id := int64Flag(fs, "id", 0)
 		var scopePath, key, tag string
 		var scopeP, keyP, tagP *string
@@ -570,6 +761,26 @@ func cmdForget(args []string) int {
 			tag = tg
 			tagP = &tag
 		}
+
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.Forget(context.Background(), &centmemv1.ForgetRequest{
+				Id:    id,
+				Scope: scopePath,
+				Key:   key,
+				Tag:   tag,
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			return prettyPrint(fs, map[string]any{"ok": resp.Ok, "deleted": resp.Deleted})
+		}
+
+		s, err := store.Open(cfg)
+		if err != nil {
+			return cli.Internalf("forget: %v", err)
+		}
+		defer s.Close()
 
 		var ids []int64
 		if id > 0 {
@@ -590,6 +801,40 @@ func cmdForget(args []string) int {
 func cmdStats(args []string) int {
 	fs := newFlagSet("stats")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			resp, err := client.Stats(context.Background(), &centmemv1.StatsRequest{})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			var lastCompact any
+			if resp.LastCompactAt > 0 {
+				lastCompact = resp.LastCompactAt
+			}
+			var impDist any
+			if resp.ImportanceDistribution != nil {
+				impDist = map[string]any{
+					"zero_access":        resp.ImportanceDistribution.ZeroAccess,
+					"low_access_1_5":     resp.ImportanceDistribution.LowAccess_1_5,
+					"medium_access_6_20": resp.ImportanceDistribution.MediumAccess_6_20,
+					"high_access_21_plus": resp.ImportanceDistribution.HighAccess_21Plus,
+					"max_access_count":   resp.ImportanceDistribution.MaxAccessCount,
+					"avg_access_count":   resp.ImportanceDistribution.AvgAccessCount,
+				}
+			}
+			return prettyPrint(fs, map[string]any{
+				"ok":                      true,
+				"db_path":                 resp.DbPath,
+				"db_size_mb":              round2(resp.DbSizeMb),
+				"memories":                resp.TotalMemories,
+				"by_type":                 resp.ByType,
+				"by_scope":                resp.ByScope,
+				"last_compact_at":         lastCompact,
+				"pending_embeddings":      resp.PendingEmbedding,
+				"importance_distribution": impDist,
+			})
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("stats: %v", err)
@@ -631,6 +876,29 @@ func cmdCompact(args []string) int {
 	fs.String("scope", "", "restrict compaction to a scope + descendants")
 	fs.Bool("dry-run", false, "report what would be summarized without writing")
 	return runCommand(args, fs, func(cfg config.Config, fs *flag.FlagSet) error {
+		if client, ok := getDaemonClient(cfg, fs); ok {
+			defer client.Close()
+			dryRun := fs.Lookup("dry-run").Value.String() == "true"
+			resp, err := client.Compact(context.Background(), &centmemv1.CompactRequest{
+				Scope:  fs.Lookup("scope").Value.String(),
+				DryRun: dryRun,
+			})
+			if err != nil {
+				return mapRPCErr(err)
+			}
+			ids := resp.NewMemoryIds
+			if ids == nil {
+				ids = []int64{}
+			}
+			return prettyPrint(fs, map[string]any{
+				"ok":             resp.Ok,
+				"summarized":     resp.Summarized,
+				"archived":       resp.Archived,
+				"new_memory_ids": ids,
+				"dry_run":        resp.DryRun,
+			})
+		}
+
 		s, err := store.Open(cfg)
 		if err != nil {
 			return cli.Internalf("compact: %v", err)

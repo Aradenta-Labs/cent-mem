@@ -1,7 +1,7 @@
 # CLI & API Contract: centmem
 
-**Version:** 1.5.3
-**Binary:** `centmem`
+**Version:** 1.5.4
+**Binary:** `centmem`, `centmemd`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
 ---
@@ -12,6 +12,7 @@
 |------|-------------|
 | `--home <dir>` | Override `CENTMEM_HOME` (default `~/.centmem`) |
 | `--db <path>` | Override DB path |
+| `--direct` | Bypass `centmemd` daemon IPC and execute directly on SQLite (or `CENTMEM_DIRECT=1`) |
 | `--pretty` | Pretty-print JSON |
 | `--verbose` | Debug logging to stderr |
 | `--json` | Force JSON (default) |
@@ -439,6 +440,8 @@ centmem serve [--mcp]
 
 ---
 
+---
+
 ## 4. Scope Grammar
 
 ```
@@ -481,3 +484,72 @@ centmem put --scope "project:$PROJ/agent:$AGENT/session:$SID" --type log --conte
 - JSON field names and exit codes are **stable within v1.x**.
 - New fields may be added (additive only). No removals without v2.
 - `--pretty` is for humans only; agents must parse default JSON.
+
+---
+
+## 7. Daemon Service (`centmemd`)
+
+`centmemd` is the companion background service binary providing single-writer SQLite transaction coordination, connection pooling, background embedding queue draining, periodic retention compaction, and multi-agent IPC over Unix domain sockets.
+
+When `centmemd` is running, the `centmem` CLI automatically delegates operations (`put`, `set`, `get`, `recall`, `timeline`, `list`, `forget`, `stats`, `compact`, `link`, `unlink`, `links`) through the daemon socket, falling back transparently to direct SQLite if the daemon is unavailable or stopped.
+
+### Lifecycle Management
+
+- **`centmemd start`**: Spawns the daemon process in the background detached, redirects logs to `centmemd.log`, and verifies socket health.
+  ```
+  centmemd start [--home <dir>] [--db <path>] [--socket <path>] [--pid-file <path>] [--port <port>] [--pretty]
+  ```
+  **Output:**
+  ```json
+  {"ok": true, "status": "started", "pid": 12345, "socket": "/Users/x/.centmem/centmemd.sock", "port": 0}
+  ```
+  If already running:
+  ```json
+  {"ok": true, "status": "already_running", "pid": 12345, "socket": "/Users/x/.centmem/centmemd.sock", "port": 0}
+  ```
+
+- **`centmemd run`**: Runs the daemon in the foreground. Traps `SIGTERM` and `SIGINT` to flush queues and shut down gracefully. Recommended for process supervisors (`launchd`, `systemd`) or Docker containers.
+  ```
+  centmemd run [--home <dir>] [--db <path>] [--socket <path>] [--pid-file <path>] [--port <port>]
+  ```
+
+- **`centmemd status`**: Probes the daemon socket, checks PID status, and queries current memory statistics via gRPC.
+  ```
+  centmemd status [--home <dir>] [--socket <path>] [--pid-file <path>] [--pretty]
+  ```
+  **Output (Running):**
+  ```json
+  {
+    "ok": true,
+    "status": "running",
+    "pid": 12345,
+    "socket": "/Users/x/.centmem/centmemd.sock",
+    "port": 0,
+    "stats": {
+      "db_path": "/Users/x/.centmem/centmem.db",
+      "db_size_mb": 1.2,
+      "total_memories": 42,
+      "by_type": {"note": 30, "fact": 12},
+      "by_scope": {"project:cent-mem": 42},
+      "pending_embedding": 0,
+      "last_compact_at": "2026-09-09T08:00:00Z"
+    }
+  }
+  ```
+  **Output (Stopped):**
+  ```json
+  {"ok": false, "status": "stopped", "socket": "/Users/x/.centmem/centmemd.sock"}
+  ```
+
+- **`centmemd stop`**: Signals `SIGTERM` to the daemon PID, waits up to 5s for clean shutdown, unlinks socket and PID files.
+  ```
+  centmemd stop [--home <dir>] [--socket <path>] [--pid-file <path>] [--pretty]
+  ```
+  **Output:**
+  ```json
+  {"ok": true, "status": "stopped", "pid": 12345}
+  ```
+  If already stopped:
+  ```json
+  {"ok": true, "status": "already_stopped"}
+  ```

@@ -384,6 +384,7 @@ func TestOpenAICompatible_AuthError_Fallback(t *testing.T) {
 // 4. Prompt Engine & Template Customization Tests
 
 func TestPrompt_DefaultInterpolation(t *testing.T) {
+	t.Setenv("CENTMEM_HOME", t.TempDir())
 	cfg := capture.DefaultCaptureConfig()
 	cfg.Categories = []string{"decision", "code", "fact"}
 	cfg.ConfidenceThreshold = 0.85

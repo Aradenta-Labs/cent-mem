@@ -73,6 +73,7 @@ func newFlagSet(name string) *flag.FlagSet {
 	fs.Bool("pretty", false, "pretty-print JSON output")
 	fs.Bool("verbose", false, "debug logging to stderr")
 	fs.Bool("quiet", false, "suppress non-essential stderr")
+	fs.Bool("direct", false, "bypass centmemd daemon and access SQLite directly")
 	fs.SetOutput(flagErrWriter{})
 	return fs
 }

@@ -1,0 +1,308 @@
+syntax = "proto3";
+
+package centmem.v1;
+
+option go_package = "github.com/aradenta-labs/cent-mem/internal/gen/centmem/v1";
+
+service MemoryService {
+  rpc Recall (RecallRequest) returns (RecallResponse);
+  rpc Put (PutRequest) returns (PutResponse);
+  rpc Set (SetRequest) returns (SetResponse);
+  rpc Get (GetRequest) returns (GetResponse);
+  rpc Timeline (TimelineRequest) returns (TimelineResponse);
+  rpc List (ListRequest) returns (ListResponse);
+  rpc Forget (ForgetRequest) returns (ForgetResponse);
+  rpc Stats (StatsRequest) returns (StatsResponse);
+  rpc Compact (CompactRequest) returns (CompactResponse);
+  rpc Link (LinkRequest) returns (LinkResponse);
+  rpc Unlink (UnlinkRequest) returns (UnlinkResponse);
+  rpc Links (LinksRequest) returns (LinksResponse);
+}
+
+service SyncService {
+  rpc StreamEvents (StreamEventsRequest) returns (stream Event);
+  rpc PushEvents (stream Event) returns (PushSummary);
+}
+
+message RecallRequest {
+  string text = 1;
+  string scope = 2;
+  int32 top = 3;
+  string type = 4;
+  repeated string tags = 5;
+  string since = 6;
+  string until = 7;
+  string agent = 8;
+  bool inherit = 9;
+  bool children = 10;
+  string caller_agent = 11;
+  string reranker = 12;
+  bool include_links = 13;
+  bool include_suggested = 14;
+}
+
+message LinkedMemory {
+  int64 link_id = 1;
+  string relation = 2;
+  string direction = 3;
+  int64 linked_id = 4;
+  string linked_content = 5;
+  bool suggested = 6;
+}
+
+message RankedMemory {
+  int64 id = 1;
+  string type = 2;
+  string scope = 3;
+  string content = 4;
+  repeated string tags = 5;
+  double score = 6;
+  int64 access_count = 7;
+  int64 last_accessed_at = 8;
+  repeated string matched_by = 9;
+  int64 created_at = 10;
+  repeated LinkedMemory links = 11;
+}
+
+message RecallResponse {
+  bool ok = 1;
+  string query = 2;
+  repeated RankedMemory results = 3;
+}
+
+message MemoryLink {
+  int64 id = 1;
+  int64 from_id = 2;
+  int64 to_id = 3;
+  string relation = 4;
+  bool suggested = 5;
+  int64 created_at = 6;
+  string source_content = 7;
+  string target_content = 8;
+  string source_type = 9;
+  string target_type = 10;
+  string source_scope = 11;
+  string target_scope = 12;
+}
+
+message PutRequest {
+  string scope = 1;
+  string type = 2;
+  string content = 3;
+  repeated string tags = 4;
+  string source_agent = 5;
+  string source_session = 6;
+  bool no_suggest = 7;
+}
+
+message SuggestedLink {
+  int64 link_id = 1;
+  int64 from_id = 2;
+  int64 to_id = 3;
+  string relation = 4;
+  string target_content = 5;
+  string target_type = 6;
+}
+
+message PutResponse {
+  bool ok = 1;
+  int64 id = 2;
+  string status = 3;
+  string scope = 4;
+  repeated SuggestedLink suggested_links = 5;
+}
+
+message SetRequest {
+  string scope = 1;
+  string key = 2;
+  string value = 3;
+  repeated string tags = 4;
+  string source_agent = 5;
+}
+
+message SetResponse {
+  bool ok = 1;
+  int64 id = 2;
+  string key = 3;
+  string scope = 4;
+  string status = 5;
+}
+
+message GetRequest {
+  string scope = 1;
+  string key = 2;
+  bool inherit = 3;
+}
+
+message GetResponse {
+  bool ok = 1;
+  int64 id = 2;
+  string key = 3;
+  string value = 4;
+  string scope = 5;
+  repeated string tags = 6;
+  int64 created_at = 7;
+  int64 updated_at = 8;
+}
+
+message TimelineRequest {
+  string scope = 1;
+  string since = 2;
+  string until = 3;
+  int32 limit = 4;
+}
+
+message TimelineItem {
+  int64 id = 1;
+  string type = 2;
+  string scope = 3;
+  string content = 4;
+  repeated string tags = 5;
+  int64 created_at = 6;
+  string source_agent = 7;
+}
+
+message TimelineResponse {
+  bool ok = 1;
+  repeated TimelineItem items = 2;
+}
+
+message ListRequest {
+  string scope = 1;
+  string type = 2;
+  repeated string tags = 3;
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+message MemoryItem {
+  int64 id = 1;
+  string type = 2;
+  string scope = 3;
+  string content = 4;
+  string key = 5;
+  string value_json = 6;
+  repeated string tags = 7;
+  string source_agent = 8;
+  string source_session = 9;
+  string status = 10;
+  int64 access_count = 11;
+  int64 created_at = 12;
+  int64 updated_at = 13;
+}
+
+message ListResponse {
+  bool ok = 1;
+  repeated MemoryItem items = 2;
+  int64 total = 3;
+}
+
+message ForgetRequest {
+  int64 id = 1;
+  string scope = 2;
+  string key = 3;
+  string tag = 4;
+}
+
+message ForgetResponse {
+  bool ok = 1;
+  int64 deleted = 2;
+}
+
+message StatsRequest {}
+
+message ImportanceDistribution {
+  int64 zero_access = 1;
+  int64 low_access_1_5 = 2;
+  int64 medium_access_6_20 = 3;
+  int64 high_access_21_plus = 4;
+  int64 max_access_count = 5;
+  double avg_access_count = 6;
+}
+
+message StatsResponse {
+  bool ok = 1;
+  string db_path = 2;
+  double db_size_mb = 3;
+  int64 total_memories = 4;
+  map<string, int64> by_type = 5;
+  map<string, int64> by_scope = 6;
+  int64 pending_embedding = 7;
+  int64 last_compact_at = 8;
+  ImportanceDistribution importance_distribution = 9;
+}
+
+message CompactRequest {
+  string scope = 1;
+  bool dry_run = 2;
+}
+
+message CompactResponse {
+  bool ok = 1;
+  bool dry_run = 2;
+  int64 summarized = 3;
+  int64 archived = 4;
+  repeated int64 new_memory_ids = 5;
+  int64 duration_ms = 6;
+}
+
+message LinkRequest {
+  int64 from_id = 1;
+  int64 to_id = 2;
+  string relation = 3;
+  string action = 4;
+  int64 link_id = 5;
+}
+
+message LinkResponse {
+  bool ok = 1;
+  int64 link_id = 2;
+  string status = 3;
+  MemoryLink link = 4;
+}
+
+message UnlinkRequest {
+  int64 from_id = 1;
+  int64 to_id = 2;
+  string relation = 3;
+  int64 link_id = 4;
+}
+
+message UnlinkResponse {
+  bool ok = 1;
+  int64 deleted = 2;
+}
+
+message LinksRequest {
+  int64 memory_id = 1;
+  bool all = 2;
+  bool include_suggested = 3;
+}
+
+message LinksResponse {
+  bool ok = 1;
+  int64 memory_id = 2;
+  repeated MemoryLink outgoing = 3;
+  repeated MemoryLink incoming = 4;
+}
+
+message StreamEventsRequest {
+  int64 since_id = 1;
+  string scope = 2;
+}
+
+message Event {
+  int64 id = 1;
+  int64 memory_id = 2;
+  string op = 3;
+  string scope_path = 4;
+  string payload_json = 5;
+  int64 created_at = 6;
+}
+
+message PushSummary {
+  bool ok = 1;
+  int64 received = 2;
+  int64 applied = 3;
+  int64 conflicts = 4;
+}
