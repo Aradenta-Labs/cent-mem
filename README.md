@@ -42,6 +42,7 @@ Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Windsurf**, *
 | 🔗 | **Memory link graph** — directional semantic relationships (`supports`, `contradicts`, `supersedes`) |
 | 🔌 | **Model Context Protocol (MCP)** — native `stdio` server (`centmem serve`) for agent harnesses |
 | ⚡ | **`centmemd` daemon** — single-writer serialization & Unix domain socket IPC for multi-agent concurrency |
+| 🤖 | **AI Memory Agent (v2.0)** — Built-in ReAct reasoning engine for inquiry, autonomous curation, and merge proposals |
 | 🎣 | **Richer capture** — extracts from transcripts, Git commits, Markdown docs, shell history, and code annotations |
 | 🖥️ | **Web UI dashboard** — high-density local browser interface with live health monitoring and settings |
 | 🧹 | **Auto-summarize** — old memories consolidate; the store stays lean forever |
@@ -207,6 +208,7 @@ Full documentation map: [docs/README.md](docs/README.md).
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones & ordering |
 | [docs/plans/plan-v1.4.0.md](docs/plans/plan-v1.4.0.md) | Web UI Memory Browser Dashboard |
 | [docs/plans/plan-v1.4.1.md](docs/plans/plan-v1.4.1.md) | v1.4.1 Web UI Settings & Configuration (design + plan) |
+| [docs/plans/plan-v2.0.0.md](docs/plans/plan-v2.0.0.md) | Built-in AI Memory Agent (v2.0.0 design + plan) |
 | [docs/release-plan.md](docs/release-plan.md) | Release & QA process |
 | [AGENTS.md](AGENTS.md) | Rules for any AI agent editing this repo |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
@@ -245,7 +247,8 @@ Benchmarks live in `internal/search/search_bench_test.go` and are recorded in [`
 - [x] **v1.3** — Auto-capture from agent transcripts (hooks & multi-backend classification)
 - [x] **v1.4** — Web UI Memory Browser dashboard (`centmem ui`) & Two-Stage Re-Ranking
 - [x] **v1.5** — Importance scoring, Richer capture (Git/Docs/Shell/Comments), Link graph, Native MCP server, and `centmemd` daemon
-- [ ] **v2.0** — Distributed multi-machine sync via remote gRPC event streaming, per-agent RBAC
+- [ ] **v2.0.0** — Built-in AI Memory Agent: Inquiry, Autonomous Curation, Synthesis & Web UI Assistant (Stage 1: Core Engine & DB completed)
+- [ ] **v2.1** — Distributed multi-machine sync via remote gRPC event streaming, per-agent RBAC
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) and [docs/PRD.md § Open Questions](docs/PRD.md#10-open-questions).
 

@@ -113,11 +113,16 @@ Legend: `[S]` small (~few hours), `[M]` medium (~a day), `[L]` large (multi-day)
 - [x] **v1.5.2 (Memory Relationships)**: Directed graph relational layer (`memory_links`), link/unlink/links commands, auto-suggestions, and graph recall.
 - [x] **v1.5.3 (Integrations)**: Model Context Protocol (MCP) server & client enrichment, secure remote REST API token auth, VS Code extension.
 - [x] **v1.5.4 (Sync & centmemd Daemon)**: Multi-process architecture, gRPC daemon service (`centmemd`), Unix domain socket IPC, transparent CLI delegation, single-writer write serialization, and event streaming.
+- [ ] **v2.0.0 (Built-in AI Memory Agent)**:
+  - [x] **Stage 1 (Core Agent Engine & Database Layer)**: Schema migration v6 (`agent_proposals`, `agent_conversations`, `agent_messages`), Store proposals CRUD & atomic transactions, `[llm]` and `[agent]` configuration, unified OpenAI-compatible streaming LLM client, tool registry adapters, ReAct reasoning loop engine with cycle guards and offline fallbacks.
+  - [ ] **Stage 2 (CLI Command Suite)**: `centmem ask`, `centmem curate`, `centmem summarize`, `centmem proposals`.
+  - [ ] **Stage 3 (Web UI Experience)**: Assistant Chat tab with SSE streaming, Proposals Review Center with visual diffs.
+  - [ ] **Stage 4 (Hardening & Documentation)**: Concurrency stress tests, CLI contracts, guides.
 
-## Backlog / v2 (Distributed Multi-Machine Sync)
-
-- Multi-machine replication via logical replication of `events` stream over remote gRPC.
-- Per-agent identities + scoped read/write permissions (RBAC).
+## Backlog / Future Roadmap
+- **v2.0.1**: Taxonomy & Tag Clustering (normalizing fragmented tags like `db` vs `database`).
+- **v2.0.2**: Memory Health & Quality Scoring (detecting stale, vague, or low-information memories).
+- **v2.1**: Distributed Multi-Machine Sync via remote gRPC event streaming and per-agent RBAC.
 
 ---
 

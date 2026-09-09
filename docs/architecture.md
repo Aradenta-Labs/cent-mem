@@ -1,7 +1,7 @@
 # Architecture: cent-mem
 
-**Version:** 1.0
-**Date:** 2026-08-31
+**Version:** 2.0.0
+**Date:** 2026-09-09
 
 ---
 
@@ -92,6 +92,25 @@
 - `SKILL.md` — the contract agents read (commands, JSON, exit codes, examples).
 - `install.sh` — installs the skill into Claude Code, Cursor, Codex, and a generic location.
 - Per-harness adapter notes in `skill/adapters/`.
+
+### 3.8 `internal/agent` — AI memory agent engine (v2.0.0)
+- `Engine` coordinates multi-step **ReAct reasoning loops** (Plan $\to$ Act $\to$ Think) for interactive inquiry, autonomous curation, and architecture synthesis.
+- `Client`: Lightweight, zero-dependency streaming and non-streaming HTTP client compatible with OpenAI `/v1/chat/completions` (supporting Ollama, LocalAI, vLLM, and BYOK cloud providers).
+- `ToolRegistry`: Dispatches OpenAI tool definitions to native Store and Search engine operations (`search_memories`, `read_memory`, `inspect_links`, `propose_link`, `propose_merge`, `detect_knowledge_gaps`).
+- `Prompts`: Grounded system prompts enforcing Antislop principles, strict `[id: 42]` citations, and deterministic offline fallbacks.
+
+### 3.9 `internal/daemon` — `centmemd` background gRPC daemon
+- Standalone background process providing single-writer transaction serialization, connection pooling, and real-time event streaming.
+- Sub-1.5ms IPC over Unix domain sockets (`~/.centmem/centmemd.sock`) with automatic CLI fallback.
+
+### 3.10 `internal/mcp` — Model Context Protocol (MCP) server
+- Zero-dependency stdio JSON-RPC 2.0 server (`centmem serve --mcp`) exposing centmem memory tools natively to agent harnesses.
+
+### 3.11 `internal/capture` — auto-capture & artifact pipelines
+- Transcript file watchers, exit traps, and 4 dedicated artifact ingestion pipelines (`git`, `docs`, `shell`, `comments`).
+
+### 3.12 `internal/ui` — Web UI Memory Browser server
+- Embedded HTTP REST API and React single-page application (`centmem ui`) with token authentication and live statistics.
 
 ## 4. Data Flow
 

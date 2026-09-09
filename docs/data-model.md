@@ -1,6 +1,6 @@
 # Data Model: cent-mem
 
-**Version:** 1.0
+**Version:** 2.0.0 (Schema v6)
 **DB:** SQLite (WAL) + FTS5 + sqlite-vec
 
 ---

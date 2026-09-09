@@ -49,6 +49,7 @@ Roadmaps and per-phase specifications tracking project milestones from inception
 | [plans/plan-v1.5.2.md](plans/plan-v1.5.2.md) | v1.5.2 | Completed | Memory Relationships: Link Graph & Auto-Suggest |
 | [plans/plan-v1.5.3.md](plans/plan-v1.5.3.md) | v1.5.3 | Completed | Integrations (MCP Server/Client, Remote REST, VS Code) |
 | [plans/plan-v1.5.4.md](plans/plan-v1.5.4.md) | v1.5.4 | Completed | Sync: `centmemd` gRPC Daemon |
+| [plans/plan-v2.0.0.md](plans/plan-v2.0.0.md) | v2.0.0 | In Progress | **Built-in AI Memory Agent**: Inquiry, Autonomous Curation & Web UI Assistant (Stage 1 Completed) |
 
 ---
 

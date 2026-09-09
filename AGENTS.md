@@ -77,6 +77,7 @@ cent-mem/
 │   ├── scope/            # scope parsing + inheritance
 │   ├── capture/          # auto-capture & artifact ingestion pipelines
 │   ├── daemon/           # gRPC service, IPC transport, sync stream
+│   ├── agent/            # built-in AI memory agent: ReAct loop, LLM client, tools
 │   ├── mcp/              # native Model Context Protocol (MCP) server
 │   └── ui/               # embedded Web UI Memory Browser server
 ├── skill/                # SKILL.md + references + harness adapters

@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-dev] - In Progress
+
+Built-in AI Memory Agent: Inquiry, Autonomous Curation, Synthesis & Web UI Assistant (Stage 1: Core Agent Engine & Database Layer).
+
+### Added
+
+- **Schema Migration v6 (`m0006_agent_proposals.sql`)**:
+  - `agent_proposals`: Human-in-the-loop staging queue for merges, links, updates, and archives with status tracking (`pending`, `applied`, `dismissed`).
+  - `agent_conversations`: Persistent threads for Web UI and CLI interactive sessions with cascade constraints.
+  - `agent_messages`: Chronological dialog turns supporting roles (`user`, `assistant`, `system`, `tool`), citations JSON, and tool execution logs.
+- **Store Proposals Engine & Atomic Execution (`internal/store/proposals.go`)**:
+  - Full CRUD lifecycle methods: `CreateProposal`, `GetProposal`, `ListProposals`, `UpdateProposalStatus`, `DismissProposal`.
+  - Atomic `ApplyProposal` transaction runner executing confirmed graph links, consolidated memory merges with `supersedes` links, content updates, and memory archiving, emitting typed events and managing vector indexing.
+- **Conversation Persistence (`internal/store/conversations.go`)**:
+  - Thread creation, retrieval, listing by scope, cascading message deletion, and message appending.
+- **Unified OpenAI-Compatible LLM Client (`internal/agent/client.go`)**:
+  - Lightweight, zero external dependency HTTP client for OpenAI-compatible `/v1/chat/completions` (Ollama, LocalAI, vLLM, BYOK cloud providers).
+  - Native function calling (`tools` & `tool_calls`), Server-Sent Events (SSE) streaming with 10MB chunk buffers, `config.ResolveAPIKey` token resolution, and exponential backoff retry.
+- **Agent Tool Registry & Store Adapters (`internal/agent/tools.go`)**:
+  - 6 core memory tools exposed as OpenAI function definitions: `search_memories`, `read_memory`, `inspect_links`, `propose_link`, `propose_merge`, `detect_knowledge_gaps`.
+- **ReAct Reasoning Loop Engine (`internal/agent/engine.go`)**:
+  - Multi-step ReAct reasoning loop (Plan $\to$ Act $\to$ Think) with cycle guards (`max_reasoning_steps`, default 8), citation extraction `[id: 42]`, real-time token streaming, and deterministic offline fallbacks.
+- **Extended Configuration (`[llm]` & `[agent]`)**:
+  - TOML configuration tables and dot-notation keys for LLM backend, endpoints, models, reasoning limits, and auto-apply thresholds, with environment variable overrides (`CENTMEM_LLM_*`, `CENTMEM_AGENT_*`).
+
 ## [1.5.4] - 2026-09-09
 
 Sync & `centmemd` Daemon: Multi-Process Architecture, High-Performance Local IPC, and Real-time Event Streaming.
