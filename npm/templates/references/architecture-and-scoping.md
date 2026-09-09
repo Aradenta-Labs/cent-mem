@@ -294,4 +294,149 @@ In v1.5.3, centmem introduces native Model Context Protocol (MCP) support over `
 3. **Capture Context Enrichment**: External MCP tools (configured in `[capture.mcp]`) can be invoked by the classifier with a strict 5-second timeout and non-blocking fallback to enrich ambiguous commits and docs before memory classification.
 4. **Remote REST Security**: The embedded Web UI server (`centmem ui`) supports secure remote deployment with mandatory constant-time Bearer token verification on non-loopback host bindings.
 
+---
 
+## Built-in AI Memory Agent Engine Architecture (v2.0.0 Stage 1)
+
+In v2.0.0, centmem evolves from a passive storage database into an **active cognitive intelligence and autonomous curation layer**. Stage 1 establishes the core ReAct reasoning engine, Schema v6 database persistence, internal tool adapters, and human-in-the-loop proposals staging.
+
+### Cognitive Architecture Overview
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        AI Agent & Client Invocations                   │
+│   CLI: ask / curate / summarize   │   Web UI: Assistant & Proposals    │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                  internal/agent — Memory Agent Engine                  │
+│                                                                        │
+│   ┌────────────────────────┐         ┌──────────────────────────────┐  │
+│   │   Unified LLM Client   │◄───────►│          ReAct Loop          │  │
+│   │ (Ollama / OpenAI-cloud)│         │     (Plan ──► Act ──► Think) │  │
+│   └────────────────────────┘         └──────────────┬───────────────┘  │
+│                                                     │ Tool Calls       │
+│                  ┌──────────────────────────────────┴───────────────┐  │
+│                  ▼                                                  ▼  │
+│         ┌─────────────────┐                                ┌─────────┐ │
+│         │ search_memories │                                │ propose │ │
+│         │ read_memory     │ ◄── Store Tool Adapters ──►    │  _link  │ │
+│         │ inspect_links   │                                │ propose │ │
+│         │ knowledge_gaps  │                                │  _merge │ │
+│         └─────────────────┘                                └─────────┘ │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Atomic Transactions
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                      SQLite Persistence Layer (WAL)                    │
+│                                                                        │
+│  ┌───────────────────────┐   ┌────────────────────────┐                │
+│  │       memories        │   │      memory_links      │                │
+│  │ (notes, facts, logs)  │   │  (semantic link graph) │                │
+│  └───────────────────────┘   └────────────────────────┘                │
+│  ┌───────────────────────┐   ┌────────────────────────┐                │
+│  │    agent_proposals    │   │  agent_conversations   │                │
+│  │ (staged merges/links) │   │    & agent_messages    │                │
+│  └───────────────────────┘   └────────────────────────┘                │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 1. Schema v6 Specification (`m0006_agent_proposals.sql`)
+
+Stage 1 introduces three dedicated tables supporting agentic workflows and interactive dialog:
+
+```sql
+-- 1. Agent Proposals Queue (Human-in-the-loop staging for merges, links, and updates)
+CREATE TABLE IF NOT EXISTS agent_proposals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_id      INTEGER NOT NULL REFERENCES scopes(id) ON DELETE CASCADE,
+    proposal_type TEXT NOT NULL CHECK(proposal_type IN ('link', 'merge', 'update', 'archive')),
+    status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'applied', 'dismissed')),
+    title         TEXT NOT NULL,
+    reasoning     TEXT NOT NULL,
+    payload_json  TEXT NOT NULL,
+    created_at    INTEGER NOT NULL, -- unix microseconds
+    applied_at    INTEGER           -- unix microseconds (nullable)
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_scope_status 
+    ON agent_proposals(scope_id, status, created_at DESC);
+
+-- 2. Agent Conversations (Web UI and CLI chat thread persistence)
+CREATE TABLE IF NOT EXISTS agent_conversations (
+    id            TEXT PRIMARY KEY, -- uuid or nanoid
+    scope_id      INTEGER NOT NULL REFERENCES scopes(id) ON DELETE CASCADE,
+    title         TEXT NOT NULL,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_scope 
+    ON agent_conversations(scope_id, updated_at DESC);
+
+-- 3. Agent Conversation Messages (Dialogue turns with structured citations)
+CREATE TABLE IF NOT EXISTS agent_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES agent_conversations(id) ON DELETE CASCADE,
+    role            TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
+    content         TEXT NOT NULL,
+    citations_json  TEXT, -- JSON array: [{"id": 42, "title": "...", "score": 0.035}]
+    tool_calls_json TEXT, -- JSON array of tool calls/observations
+    created_at      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_conversation 
+    ON agent_messages(conversation_id, created_at ASC);
+```
+
+### 2. Built-in ReAct Reasoning Engine (`internal/agent/engine.go`)
+
+The core engine drives autonomous cognitive operations using the **Plan ─► Act ─► Think** cycle:
+- **Plan**: Evaluates query context and decides whether to search, read, inspect graph relationships, or formulate proposals.
+- **Act**: Executes one or more registered store tools synchronously.
+- **Think**: Consolidates observations into intermediate reasoning steps before responding or staging proposals.
+- **Safety Guards**:
+  - **Cycle Limiter**: Halts execution if iterations exceed `agent.max_reasoning_steps` (default `8`).
+  - **Offline Fallback**: If the configured LLM backend is unreachable or disabled, falls back to deterministic raw hybrid search with actionable setup hints.
+
+### 3. Store Tool Adapters (`internal/agent/tools.go`)
+
+The engine interacts with persistent memory through 6 structured Go tool adapters:
+1. `search_memories(query, scope, limit)`: Runs hybrid search and returns ranked memories with snippets.
+2. `read_memory(id)`: Fetches complete content, metadata, timestamps, and access counts for an individual memory.
+3. `inspect_links(id)`: Inspects incoming and outgoing graph edges (`supersedes`, `contradicts`, `refines`, etc.).
+4. `propose_link(from_id, to_id, relation, reasoning)`: Creates a staged link proposal in `agent_proposals`.
+5. `propose_merge(source_ids, title, content, tags, reasoning)`: Creates a staged consolidation proposal merging redundant memories into a canonical note.
+6. `detect_knowledge_gaps(topic, scope)`: Analyzes retrieved memories to identify missing context or unaddressed questions.
+
+### 4. Atomic Proposal Application (`ApplyProposal`)
+
+When a proposal is approved:
+- An atomic SQLite transaction is initiated.
+- For `merge` proposals: The new consolidated note is inserted, bidirectional `supersedes` links are created, and the redundant source memories are marked as archived.
+- For `link` proposals: The confirmed relationship is inserted into `memory_links`.
+- Proposal status is updated to `applied` with `applied_at` timestamp.
+- Sync events are appended to `events` table for multi-agent daemon replication (`centmemd`).
+
+### 5. Unified LLM Configuration & Fallback Hierarchy
+
+The agent engine is configured via `[llm]` and `[agent]` in `~/.centmem/config.toml`:
+```toml
+[llm]
+backend = "ollama"                   # "ollama", "openai_compatible", or "disabled"
+endpoint = "http://127.0.0.1:11434/v1"
+model = "deepseek-r1:8b"
+api_key = ""                         # Optional key or ENV reference (e.g. "OPENAI_API_KEY")
+timeout_seconds = 60
+max_tokens = 4096
+temperature = 0.2
+
+[agent]
+enabled = true
+max_reasoning_steps = 8
+confidence_threshold = 0.75
+auto_apply_safe_links = false
+```
+
+*Inheritance Rule:* If `[llm]` is not specified, centmem automatically inherits configuration from `[capture]` (`capture.backend`, `capture.local_llm_endpoint`, `capture.api_base_url`, `capture.api_key`), ensuring complete backward compatibility.

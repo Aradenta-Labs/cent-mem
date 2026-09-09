@@ -407,6 +407,40 @@ centmem config set <key> <value>
 - `capture.triggers`: (`list`) Capture triggers (`["session_end", "manual"]`).
 - `capture.confidence_threshold`: (`float`, default: `0.7`) Minimum classification confidence for saving memories.
 
+#### Unified LLM Provider Settings (`llm.*`) — v2.0.0 Stage 1
+- `llm.backend`: (`string`, default: `"ollama"`) Active LLM provider (`"ollama"`, `"openai_compatible"`, `"disabled"`).
+- `llm.endpoint`: (`string`, default: `"http://127.0.0.1:11434/v1"`) Base HTTP endpoint URL for completions.
+- `llm.model`: (`string`, default: `"deepseek-r1:8b"`) Model identifier used for reasoning, synthesis, and curation.
+- `llm.api_key`: (`string`, default: `""`) Raw API key or environment variable reference name (e.g. `"OPENAI_API_KEY"`).
+- `llm.timeout_seconds`: (`int`, default: `60`) Timeout for LLM completion requests in seconds.
+- `llm.max_tokens`: (`int`, default: `4096`) Maximum completion tokens per generation.
+- `llm.temperature`: (`float`, default: `0.2`) Sampling temperature for model generations.
+
+*Note: If `[llm]` is not explicitly configured, centmem automatically inherits legacy backend settings from `[capture]` (`capture.backend`, `capture.local_llm_endpoint`, `capture.api_base_url`, `capture.api_key`).*
+
+#### Memory Agent Engine Settings (`agent.*`) — v2.0.0 Stage 1
+- `agent.enabled`: (`bool`, default: `true`) Enable or disable the internal autonomous ReAct memory agent engine.
+- `agent.max_reasoning_steps`: (`int`, default: `8`) Safety cycle guard limiting the maximum reasoning & tool-call iterations per agent turn.
+- `agent.confidence_threshold`: (`float`, default: `0.75`) Minimum model confidence score required to stage memory proposals.
+- `agent.auto_apply_safe_links`: (`bool`, default: `false`) When set to `true`, high-confidence (≥0.90) semantic relationship links bypass the proposals queue and are applied immediately.
+
+#### Environment Variable Overrides
+All configuration settings can be overridden at runtime via environment variables:
+
+| Environment Variable | Config Key | Description |
+|---|---|---|
+| `CENTMEM_LLM_BACKEND` | `llm.backend` | Override LLM backend provider (`ollama`, `openai_compatible`, `disabled`) |
+| `CENTMEM_LLM_ENDPOINT` | `llm.endpoint` | Override LLM HTTP endpoint URL |
+| `CENTMEM_LLM_MODEL` | `llm.model` | Override LLM model name |
+| `CENTMEM_LLM_API_KEY` | `llm.api_key` | Override LLM API key or env reference |
+| `CENTMEM_LLM_TIMEOUT_SECONDS` | `llm.timeout_seconds` | Override completion request timeout |
+| `CENTMEM_LLM_MAX_TOKENS` | `llm.max_tokens` | Override max completion tokens |
+| `CENTMEM_LLM_TEMPERATURE` | `llm.temperature` | Override sampling temperature |
+| `CENTMEM_AGENT_ENABLED` | `agent.enabled` | Enable/disable agent engine (`true`/`false`) |
+| `CENTMEM_AGENT_MAX_REASONING_STEPS` | `agent.max_reasoning_steps` | Override cycle guard step limit |
+| `CENTMEM_AGENT_CONFIDENCE_THRESHOLD` | `agent.confidence_threshold` | Override confidence threshold (0.0–1.0) |
+| `CENTMEM_AGENT_AUTO_APPLY_SAFE_LINKS` | `agent.auto_apply_safe_links` | Auto-apply safe link proposals (`true`/`false`) |
+
 ---
 
 ## 9. Operational Commands
@@ -685,5 +719,68 @@ centmemd stop [--home <dir>] [--socket <path>] [--pid-file <path>]
 {"ok": true, "status": "stopped", "pid": 48215}
 ```
 
+---
 
+## 14. Built-in AI Memory Agent Engine Architecture (v2.0.0 Stage 1)
 
+In v2.0.0, centmem evolves from a passive storage database into an **active intelligence and autonomous curation layer**. Stage 1 establishes the core agent reasoning engine, Schema v6 database tables, internal tool registry adapters, and human-in-the-loop proposals lifecycle.
+
+### 14.1 Schema v6 Specification
+Stage 1 applies migration `m0006_agent_proposals.sql`, creating three foundational tables:
+
+1. **`agent_proposals`**: Human-in-the-loop staging queue for autonomous operations:
+   - `id`: Unique proposal identifier (`INTEGER PRIMARY KEY AUTOINCREMENT`).
+   - `scope_id`: Target scope reference with `ON DELETE CASCADE`.
+   - `proposal_type`: Type of proposed operation (`'link'`, `'merge'`, `'update'`, `'archive'`).
+   - `status`: Lifecycle state (`'pending'`, `'applied'`, `'dismissed'`).
+   - `title`: Short descriptive title summarizing the proposed change.
+   - `reasoning`: Detailed reasoning and evidence produced by the reasoning model.
+   - `payload_json`: Structured action payload (e.g. source IDs, target ID, relationship type, consolidated memory content).
+   - `created_at` & `applied_at`: Unix timestamps in microseconds.
+
+2. **`agent_conversations`**: Multi-turn chat session threads (for Web UI Assistant & CLI interactive inquiry):
+   - `id`: Conversation identifier (UUID/NanoID).
+   - `scope_id`: Scope isolation boundary.
+   - `title`: Auto-generated or user-provided thread title.
+   - `created_at` & `updated_at`: Microsecond timestamps.
+
+3. **`agent_messages`**: Dialogue turns within conversation threads:
+   - `id`: Message sequence ID.
+   - `conversation_id`: References `agent_conversations(id)`.
+   - `role`: `'user'`, `'assistant'`, `'system'`, or `'tool'`.
+   - `content`: Text response or instruction.
+   - `citations_json`: Structured JSON array of memory citations (`[{"id": 42, "title": "...", "score": 0.041}]`).
+   - `tool_calls_json`: Recorded tool invocations and intermediate observations.
+
+### 14.2 Built-in ReAct Agent Engine (`internal/agent`)
+The agent engine implements an autonomous reasoning loop following the **ReAct (Reasoning + Acting)** paradigm:
+- **Plan**: Evaluates query context and decides whether to search, read, inspect graph relationships, or formulate proposals.
+- **Act**: Executes one or more registered store tools synchronously.
+- **Think**: Consolidates observations into intermediate reasoning steps before responding or staging proposals.
+- **Safety Guards**:
+  - **Cycle Limiter**: Halts execution if iterations exceed `agent.max_reasoning_steps` (default `8`).
+  - **Offline Fallback**: If the configured LLM backend is unreachable or disabled, falls back to deterministic raw hybrid search with actionable setup hints.
+
+### 14.3 Core Agent Tools Exposed to the Engine
+The engine operates on 6 structured store adapters in `internal/agent/tools.go`:
+1. `search_memories`: Multi-signal hybrid search scoped to the current project/agent hierarchy.
+2. `read_memory`: Fetches full content, metadata, timestamps, and access statistics for a specific memory ID.
+3. `inspect_links`: Traverses incoming and outgoing semantic graph relationships (`supersedes`, `contradicts`, `refines`, etc.).
+4. `propose_link`: Stages a relationship link proposal between two memories with rationale.
+5. `propose_merge`: Stages a consolidation proposal merging redundant memories into a canonical note.
+6. `detect_knowledge_gaps`: Analyzes retrieved memories to identify missing context or unaddressed questions.
+
+### 14.4 Atomic Proposal Application
+When a proposal is approved (manually via CLI/Web UI or autonomously via `agent.auto_apply_safe_links`), `ApplyProposal` executes inside an **atomic SQLite transaction**:
+- For `link`: Inserts or updates confirmed records in `memory_links`.
+- For `merge`: Creates the new consolidated memory note, links old memories with `supersedes`, and archives the duplicate sources.
+- For `archive`: Safely archives stale or obsolete memories.
+- Emits audit events to `events` table for multi-agent daemon replication (`centmemd`).
+
+### 14.5 Roadmap & Upcoming CLI Surface (Stages 2–4)
+With Stage 1 complete, subsequent v2.0.0 milestones will introduce:
+- `centmem ask "<question>"`: Interactive natural language Q&A with clickable citations.
+- `centmem curate [--type contradictions|dedup]`: Autonomous memory deduplication and link detection.
+- `centmem summarize [--scope <s>]`: Architecture briefing synthesis.
+- `centmem proposals <list|show|apply|dismiss>`: Proposal queue management CLI.
+- Embedded Web UI Assistant & Proposals Review Center (Stage 3).

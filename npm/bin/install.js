@@ -36,6 +36,7 @@ When the user types \`/centmem <input>\`, act as the Memory Manager. Analyze the
 - **Save Decisions / Facts**: If stating a decision, convention, preference, or learning to save, run \`centmem put --scope "project:$CENTMEM_PROJ" --type note --content "<input>"\` or \`centmem set --scope "project:$CENTMEM_PROJ" --key "<key>" --value '<json>'\`.
 - **Relationships / Links**: If asking to link memories, inspect relationships, trace dependencies/contradictions, or confirm/dismiss auto-suggestions, run centmem link, centmem links, or centmem unlink.
 - **Ingest / Capture**: If asking to ingest repository knowledge, commits, docs, shell history, or code annotations, run \`centmem capture git\`, \`centmem capture docs\`, \`centmem capture shell\`, or \`centmem capture comments\`.
+- **Configuration / Agent Engine**: If asking to configure LLM backend, agent reasoning limits, or inspect settings, run \`centmem config get llm\`, \`centmem config get agent\`, or \`centmem config set <key> <value>\`.
 - **Maintenance / Health**: If requesting maintenance, health checks, or statistics, run \`centmem doctor\`, \`centmem stats\`, or \`centmem compact\`.
 - **Visual Dashboard / UI**: If asking to view, browse, inspect, or manage memories in a browser interface, run \`centmem ui\`.
 

@@ -263,3 +263,51 @@ The agent recognizes the **Relationships / Links Intent** and executes:
 centmem link 142 45 --relation supersedes
 ```
 It returns confirmation to the user.
+
+When the user types:
+> `/centmem configure llm backend to ollama with model deepseek-r1:8b`
+
+The agent recognizes the **Configuration / Agent Engine Intent** and executes:
+```bash
+centmem config set llm.backend ollama
+centmem config set llm.model "deepseek-r1:8b"
+```
+It confirms the updated settings to the user.
+
+---
+
+## Scenario 5: Configuring Built-in AI Agent & Stage 1 Schema v6 (v2.0.0 Preview)
+
+In v2.0.0 Stage 1, centmem introduces a built-in cognitive reasoning engine (`internal/agent`) and Schema v6 staging tables (`agent_proposals`, `agent_conversations`, `agent_messages`).
+
+### Step 1: Inspecting & Configuring the Unified LLM Backend
+The agent checks the active LLM backend and configures it to point to a local Ollama instance:
+
+```bash
+# Verify current settings
+centmem config get llm
+
+# Update provider and model
+centmem config set llm.backend ollama
+centmem config set llm.endpoint "http://127.0.0.1:11434/v1"
+centmem config set llm.model "deepseek-r1:8b"
+centmem config set agent.max_reasoning_steps 8
+centmem config set agent.confidence_threshold 0.75
+```
+
+**Output returned:**
+```json
+{
+  "ok": true,
+  "key": "llm.model",
+  "value": "deepseek-r1:8b"
+}
+```
+
+### Step 2: Understanding ReAct Proposals & Human-in-the-Loop Curation
+The autonomous curation loop identifies conflicting or duplicate memories using internal store tools (`search_memories`, `read_memory`, `inspect_links`, `detect_knowledge_gaps`). Instead of silently mutating knowledge records, it stages reversible proposals in SQLite (`agent_proposals` table):
+
+- **Link Proposal**: Proposes establishing semantic edges (`supersedes`, `contradicts`, `depends-on`).
+- **Merge Proposal**: Proposes consolidating multiple fragmented memories into a single canonical note while archiving the sources.
+
+Once Stage 2 CLI commands (`centmem proposals`) and Stage 3 Web UI are active, agents and developers review, approve, or dismiss these proposals with atomic transaction guarantees.

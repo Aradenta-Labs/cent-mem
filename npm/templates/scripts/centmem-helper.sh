@@ -34,6 +34,17 @@ else
   echo "✗ Doctor reported issues. Run 'centmem doctor --pretty' for details."
 fi
 
+# Check LLM and Agent engine configuration
+echo -n "Checking LLM backend... "
+if LLM_JSON=$(centmem config get llm 2>/dev/null); then
+  LLM_BACKEND=$(echo "$LLM_JSON" | grep -o '"backend":"[^"]*"' | cut -d':' -f2 | tr -d '"')
+  LLM_MODEL=$(echo "$LLM_JSON" | grep -o '"model":"[^"]*"' | cut -d':' -f2 | tr -d '"')
+  echo "✓ Configured ($LLM_BACKEND, model: $LLM_MODEL)"
+else
+  echo "✗ Could not query LLM config"
+fi
+
 # Quick recall test
 echo -e "\nRecent memories for project:$PROJECT_NAME:"
 centmem recall "conventions decisions" --scope "project:$PROJECT_NAME" --top 3 --pretty 2>/dev/null || true
+

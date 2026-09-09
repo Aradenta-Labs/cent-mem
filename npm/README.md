@@ -74,7 +74,7 @@ When you run `npx @aradenta.labs/centmem-skills`:
    - **UPDATE**: Run `centmem put` or `centmem set` to persist decisions and learnings.
 
 3. **Smart `/centmem` Slash Command Support:**
-   Registers routing instructions that allow you to interact with memory using simple prompts like `/centmem review recent architectural decisions` (triggers recall) or `/centmem remember we use PostgreSQL for this service` (triggers put/set).
+   Registers routing instructions that allow you to interact with memory using simple prompts like `/centmem review recent architectural decisions` (triggers recall), `/centmem remember we use PostgreSQL for this service` (triggers put/set), or `/centmem configure llm backend to ollama` (triggers config get/set).
 
 ---
 
@@ -116,7 +116,7 @@ npx @aradenta.labs/centmem-skills --uninstall
 
 ## About cent-mem
 
-`cent-mem` is a fast, local-first shared memory store for AI agents powered by SQLite, vector search, and BM25 full-text search.
+`cent-mem` is a fast, local-first shared memory store for AI agents powered by SQLite, vector search, BM25 full-text search, and a built-in cognitive memory agent engine.
 
 - **GitHub Repository:** [github.com/aradenta-labs/cent-mem](https://github.com/aradenta-labs/cent-mem)
 - **Documentation:** [cent-mem Docs](https://github.com/aradenta-labs/cent-mem/tree/master/docs)

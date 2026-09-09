@@ -22,6 +22,7 @@ cd "$TMPHOME"
 export HOME="$TMPHOME"
 
 EXPECTED=(
+  "$TMPHOME/.agents/skills/centmem"
   "$TMPHOME/.claude/skills/centmem"
   "$TMPHOME/.cursor/rules/centmem"
   "$TMPHOME/.codex/skills/centmem"
@@ -36,10 +37,10 @@ echo "==> Test 1: install to all targets"
 bash "$INSTALLER" >/dev/null
 all_present=1
 for dir in "${EXPECTED[@]}"; do
-  if [[ -f "$dir/SKILL.md" ]]; then
-    pass "SKILL.md present at $dir"
+  if [[ -f "$dir/SKILL.md" ]] && [[ -f "$dir/references/cli-commands.md" ]]; then
+    pass "Skill artifacts present at $dir"
   else
-    fail "SKILL.md missing at $dir"
+    fail "Skill artifacts missing at $dir"
     all_present=0
   fi
 done

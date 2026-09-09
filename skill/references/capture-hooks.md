@@ -33,16 +33,26 @@ centmem capture run
 ## 2. Three-Tier Classification Backend
 
 The classifier attempts backends in order:
-1. **Local LLM (`backend = "local-llm"`)**:
+1. **Local LLM (`backend = "local-llm"` or `[llm]` unified backend)**:
    - Calls local OpenAI-compatible endpoint (e.g. Ollama at `http://localhost:11434/v1`).
    - Private and 100% on-device.
 2. **Deterministic Heuristic (`backend = "heuristic"`)**:
    - Zero-dependency regex pattern matcher.
    - Triggers on indicators like "we decided", "chose X over Y", version strings, and error resolutions.
    - Always succeeds as a fallback if other backends fail.
-3. **Bring-Your-Own-Key (`backend = "openai-compatible"`)**:
+3. **Bring-Your-Own-Key (`backend = "openai-compatible"` or `[llm]` provider)**:
    - User-provided endpoint (e.g. `https://api.openai.com/v1`).
    - Secret key is read from an environment variable name (e.g. `$OPENAI_API_KEY`), never written to disk.
+
+### Unified LLM Backend Integration (v2.0.0 Stage 1)
+
+In v2.0.0 Stage 1, centmem unifies model configuration under `[llm]` in `~/.centmem/config.toml`. When configuring capture classifiers or agent reasoning:
+- Use `centmem config set llm.backend <ollama|openai_compatible|disabled>`
+- Use `centmem config set llm.endpoint <url>`
+- Use `centmem config set llm.model <model-name>`
+- Use `centmem config set llm.api_key <key-or-env>`
+
+*Inheritance Rule*: If `[llm]` is omitted, centmem automatically inherits legacy `[capture]` settings (`capture.backend`, `capture.local_llm_endpoint`, `capture.api_base_url`, `capture.api_key`). Settings can also be overridden via `CENTMEM_LLM_*` environment variables.
 
 ---
 

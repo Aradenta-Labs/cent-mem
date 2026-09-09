@@ -157,6 +157,29 @@ centmem link dismiss 12
 centmem serve
 ```
 
+### 11. Built-in AI Agent & LLM Configuration (v2.0.0 Stage 1)
+```bash
+# Inspect current LLM and Agent configuration
+centmem config get llm
+centmem config get agent
+
+# Configure local Ollama endpoint (default)
+centmem config set llm.backend ollama
+centmem config set llm.endpoint "http://127.0.0.1:11434/v1"
+centmem config set llm.model "deepseek-r1:8b"
+
+# Or configure OpenAI-compatible cloud provider
+centmem config set llm.backend openai_compatible
+centmem config set llm.endpoint "https://api.openai.com/v1"
+centmem config set llm.api_key "OPENAI_API_KEY"
+centmem config set llm.model "gpt-4o-mini"
+
+# Configure Agent ReAct loop limits and autonomous thresholds
+centmem config set agent.max_reasoning_steps 8
+centmem config set agent.confidence_threshold 0.75
+centmem config set agent.auto_apply_safe_links false
+```
+
 ---
 
 ## Scope Grammar & Hierarchy
@@ -195,7 +218,7 @@ project:<name>/agent:<agent>/session:<id>
 | Command | Syntax | Description |
 |---------|--------|-------------|
 | `init` | `centmem init [--model <name>] [--force]` | Initialize local store and download embedding model |
-| `put` | `centmem put --scope <s> --type <note|log> --content <t> [--tags a,b]` | Store a freeform note or chronological log |
+| `put` | `centmem put --scope <s> --type <note\|log> --content <t> [--tags a,b]` | Store a freeform note or chronological log |
 | `set` | `centmem set --scope <s> --key <k> --value <json> [--tags a,b]` | Upsert a key/value fact |
 | `get` | `centmem get --scope <s> --key <k> [--inherit]` | Fetch a fact by key with inheritance |
 | `recall` | `centmem recall <query> --scope <s> [--top N] [--type t] [--tags a,b]` | Hybrid search (vector + FTS5 bm25 + facts + timeline via RRF) |
@@ -207,8 +230,8 @@ project:<name>/agent:<agent>/session:<id>
 | `doctor` | `centmem doctor` | Health check (DB integrity, schema, model, FTS5) |
 | `backup` | `centmem backup --to <path>` | Create snapshot backup of SQLite database |
 | `restore` | `centmem restore --from <path>` | Restore database from backup snapshot |
-| `capture` | `centmem capture <run|summary|categories|convert|git|docs|shell|comments> [flags]` | Auto-capture engine and developer artifact capture |
-| `config` | `centmem config <get|set> [key] [value]` | Manage configuration settings in `config.toml` |
+| `capture` | `centmem capture <run\|summary\|categories\|convert\|git\|docs\|shell\|comments> [flags]` | Auto-capture engine and developer artifact capture |
+| `config` | `centmem config <get\|set> [key] [value]` | Manage configuration in `config.toml` (`search.*`, `model.*`, `retention.*`, `capture.*`, `llm.*`, `agent.*`) |
 | `ui` | `centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]` | Launch embedded Web UI memory browser dashboard |
 | `reindex` | `centmem reindex [--all] [--batch N] [--max-time d] [--dry-run]` | Re-embed memories into vector index |
 | `link` | `centmem link <from_id> <to_id> --relation <rel> \| link <confirm\|dismiss> <link_id>` | Create or manage relationship links |
@@ -225,6 +248,14 @@ project:<name>/agent:<agent>/session:<id>
 - `centmemd stop`: Gracefully terminate daemon
 
 *Note: The `centmem` CLI automatically delegates to `centmemd` over Unix domain socket IPC when active. Pass `--direct` or set `CENTMEM_DIRECT=1` to force direct embedded SQLite access.*
+
+### Built-in AI Memory Agent & Schema v6 (v2.0.0 Stage 1)
+
+In v2.0.0, centmem introduces a native autonomous reasoning engine and Schema v6:
+- **Core Agent Engine (`internal/agent`)**: Multi-turn ReAct reasoning loop (`Plan -> Act -> Think`) with tool execution, cycle guards (`agent.max_reasoning_steps`), and offline fallback.
+- **Schema v6 Staging Queue (`agent_proposals`)**: Staged human-in-the-loop proposals for merges, links, and updates, executed via atomic SQLite transactions (`ApplyProposal`).
+- **Conversations & Messages**: `agent_conversations` and `agent_messages` tables tracking interactive chat turns and structured memory citations.
+- **Upcoming v2.0.0 CLI Surface (Stages 2–4)**: `centmem ask`, `centmem curate`, `centmem summarize`, and `centmem proposals` commands.
 
 ---
 

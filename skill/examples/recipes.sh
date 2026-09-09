@@ -67,3 +67,17 @@ echo -e "\n=== 9. Integrations (MCP & Remote Web UI) ==="
 # Start remote Web UI dashboard on 0.0.0.0 with Bearer token authentication (min 16 chars)
 # centmem ui --host 0.0.0.0 --port 4231 --token "sec_0123456789abcdef" --no-open
 
+echo -e "\n=== 10. Built-in AI Agent & LLM Configuration (v2.0.0 Stage 1) ==="
+# Query current LLM and Agent configuration
+centmem config get llm
+centmem config get agent
+
+# Configure local Ollama model backend
+centmem config set llm.backend ollama
+centmem config set llm.endpoint "http://127.0.0.1:11434/v1"
+centmem config set llm.model "deepseek-r1:8b"
+
+# Configure Agent reasoning cycle guards
+centmem config set agent.max_reasoning_steps 8
+centmem config set agent.confidence_threshold 0.75
+centmem config set agent.auto_apply_safe_links false

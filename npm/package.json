@@ -22,7 +22,12 @@
     "claude",
     "cursor",
     "codex",
-    "antigravity"
+    "antigravity",
+    "deepseek",
+    "trae",
+    "hermes",
+    "agent-engine",
+    "llm"
   ],
   "author": "Aradenta Labs",
   "license": "MIT",

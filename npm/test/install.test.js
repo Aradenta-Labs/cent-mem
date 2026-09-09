@@ -124,6 +124,9 @@ test('injectWorkflowAndCommands creates AGENTS.md if missing', () => {
     assert(content.includes('<!-- centmem-command:start -->'));
     assert(content.includes('Ingest / Capture'));
     assert(content.includes('centmem capture git'));
+    assert(content.includes('Configuration / Agent Engine'));
+    assert(content.includes('centmem config get llm'));
+    assert(content.includes('centmem config get agent'));
     assert(content.includes('Manage Relationships'));
     assert(content.includes('Relationships / Links'));
     assert(content.includes('centmem link'));
@@ -218,6 +221,9 @@ test('Full E2E install and uninstall workflow', () => {
     assert(agentsContent.includes('centmem recall'));
     assert(agentsContent.includes('Ingest / Capture'));
     assert(agentsContent.includes('centmem capture git'));
+    assert(agentsContent.includes('Configuration / Agent Engine'));
+    assert(agentsContent.includes('centmem config get llm'));
+    assert(agentsContent.includes('centmem config get agent'));
     assert(agentsContent.includes('Manage Relationships'));
     assert(agentsContent.includes('Relationships / Links'));
     assert(agentsContent.includes('centmem link'));
