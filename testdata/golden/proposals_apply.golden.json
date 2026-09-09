@@ -1,0 +1,16 @@
+{
+  "applied": true,
+  "ok": true,
+  "proposal": {
+    "applied_at": "<TIMESTAMP>",
+    "created_at": "<TIMESTAMP>",
+    "id": 1,
+    "payload_json": "{\"from_id\":1,\"to_id\":2,\"relation\":\"supersedes\"}",
+    "proposal_type": "link",
+    "reasoning": "Golden test reasoning",
+    "scope_id": 2,
+    "scope_path": "project:golden",
+    "status": "applied",
+    "title": "Link memory #1 ──supersedes──► memory #2"
+  }
+}

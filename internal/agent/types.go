@@ -28,6 +28,7 @@ type SummarizeResult struct {
 	SummaryMarkdown string  `json:"summary_markdown"`
 	CitedMemoryIDs  []int64 `json:"cited_memory_ids"`
 	Scope           string  `json:"scope"`
+	SavedID         *int64  `json:"saved_id,omitempty"`
 	FallbackUsed    bool    `json:"fallback_used,omitempty"`
 }
 

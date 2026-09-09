@@ -77,7 +77,7 @@ func (e *Engine) Ask(ctx context.Context, question string, opts InquiryOptions) 
 
 	// 2. Check if offline fallback is required
 	if e.isOffline() {
-		res := e.offlineAsk(ctx, question, scope)
+		res := e.offlineAsk(ctx, question, scope, opts.Top)
 		res.ConversationID = convID
 		if opts.StreamCallback != nil {
 			_ = opts.StreamCallback(&StreamChunk{
@@ -120,7 +120,7 @@ func (e *Engine) Ask(ctx context.Context, question string, opts InquiryOptions) 
 	answer, steps, err := e.RunReActLoop(ctx, messages, opts.StreamCallback)
 	if err != nil {
 		// LLM endpoint failure -> graceful fallback
-		res := e.offlineAsk(ctx, question, scope)
+		res := e.offlineAsk(ctx, question, scope, opts.Top)
 		res.ConversationID = convID
 		e.persistAssistantMessage(ctx, convID, res)
 		return res, nil
@@ -155,7 +155,7 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	}
 
 	if e.isOffline() {
-		return e.offlineCurate(ctx, scope, curateType, opts.AutoApply)
+		return e.offlineCurate(ctx, scope, curateType, opts.AutoApply, opts.DryRun)
 	}
 
 	var prompt string
@@ -168,9 +168,15 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 		prompt = CurateContradictionsPrompt + "\n\n" + CurateDedupPrompt
 	}
 
+	userMsg := fmt.Sprintf("Run memory curation for scope %q. Inspect memories, find conflicts and duplicates, and create proposals.", scope)
+	if opts.DryRun {
+		ctx = context.WithValue(ctx, dryRunContextKey, true)
+		userMsg += " (DRY RUN: do not persist changes to store)"
+	}
+
 	messages := []ChatMessage{
 		{Role: "system", Content: prompt},
-		{Role: "user", Content: fmt.Sprintf("Run memory curation for scope %q. Inspect memories, find conflicts and duplicates, and create proposals.", scope)},
+		{Role: "user", Content: userMsg},
 	}
 
 	// Track proposals count before loop
@@ -182,18 +188,18 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 
 	_, _, err := e.RunReActLoop(ctx, messages, nil)
 	if err != nil {
-		return e.offlineCurate(ctx, scope, curateType, opts.AutoApply)
+		return e.offlineCurate(ctx, scope, curateType, opts.AutoApply, opts.DryRun)
 	}
 
 	// Find newly created proposals
 	afterProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope})
-	var createdIDs []int64
-	var appliedIDs []int64
+	createdIDs := make([]int64, 0)
+	appliedIDs := make([]int64, 0)
 
 	for _, p := range afterProps {
 		if !preExistingMap[p.ID] {
 			createdIDs = append(createdIDs, p.ID)
-			if opts.AutoApply {
+			if opts.AutoApply && !opts.DryRun {
 				if err := e.store.ApplyProposal(ctx, p.ID); err == nil {
 					appliedIDs = append(appliedIDs, p.ID)
 				}
@@ -207,10 +213,12 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	}
 
 	return &CurateResult{
-		ProposalsCreated: createdIDs,
-		ProposalsApplied: appliedIDs,
-		ScannedMemories:  scannedCount,
-		FallbackUsed:     false,
+		ProposalsCreated:    createdIDs,
+		ProposalsApplied:    appliedIDs,
+		ScannedMemories:     scannedCount,
+		ContradictionsFound: 0,
+		DuplicatesFound:     0,
+		FallbackUsed:        false,
 	}, nil
 }
 
@@ -221,47 +229,60 @@ func (e *Engine) Summarize(ctx context.Context, opts SummarizeOptions) (*Summari
 		scope = "global"
 	}
 
+	var res *SummarizeResult
+	var err error
+
 	if e.isOffline() {
-		return e.offlineSummarize(ctx, scope)
+		res, err = e.offlineSummarize(ctx, scope, opts.Focus)
+	} else {
+		messages := []ChatMessage{
+			{Role: "system", Content: SummarizeScopePrompt},
+			{Role: "user", Content: fmt.Sprintf("Synthesize an architectural summary and developer guide for scope %q. Focus: %s", scope, opts.Focus)},
+		}
+
+		var summaryMarkdown string
+		summaryMarkdown, _, err = e.RunReActLoop(ctx, messages, nil)
+		if err != nil {
+			res, err = e.offlineSummarize(ctx, scope, opts.Focus)
+		} else {
+			citations := e.resolveCitations(ctx, summaryMarkdown)
+			citedIDs := make([]int64, 0, len(citations))
+			for _, c := range citations {
+				citedIDs = append(citedIDs, c.ID)
+			}
+
+			title := fmt.Sprintf("Architectural Summary — %s", scope)
+			if opts.Focus != "" {
+				title = fmt.Sprintf("Summary: %s (%s)", opts.Focus, scope)
+			}
+
+			res = &SummarizeResult{
+				Title:           title,
+				SummaryMarkdown: summaryMarkdown,
+				CitedMemoryIDs:  citedIDs,
+				Scope:           scope,
+				FallbackUsed:    false,
+			}
+		}
 	}
 
-	messages := []ChatMessage{
-		{Role: "system", Content: SummarizeScopePrompt},
-		{Role: "user", Content: fmt.Sprintf("Synthesize an architectural summary and developer guide for scope %q. Focus: %s", scope, opts.Focus)},
-	}
-
-	summaryMarkdown, _, err := e.RunReActLoop(ctx, messages, nil)
 	if err != nil {
-		return e.offlineSummarize(ctx, scope)
+		return nil, err
 	}
 
-	citations := e.resolveCitations(ctx, summaryMarkdown)
-	var citedIDs []int64
-	for _, c := range citations {
-		citedIDs = append(citedIDs, c.ID)
-	}
-
-	title := fmt.Sprintf("Architectural Summary — %s", scope)
-	if opts.Focus != "" {
-		title = fmt.Sprintf("Summary: %s (%s)", opts.Focus, scope)
-	}
-
-	if opts.Save && e.store != nil {
-		_, _, _ = e.store.PutMemory(ctx, store.MemoryInput{
+	if opts.Save && e.store != nil && res != nil && res.SummaryMarkdown != "" {
+		id, _, putErr := e.store.PutMemory(ctx, store.MemoryInput{
 			Scope:   scope,
 			Type:    "note",
-			Content: summaryMarkdown,
+			Content: res.SummaryMarkdown,
 			Tags:    []string{"summary", "architecture", "digest"},
 		})
+		if putErr == nil && id > 0 {
+			res.SavedID = &id
+		}
 	}
 
-	return &SummarizeResult{
-		Title:           title,
-		SummaryMarkdown: summaryMarkdown,
-		CitedMemoryIDs:  citedIDs,
-		Scope:           scope,
-		FallbackUsed:    false,
-	}, nil
+	return res, nil
 }
 
 // RunReActLoop executes the multi-step "Plan -> Act -> Think" reasoning loop with cycle guards.
@@ -346,7 +367,10 @@ func (e *Engine) isOffline() bool {
 	return e.llmCfg.Backend == "disabled" || !e.cfg.Enabled
 }
 
-func (e *Engine) offlineAsk(ctx context.Context, question, scope string) *AskResult {
+func (e *Engine) offlineAsk(ctx context.Context, question, scope string, top int) *AskResult {
+	if top <= 0 {
+		top = 5
+	}
 	var citations []store.Citation
 	var answerBuilder strings.Builder
 
@@ -356,7 +380,7 @@ func (e *Engine) offlineAsk(ctx context.Context, question, scope string) *AskRes
 		results, err := e.searcher.Recall(ctx, search.Query{
 			Text:  question,
 			Scope: scope,
-			Top:   5,
+			Top:   top,
 		})
 		if err == nil && len(results) > 0 {
 			answerBuilder.WriteString("### Matched Memories\n\n")
@@ -385,9 +409,13 @@ func (e *Engine) offlineAsk(ctx context.Context, question, scope string) *AskRes
 	}
 }
 
-func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, autoApply bool) (*CurateResult, error) {
+func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, autoApply bool, dryRun bool) (*CurateResult, error) {
 	if e.store == nil {
-		return &CurateResult{FallbackUsed: true}, nil
+		return &CurateResult{
+			ProposalsCreated: []int64{},
+			ProposalsApplied: []int64{},
+			FallbackUsed:     true,
+		}, nil
 	}
 
 	memories, err := e.store.List(ctx, store.ListQuery{
@@ -399,44 +427,53 @@ func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, au
 		return nil, err
 	}
 
-	// Exact hash and identical content grouping
-	hashMap := make(map[string][]store.Memory)
-	for _, m := range memories {
-		if m.ContentHash != "" {
-			hashMap[m.ContentHash] = append(hashMap[m.ContentHash], m)
-		}
-	}
-
-	var createdIDs []int64
-	var appliedIDs []int64
+	createdIDs := make([]int64, 0)
+	appliedIDs := make([]int64, 0)
 	var duplicatesCount int
 
-	for _, group := range hashMap {
-		if len(group) > 1 {
-			duplicatesCount += len(group) - 1
-			var sids []int64
-			for _, m := range group {
-				sids = append(sids, m.ID)
+	if curateType == "dedup" || curateType == "all" {
+		// Exact hash and identical content grouping
+		hashMap := make(map[string][]store.Memory)
+		for _, m := range memories {
+			key := m.ContentHash
+			if key == "" {
+				key = strings.TrimSpace(strings.ToLower(m.Content))
 			}
-			payload, _ := json.Marshal(store.MergeProposalPayload{
-				SourceIDs:     sids,
-				TargetTitle:   fmt.Sprintf("Consolidate duplicate memories (%d entries)", len(sids)),
-				TargetContent: group[0].Content,
-				TargetTags:    group[0].Tags,
-			})
-			propID, err := e.store.CreateProposal(ctx, &store.Proposal{
-				ScopeID:      group[0].ScopeID,
-				ScopePath:    group[0].ScopePath,
-				ProposalType: "merge",
-				Title:        fmt.Sprintf("Deduplicate %d identical memories", len(sids)),
-				Reasoning:    "Exact content hash duplicate detected in offline mode",
-				PayloadJSON:  string(payload),
-			})
-			if err == nil {
-				createdIDs = append(createdIDs, propID)
-				if autoApply {
-					if err := e.store.ApplyProposal(ctx, propID); err == nil {
-						appliedIDs = append(appliedIDs, propID)
+			if key != "" {
+				hashMap[key] = append(hashMap[key], m)
+			}
+		}
+
+		for _, group := range hashMap {
+			if len(group) > 1 {
+				duplicatesCount += len(group) - 1
+				if dryRun {
+					continue
+				}
+				var sids []int64
+				for _, m := range group {
+					sids = append(sids, m.ID)
+				}
+				payload, _ := json.Marshal(store.MergeProposalPayload{
+					SourceIDs:     sids,
+					TargetTitle:   fmt.Sprintf("Consolidate duplicate memories (%d entries)", len(sids)),
+					TargetContent: group[0].Content,
+					TargetTags:    group[0].Tags,
+				})
+				propID, err := e.store.CreateProposal(ctx, &store.Proposal{
+					ScopeID:      group[0].ScopeID,
+					ScopePath:    group[0].ScopePath,
+					ProposalType: "merge",
+					Title:        fmt.Sprintf("Deduplicate %d identical memories", len(sids)),
+					Reasoning:    "Exact content hash duplicate detected in offline mode",
+					PayloadJSON:  string(payload),
+				})
+				if err == nil {
+					createdIDs = append(createdIDs, propID)
+					if autoApply {
+						if err := e.store.ApplyProposal(ctx, propID); err == nil {
+							appliedIDs = append(appliedIDs, propID)
+						}
 					}
 				}
 			}
@@ -444,18 +481,24 @@ func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, au
 	}
 
 	return &CurateResult{
-		ProposalsCreated: createdIDs,
-		ProposalsApplied: appliedIDs,
-		ScannedMemories:  len(memories),
-		DuplicatesFound:  duplicatesCount,
-		FallbackUsed:     true,
+		ProposalsCreated:    createdIDs,
+		ProposalsApplied:    appliedIDs,
+		ScannedMemories:     len(memories),
+		DuplicatesFound:     duplicatesCount,
+		ContradictionsFound: 0,
+		FallbackUsed:        true,
 	}, nil
 }
 
-func (e *Engine) offlineSummarize(ctx context.Context, scope string) (*SummarizeResult, error) {
+func (e *Engine) offlineSummarize(ctx context.Context, scope string, focus string) (*SummarizeResult, error) {
+	title := fmt.Sprintf("Memory Digest — %s", scope)
+	if focus != "" {
+		title = fmt.Sprintf("Memory Digest: %s (%s)", focus, scope)
+	}
+
 	if e.store == nil {
 		return &SummarizeResult{
-			Title:           fmt.Sprintf("Offline Digest: %s", scope),
+			Title:           title,
 			SummaryMarkdown: "> No store available.",
 			Scope:           scope,
 			FallbackUsed:    true,
@@ -472,7 +515,7 @@ func (e *Engine) offlineSummarize(ctx context.Context, scope string) (*Summarize
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# Memory Digest — %s\n\n", scope))
+	sb.WriteString(fmt.Sprintf("# %s\n\n", title))
 	sb.WriteString("> ℹ️ Generated in offline catalog mode (no LLM synthesis).\n\n")
 
 	byType := make(map[string][]store.Memory)
@@ -491,7 +534,7 @@ func (e *Engine) offlineSummarize(ctx context.Context, scope string) (*Summarize
 	}
 
 	return &SummarizeResult{
-		Title:           fmt.Sprintf("Memory Digest — %s", scope),
+		Title:           title,
 		SummaryMarkdown: sb.String(),
 		CitedMemoryIDs:  citedIDs,
 		Scope:           scope,

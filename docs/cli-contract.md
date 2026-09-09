@@ -440,6 +440,138 @@ centmem serve [--mcp]
 
 ---
 
+### 3.22 `ask` — conversational inquiry & citations
+Ask a question grounded in stored memories using ReAct reasoning, citation provenance, and gap detection.
+
+```
+centmem ask "<question>" [--scope <scope>] [--top N] [--interactive]
+```
+- `--scope`: scope path filter (default `global`).
+- `--top`: maximum number of candidate citations to inspect (default `5`).
+- `--interactive`: enter interactive multi-turn terminal chat session reading from stdin.
+
+**Output (Single-shot):**
+```json
+{
+  "ok": true,
+  "answer": "We use SQLite with sqlite-vec for 100% offline agent memory...",
+  "citations": [
+    {
+      "id": 42,
+      "type": "note",
+      "scope": "project:cent-mem",
+      "snippet": "Chose SQLite-vec with local ONNX embeddings...",
+      "score": 0.0412
+    }
+  ],
+  "knowledge_gaps": [],
+  "reasoning_steps": 2,
+  "conversation_id": "conv-1234",
+  "fallback_used": false
+}
+```
+
+---
+
+### 3.23 `curate` — autonomous memory curation
+Scan memories to proactively detect contradictions, evolution, and semantic duplicates, staging reversible human-in-the-loop proposals into the `agent_proposals` table.
+
+```
+centmem curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]
+```
+- `--scope`: scope path filter (default `global`).
+- `--type`: curation category (`contradictions`, `dedup`, or `all`; default `all`).
+- `--apply`: automatically apply proposals exceeding confidence threshold.
+- `--dry-run`: simulate curation without staging proposals to store.
+
+**Output:**
+```json
+{
+  "ok": true,
+  "proposals_created": [101, 102],
+  "proposals_applied": [],
+  "scanned_memories": 120,
+  "contradictions_found": 1,
+  "duplicates_found": 1,
+  "fallback_used": false
+}
+```
+
+---
+
+### 3.24 `summarize` — scope briefings & synthesis
+Synthesize architectural pillars, conventions, and developer guides from memories in a target scope.
+
+```
+centmem summarize [--scope <scope>] [--focus <topic>] [--format markdown|json] [--save]
+```
+- `--scope`: scope path filter (default `global`).
+- `--focus`: optional focus topic or component.
+- `--format`: output format (`json` or `markdown`; default `json`).
+- `--save`: save synthesized summary as a new note memory tagged `summary,architecture,digest`.
+
+**Output (`--format json`):**
+```json
+{
+  "ok": true,
+  "title": "Architectural Summary — project:cent-mem",
+  "summary_markdown": "# Architectural Summary\n...",
+  "cited_memory_ids": [14, 25, 33],
+  "scope": "project:cent-mem",
+  "saved_id": 99,
+  "fallback_used": false
+}
+```
+
+---
+
+### 3.25 `proposals` — human-in-the-loop staged proposals
+Manage staged agent curation proposals (`agent_proposals` table).
+
+```
+centmem proposals list [--scope <scope>] [--status pending|applied|dismissed] [--limit N] [--offset N]
+centmem proposals show <id>
+centmem proposals apply <id>
+centmem proposals dismiss <id>
+```
+- `list`: browse staged proposals with optional status filter.
+- `show <id>`: display full proposal details and payload.
+- `apply <id>`: atomically execute proposal actions (e.g. merge memories or establish relationship link).
+- `dismiss <id>`: dismiss proposal without modifying memories.
+
+**Output (`proposals list`):**
+```json
+{
+  "ok": true,
+  "proposals": [
+    {
+      "id": 101,
+      "scope_id": 1,
+      "scope_path": "project:cent-mem",
+      "proposal_type": "link",
+      "status": "pending",
+      "title": "Link memory #12 ──supersedes──► memory #8",
+      "reasoning": "Memory #12 updates database architecture decision",
+      "payload_json": "{\"from_id\":12,\"to_id\":8,\"relation\":\"supersedes\"}",
+      "created_at": "2026-09-09T12:00:00Z"
+    }
+  ]
+}
+```
+
+**Output (`proposals apply <id>`):**
+```json
+{
+  "ok": true,
+  "applied": true,
+  "proposal": {
+    "id": 101,
+    "status": "applied",
+    "applied_at": "2026-09-09T12:05:00Z"
+  }
+}
+```
+
 ---
 
 ## 4. Scope Grammar

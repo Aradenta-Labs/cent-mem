@@ -238,6 +238,10 @@ project:<name>/agent:<agent>/session:<id>
 | `unlink` | `centmem unlink <from_id> <to_id> [--relation <rel>] \| unlink --id <link_id>` | Remove relationship links between memories |
 | `links` | `centmem links <memory_id> [--all]` | List relationship links for a memory |
 | `serve` | `centmem serve [--mcp]` | Run MCP stdio JSON-RPC server for agent harnesses |
+| `ask` | `centmem ask "<question>" [--scope <s>] [--top N] [--interactive]` | Conversational Q&A grounded in memories with citations |
+| `curate` | `centmem curate [--scope <s>] [--type contradictions\|dedup\|all] [--apply] [--dry-run]` | Autonomous memory curation (conflicts & duplicates) |
+| `summarize` | `centmem summarize [--scope <s>] [--focus <t>] [--format json\|markdown] [--save]` | Synthesize architectural pillars and scope developer briefings |
+| `proposals` | `centmem proposals <list\|show\|apply\|dismiss> [id] [flags]` | Manage human-in-the-loop staged curation actions |
 
 ### Background Daemon (`centmemd`)
 

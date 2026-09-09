@@ -1,0 +1,11 @@
+{
+  "answer": "<ANSWER>",
+  "citations": [],
+  "conversation_id": "<CONVERSATION_ID>",
+  "fallback_used": true,
+  "knowledge_gaps": [
+    "LLM reasoning is offline; results reflect raw keyword and vector retrieval."
+  ],
+  "ok": true,
+  "reasoning_steps": 1
+}

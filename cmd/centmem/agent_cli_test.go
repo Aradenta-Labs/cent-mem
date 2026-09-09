@@ -1,0 +1,573 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/aradenta-labs/cent-mem/internal/agent"
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/store"
+)
+
+func TestAgentCLI_Ask_Offline(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	// Disable LLM in config
+	runCLI(t, home, "config", "set", "llm.backend", "disabled")
+
+	// Seed memory
+	_, _, code := runCLI(t, home, "put", "--scope", "project:alpha", "--type", "note", "--content", "Architecture uses SQLite with SQLite-vec")
+	if code != 0 {
+		t.Fatalf("put failed with code %d", code)
+	}
+
+	// Single-shot ask
+	stdout, stderr, code := runCLI(t, home, "ask", "what database do we use?", "--scope", "project:alpha", "--top", "3")
+	if code != 0 {
+		t.Fatalf("ask code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+
+	if res["ok"] != true {
+		t.Errorf("expected ok=true, got %v", res["ok"])
+	}
+	if res["fallback_used"] != true {
+		t.Errorf("expected fallback_used=true, got %v", res["fallback_used"])
+	}
+	answer, _ := res["answer"].(string)
+	if !strings.Contains(answer, "Offline Mode") {
+		t.Errorf("expected answer to contain 'Offline Mode', got: %s", answer)
+	}
+	if !strings.Contains(answer, "SQLite-vec") {
+		t.Errorf("expected answer to contain 'SQLite-vec', got: %s", answer)
+	}
+
+	citations, ok := res["citations"].([]any)
+	if !ok || len(citations) == 0 {
+		t.Errorf("expected at least 1 citation, got: %v", res["citations"])
+	}
+}
+
+func TestAgentCLI_Ask_MissingQuestion(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	_, stderr, code := runCLI(t, home, "ask", "--scope", "project:alpha")
+	if code != 1 {
+		t.Fatalf("ask code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "question is required") {
+		t.Errorf("expected 'question is required' in stderr, got: %s", stderr)
+	}
+}
+
+func TestAgentCLI_Ask_MockLLM(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	// Seed a memory to retrieve
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	mID, _, _ := s.PutMemory(context.Background(), store.MemoryInput{
+		Scope:   "project:react",
+		Type:    "note",
+		Content: "Authentication is configured with RS256 JWT tokens",
+		Tags:    []string{"auth", "jwt"},
+	})
+	s.Close()
+
+	var callCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := atomic.AddInt32(&callCount, 1)
+		w.Header().Set("Content-Type", "application/json")
+
+		if call == 1 {
+			// First turn: model calls search_memories
+			resp := agent.ChatResponse{
+				ID: "resp-1",
+				Choices: []agent.Choice{
+					{
+						Index: 0,
+						Message: agent.ChatMessage{
+							Role: "assistant",
+							ToolCalls: []agent.ToolCall{
+								{
+									ID:   "call_search_1",
+									Type: "function",
+									Function: agent.FunctionCall{
+										Name:      "search_memories",
+										Arguments: `{"query":"Authentication tokens","scope":"project:react"}`,
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Second turn: model returns synthesized answer with citation
+		resp := agent.ChatResponse{
+			ID: "resp-2",
+			Choices: []agent.Choice{
+				{
+					Index: 0,
+					Message: agent.ChatMessage{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Authentication uses RS256 JWT tokens per [id: %d].\n\nKnowledge Gap: Refresh token expiration is not documented.", mID),
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// Configure centmem with mock server
+	runCLI(t, home, "config", "set", "llm.backend", "openai_compatible")
+	runCLI(t, home, "config", "set", "llm.endpoint", server.URL)
+	runCLI(t, home, "config", "set", "llm.model", "test-model")
+
+	stdout, stderr, code := runCLI(t, home, "ask", "how is authentication handled?", "--scope", "project:react")
+	if code != 0 {
+		t.Fatalf("ask code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+
+	if res["ok"] != true {
+		t.Errorf("expected ok=true, got %v", res["ok"])
+	}
+	if res["fallback_used"] != false {
+		t.Errorf("expected fallback_used=false, got %v", res["fallback_used"])
+	}
+	steps, _ := res["reasoning_steps"].(float64)
+	if steps < 2 {
+		t.Errorf("expected >= 2 reasoning steps, got %v", steps)
+	}
+
+	gaps, ok := res["knowledge_gaps"].([]any)
+	if !ok || len(gaps) == 0 {
+		t.Errorf("expected knowledge gaps, got: %v", res["knowledge_gaps"])
+	}
+
+	citations, ok := res["citations"].([]any)
+	if !ok || len(citations) == 0 {
+		t.Errorf("expected citations, got: %v", res["citations"])
+	}
+}
+
+func TestAgentCLI_Ask_Interactive(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	// Disable LLM for predictable offline response
+	runCLI(t, home, "config", "set", "llm.backend", "disabled")
+
+	input := "how do we deploy?\nexit\n"
+	stdout, stderr, code := runCLIWithStdin(t, home, input, "ask", "--interactive", "--scope", "project:demo")
+	if code != 0 {
+		t.Fatalf("ask --interactive code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	if !strings.Contains(stdout, "centmem> ") {
+		t.Errorf("expected interactive prompt 'centmem> ', got: %s", stdout)
+	}
+}
+
+func TestAgentCLI_Curate_OfflineDedup(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ctx := context.Background()
+	m1, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:curate", Type: "note", Content: "Identical duplicate text content"})
+	_, _ = s.DB().ExecContext(ctx, "UPDATE memories SET updated_at = ? WHERE id = ?", time.Now().Add(-5*time.Minute).UnixMicro(), m1)
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:curate", Type: "note", Content: "Identical duplicate text content"})
+	s.Close()
+
+	stdout, stderr, code := runCLI(t, home, "curate", "--scope", "project:curate", "--type", "dedup")
+	if code != 0 {
+		t.Fatalf("curate code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+
+	if res["ok"] != true {
+		t.Errorf("expected ok=true, got %v", res["ok"])
+	}
+	created, _ := res["proposals_created"].([]any)
+	if len(created) != 1 {
+		t.Errorf("expected 1 proposal created, got %v", res["proposals_created"])
+	}
+
+	// Verify proposal exists in proposals list
+	stdout, _, code = runCLI(t, home, "proposals", "list", "--scope", "project:curate", "--status", "pending")
+	if code != 0 {
+		t.Fatalf("proposals list code = %d, want 0", code)
+	}
+	var plist map[string]any
+	_ = json.Unmarshal([]byte(stdout), &plist)
+	props, _ := plist["proposals"].([]any)
+	if len(props) != 1 {
+		t.Errorf("expected 1 pending proposal, got %v", props)
+	}
+}
+
+func TestAgentCLI_Curate_DryRun(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ctx := context.Background()
+	m1, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:dry", Type: "note", Content: "Identical content for dry run test"})
+	_, _ = s.DB().ExecContext(ctx, "UPDATE memories SET updated_at = ? WHERE id = ?", time.Now().Add(-5*time.Minute).UnixMicro(), m1)
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:dry", Type: "note", Content: "Identical content for dry run test"})
+	s.Close()
+
+	stdout, stderr, code := runCLI(t, home, "curate", "--scope", "project:dry", "--type", "dedup", "--dry-run")
+	if code != 0 {
+		t.Fatalf("curate dry-run code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+
+	created, _ := res["proposals_created"].([]any)
+	if len(created) != 0 {
+		t.Errorf("expected 0 proposals created in dry-run, got %v", created)
+	}
+
+	// Verify no proposal in DB
+	stdout, _, _ = runCLI(t, home, "proposals", "list", "--scope", "project:dry")
+	var plist map[string]any
+	_ = json.Unmarshal([]byte(stdout), &plist)
+	props, _ := plist["proposals"].([]any)
+	if len(props) != 0 {
+		t.Errorf("expected 0 proposals in store, got %d", len(props))
+	}
+}
+
+func TestAgentCLI_Curate_AutoApply(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ctx := context.Background()
+	m1, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:auto", Type: "note", Content: "Duplicate content for auto-apply test"})
+	_, _ = s.DB().ExecContext(ctx, "UPDATE memories SET updated_at = ? WHERE id = ?", time.Now().Add(-5*time.Minute).UnixMicro(), m1)
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:auto", Type: "note", Content: "Duplicate content for auto-apply test"})
+	s.Close()
+
+	stdout, stderr, code := runCLI(t, home, "curate", "--scope", "project:auto", "--type", "dedup", "--apply")
+	if code != 0 {
+		t.Fatalf("curate apply code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+
+	applied, _ := res["proposals_applied"].([]any)
+	if len(applied) != 1 {
+		t.Errorf("expected 1 proposal applied, got %v", res["proposals_applied"])
+	}
+
+	// Check proposal status is applied
+	stdout, _, _ = runCLI(t, home, "proposals", "list", "--scope", "project:auto", "--status", "applied")
+	var plist map[string]any
+	_ = json.Unmarshal([]byte(stdout), &plist)
+	props, _ := plist["proposals"].([]any)
+	if len(props) != 1 {
+		t.Errorf("expected 1 applied proposal, got %v", props)
+	}
+}
+
+func TestAgentCLI_Curate_InvalidType(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	_, stderr, code := runCLI(t, home, "curate", "--type", "invalid-type")
+	if code != 1 {
+		t.Fatalf("curate code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "invalid --type") {
+		t.Errorf("expected 'invalid --type' in stderr, got: %s", stderr)
+	}
+}
+
+func TestAgentCLI_Summarize_FormatsAndSave(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	// Seed some memories
+	runCLI(t, home, "put", "--scope", "project:briefing", "--type", "note", "--content", "Primary database is SQLite-vec")
+	runCLI(t, home, "put", "--scope", "project:briefing", "--type", "note", "--content", "Authentication is RS256 JWT")
+
+	// 1. JSON format without save
+	stdout, stderr, code := runCLI(t, home, "summarize", "--scope", "project:briefing", "--focus", "Storage", "--format", "json")
+	if code != 0 {
+		t.Fatalf("summarize json code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+	if res["ok"] != true {
+		t.Errorf("expected ok=true, got %v", res["ok"])
+	}
+	title, _ := res["title"].(string)
+	if !strings.Contains(title, "Storage") {
+		t.Errorf("expected title to contain 'Storage', got: %s", title)
+	}
+	if res["saved_id"] != nil {
+		t.Errorf("expected saved_id=nil when --save not passed, got: %v", res["saved_id"])
+	}
+
+	// 2. Raw Markdown format
+	stdout, _, code = runCLI(t, home, "summarize", "--scope", "project:briefing", "--format", "markdown")
+	if code != 0 {
+		t.Fatalf("summarize markdown code = %d, want 0", code)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(stdout), "#") {
+		t.Errorf("expected markdown output starting with '#', got: %s", stdout[:30])
+	}
+
+	// 3. JSON format WITH --save
+	stdout, _, code = runCLI(t, home, "summarize", "--scope", "project:briefing", "--save")
+	if code != 0 {
+		t.Fatalf("summarize --save code = %d, want 0", code)
+	}
+	var saveRes map[string]any
+	_ = json.Unmarshal([]byte(stdout), &saveRes)
+	savedID, ok := saveRes["saved_id"].(float64)
+	if !ok || savedID <= 0 {
+		t.Fatalf("expected saved_id > 0, got: %v", saveRes["saved_id"])
+	}
+
+	// Verify memory exists with tags
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+
+	mem, err := s.GetMemory(context.Background(), int64(savedID))
+	if err != nil {
+		t.Fatalf("GetMemory: %v", err)
+	}
+	if mem.Type != "note" {
+		t.Errorf("expected type 'note', got %q", mem.Type)
+	}
+}
+
+func TestAgentCLI_Summarize_InvalidFormat(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	_, stderr, code := runCLI(t, home, "summarize", "--format", "yaml")
+	if code != 1 {
+		t.Fatalf("summarize code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "invalid --format") {
+		t.Errorf("expected 'invalid --format' in stderr, got: %s", stderr)
+	}
+}
+
+func TestAgentCLI_Proposals_Lifecycle(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ctx := context.Background()
+	m1, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:prop", Type: "note", Content: "Original decision: use MySQL"})
+	m2, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:prop", Type: "note", Content: "Updated decision: use SQLite-vec"})
+
+	payload, _ := json.Marshal(store.LinkProposalPayload{FromID: m2, ToID: m1, Relation: "supersedes"})
+	propID1, err := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:prop",
+		ProposalType: "link",
+		Title:        fmt.Sprintf("Link memory #%d ──supersedes──► memory #%d", m2, m1),
+		Reasoning:    "SQLite-vec supersedes old MySQL note",
+		PayloadJSON:  string(payload),
+	})
+	if err != nil {
+		t.Fatalf("CreateProposal 1: %v", err)
+	}
+
+	propID2, err := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:prop",
+		ProposalType: "link",
+		Title:        "Temporary link proposal",
+		Reasoning:    "To be dismissed",
+		PayloadJSON:  string(payload),
+	})
+	if err != nil {
+		t.Fatalf("CreateProposal 2: %v", err)
+	}
+	s.Close()
+
+	// 1. List proposals
+	stdout, stderr, code := runCLI(t, home, "proposals", "list", "--scope", "project:prop", "--status", "pending")
+	if code != 0 {
+		t.Fatalf("proposals list code = %d, want 0, stderr: %s", code, stderr)
+	}
+	var listRes map[string]any
+	_ = json.Unmarshal([]byte(stdout), &listRes)
+	props, _ := listRes["proposals"].([]any)
+	if len(props) != 2 {
+		t.Fatalf("expected 2 pending proposals, got %d", len(props))
+	}
+
+	// 2. Show proposal 1
+	stdout, stderr, code = runCLI(t, home, "proposals", "show", fmt.Sprintf("%d", propID1))
+	if code != 0 {
+		t.Fatalf("proposals show code = %d, want 0, stderr: %s", code, stderr)
+	}
+	var showRes map[string]any
+	_ = json.Unmarshal([]byte(stdout), &showRes)
+	prop, _ := showRes["proposal"].(map[string]any)
+	if prop["status"] != "pending" {
+		t.Errorf("expected status 'pending', got %v", prop["status"])
+	}
+
+	// 3. Apply proposal 1
+	stdout, stderr, code = runCLI(t, home, "proposals", "apply", fmt.Sprintf("%d", propID1))
+	if code != 0 {
+		t.Fatalf("proposals apply code = %d, want 0, stderr: %s", code, stderr)
+	}
+	var applyRes map[string]any
+	_ = json.Unmarshal([]byte(stdout), &applyRes)
+	if applyRes["applied"] != true {
+		t.Errorf("expected applied=true, got %v", applyRes["applied"])
+	}
+
+	// 4. Apply again -> expect conflict exit code 3
+	_, stderr, code = runCLI(t, home, "proposals", "apply", fmt.Sprintf("%d", propID1))
+	if code != 3 {
+		t.Fatalf("re-apply code = %d, want 3 (conflict)", code)
+	}
+
+	// 5. Dismiss proposal 2
+	stdout, stderr, code = runCLI(t, home, "proposals", "dismiss", fmt.Sprintf("%d", propID2))
+	if code != 0 {
+		t.Fatalf("proposals dismiss code = %d, want 0, stderr: %s", code, stderr)
+	}
+	var dismissRes map[string]any
+	_ = json.Unmarshal([]byte(stdout), &dismissRes)
+	if dismissRes["dismissed"] != true {
+		t.Errorf("expected dismissed=true, got %v", dismissRes["dismissed"])
+	}
+
+	// 6. Verify proposal 2 is now dismissed in list
+	stdout, _, code = runCLI(t, home, "proposals", "list", "--scope", "project:prop", "--status", "dismissed")
+	if code != 0 {
+		t.Fatalf("proposals list dismissed code = %d, want 0", code)
+	}
+	var dismissedList map[string]any
+	_ = json.Unmarshal([]byte(stdout), &dismissedList)
+	dProps, _ := dismissedList["proposals"].([]any)
+	if len(dProps) != 1 {
+		t.Errorf("expected 1 dismissed proposal, got %d", len(dProps))
+	}
+}
+
+func TestAgentCLI_Proposals_Errors(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	// Missing action
+	_, _, code := runCLI(t, home, "proposals")
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+
+	// Unknown action
+	_, _, code = runCLI(t, home, "proposals", "foobar")
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+
+	// Show missing ID
+	_, _, code = runCLI(t, home, "proposals", "show")
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+
+	// Show non-existent proposal -> exit code 2 (not found)
+	_, _, code = runCLI(t, home, "proposals", "show", "999999")
+	if code != 2 {
+		t.Errorf("code = %d, want 2 (not found)", code)
+	}
+
+	// Apply non-existent proposal -> exit code 2 (not found)
+	_, _, code = runCLI(t, home, "proposals", "apply", "999999")
+	if code != 2 {
+		t.Errorf("code = %d, want 2 (not found)", code)
+	}
+
+	// Dismiss non-existent proposal -> exit code 2 (not found)
+	_, _, code = runCLI(t, home, "proposals", "dismiss", "999999")
+	if code != 2 {
+		t.Errorf("code = %d, want 2 (not found)", code)
+	}
+
+	// Invalid status filter in list
+	_, _, code = runCLI(t, home, "proposals", "list", "--status", "invalid-status")
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+}

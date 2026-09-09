@@ -11,6 +11,16 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
+type agentContextKey string
+
+const dryRunContextKey agentContextKey = "centmem_agent_dry_run"
+
+func isDryRun(ctx context.Context) bool {
+	v := ctx.Value(dryRunContextKey)
+	b, ok := v.(bool)
+	return ok && b
+}
+
 // Tool defines an executable agent function.
 type Tool interface {
 	Name() string
@@ -371,6 +381,10 @@ func (t *ProposeLinkTool) Execute(ctx context.Context, argsJSON string) (string,
 		Relation: args.Relation,
 	})
 
+	if isDryRun(ctx) {
+		return fmt.Sprintf(`{"ok":true,"dry_run":true,"proposal_type":"link","from_id":%d,"to_id":%d,"relation":%q,"status":"simulated"}`, args.FromID, args.ToID, args.Relation), nil
+	}
+
 	propID, err := t.store.CreateProposal(ctx, &store.Proposal{
 		ScopeID:      fromMem.ScopeID,
 		ScopePath:    fromMem.ScopePath,
@@ -480,6 +494,10 @@ func (t *ProposeMergeTool) Execute(ctx context.Context, argsJSON string) (string
 		TargetContent: args.Content,
 		TargetTags:    args.Tags,
 	})
+
+	if isDryRun(ctx) {
+		return fmt.Sprintf(`{"ok":true,"dry_run":true,"proposal_type":"merge","source_ids":%v,"status":"simulated"}`, args.SourceIDs), nil
+	}
 
 	propID, err := t.store.CreateProposal(ctx, &store.Proposal{
 		ScopeID:      firstMem.ScopeID,

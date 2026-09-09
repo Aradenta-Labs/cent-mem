@@ -47,6 +47,10 @@ var commands = map[string]commandEntry{
 	"unlink":   {cmdUnlink, "unlink <from_id> <to_id> [--relation <rel>] | unlink --id <link_id>", []string{"--id", "--relation"}},
 	"links":    {cmdLinks, "links <memory_id> [--all] [--include-suggested]", []string{"--all", "--include-suggested"}},
 	"serve":    {cmdServe, "serve [--mcp]", []string{"--mcp"}},
+	"ask":       {cmdAsk, "ask <question> [--scope <scope>] [--top N] [--interactive]", []string{"--scope", "--top", "--interactive"}},
+	"curate":    {cmdCurate, "curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]", []string{"--scope", "--type", "--apply", "--dry-run"}},
+	"summarize": {cmdSummarize, "summarize [--scope <scope>] [--focus <topic>] [--format markdown|json] [--save]", []string{"--scope", "--focus", "--format", "--save"}},
+	"proposals": {cmdProposals, "proposals <list|show|apply|dismiss> [id] [--scope <scope>] [--status <s>] [--limit N] [--offset N]", []string{"--scope", "--status", "--limit", "--offset"}},
 }
 
 // buildRegistry returns a *cli.Registry populated with every registered command

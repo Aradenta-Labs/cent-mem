@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
 // goldenDir returns the absolute path to the committed golden fixtures.
@@ -399,4 +404,237 @@ func TestCLI_Golden_CaptureCategories(t *testing.T) {
 		t.Errorf("categories golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
 	}
 }
+
+func TestCLI_Golden_AskOffline(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	stdout, stderr, code := runCLI(t, home, "ask", "offline test question", "--scope", "project:golden")
+	if code != 0 {
+		t.Fatalf("ask code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	got["answer"] = "<ANSWER>"
+	got["conversation_id"] = "<CONVERSATION_ID>"
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "ask_offline.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("ask golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_CurateSummary(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	stdout, stderr, code := runCLI(t, home, "curate", "--scope", "project:golden", "--dry-run")
+	if code != 0 {
+		t.Fatalf("curate code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "curate_summary.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("curate golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_Summarize(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	stdout, stderr, code := runCLI(t, home, "summarize", "--scope", "project:golden")
+	if code != 0 {
+		t.Fatalf("summarize code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "summarize.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("summarize golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_ProposalsList(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	stdout, stderr, code := runCLI(t, home, "proposals", "list", "--scope", "project:golden")
+	if code != 0 {
+		t.Fatalf("proposals list code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "proposals_list.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("proposals list golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_ProposalsShow(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:golden", Type: "note", Content: "mem1"})
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:golden", Type: "note", Content: "mem2"})
+
+	payload, _ := json.Marshal(store.LinkProposalPayload{FromID: 1, ToID: 2, Relation: "supersedes"})
+	propID, err := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:golden",
+		ProposalType: "link",
+		Title:        "Link memory #1 ──supersedes──► memory #2",
+		Reasoning:    "Golden test reasoning",
+		PayloadJSON:  string(payload),
+	})
+	if err != nil {
+		t.Fatalf("CreateProposal: %v", err)
+	}
+
+	stdout, stderr, code := runCLI(t, home, "proposals", "show", fmt.Sprintf("%d", propID))
+	if code != 0 {
+		t.Fatalf("proposals show code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	if p, ok := got["proposal"].(map[string]any); ok {
+		p["created_at"] = "<TIMESTAMP>"
+		if p["applied_at"] != nil {
+			p["applied_at"] = "<TIMESTAMP>"
+		}
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "proposals_show.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("proposals show golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCLI_Golden_ProposalsApply(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:golden", Type: "note", Content: "mem1"})
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:golden", Type: "note", Content: "mem2"})
+
+	payload, _ := json.Marshal(store.LinkProposalPayload{FromID: 1, ToID: 2, Relation: "supersedes"})
+	propID, err := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:golden",
+		ProposalType: "link",
+		Title:        "Link memory #1 ──supersedes──► memory #2",
+		Reasoning:    "Golden test reasoning",
+		PayloadJSON:  string(payload),
+	})
+	if err != nil {
+		t.Fatalf("CreateProposal: %v", err)
+	}
+
+	stdout, stderr, code := runCLI(t, home, "proposals", "apply", fmt.Sprintf("%d", propID))
+	if code != 0 {
+		t.Fatalf("proposals apply code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	if p, ok := got["proposal"].(map[string]any); ok {
+		p["created_at"] = "<TIMESTAMP>"
+		p["applied_at"] = "<TIMESTAMP>"
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join(goldenDir(), "proposals_apply.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	var want map[string]any
+	_ = json.Unmarshal(wantBytes, &want)
+
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("proposals apply golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
 
