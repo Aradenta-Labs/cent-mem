@@ -118,7 +118,7 @@ func (c *MCPClient) Initialize(ctx context.Context) error {
 			"capabilities":    map[string]any{},
 			"clientInfo": map[string]string{
 				"name":    "centmem-classifier",
-				"version": "1.5.3",
+				"version": "1.5.4",
 			},
 		},
 	}

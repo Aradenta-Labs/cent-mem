@@ -30,7 +30,7 @@ func setupTestServer(t *testing.T, in io.Reader, out io.Writer) (*mcp.Server, *s
 	t.Cleanup(func() { st.Close() })
 
 	searcher := search.New(st)
-	srv := mcp.NewServer(st, searcher, cfg, in, out, "1.5.3")
+	srv := mcp.NewServer(st, searcher, cfg, in, out, "1.5.4")
 	return srv, st
 }
 
@@ -91,8 +91,8 @@ func TestServer_Initialize(t *testing.T) {
 	if serverInfo["name"] != "centmem" {
 		t.Errorf("expected server name centmem, got %v", serverInfo["name"])
 	}
-	if serverInfo["version"] != "1.5.3" {
-		t.Errorf("expected server version 1.5.3, got %v", serverInfo["version"])
+	if serverInfo["version"] != "1.5.4" {
+		t.Errorf("expected server version 1.5.4, got %v", serverInfo["version"])
 	}
 }
 

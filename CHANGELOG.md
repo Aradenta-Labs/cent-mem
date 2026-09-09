@@ -5,6 +5,106 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-09-09
+
+Sync & `centmemd` Daemon: Multi-Process Architecture, High-Performance Local IPC, and Real-time Event Streaming.
+
+### Added
+
+- **Standalone Daemon Service (`cmd/centmemd`)**:
+  - Dedicated long-running `centmemd` binary holding exclusive SQLite connection handles, vector embedding queue draining, and background compaction loops.
+  - High-performance local IPC over Unix Domain Sockets (`~/.centmem/centmemd.sock`) or Windows Named Pipes (`\\.\pipe\centmemd`) with sub-1.5ms latency.
+  - Optional TCP gRPC server (`--port <port>`, e.g. `:50051`) for remote multi-machine access.
+- **Transparent CLI Delegation**:
+  - `centmem` CLI automatically probes for a running daemon. When active, operations (`put`, `set`, `get`, `recall`, `timeline`, `list`, `forget`, `stats`, `compact`, `link`, `unlink`, `links`) transparently route over gRPC.
+  - Instant zero-configuration fallback to embedded SQLite access when the daemon is offline.
+  - `--direct` CLI flag and `CENTMEM_DIRECT=1` environment variable to bypass daemon IPC when direct database access is explicitly desired.
+- **Single-Writer Serialization & Concurrency**:
+  - `server.LockWrite()` mutex serialization in the daemon eliminates SQLite WAL `busy_timeout` errors and lock contention during high-concurrency multi-agent parallel operations.
+  - Atomic scope creation (`INSERT INTO scopes(path) VALUES(?) ON CONFLICT(path) DO NOTHING`) preventing concurrent scope registration race conditions.
+- **Daemon Lifecycle Management**:
+  - Commands: `centmemd start` (background daemon spawn), `centmemd run` (foreground supervisor mode for Docker/systemd/launchd), `centmemd status` (live health and statistics probe), `centmemd stop` (graceful shutdown with PID/socket cleanup).
+- **gRPC Sync & Replication Service**:
+  - `SyncService` streaming events from the `events` table over gRPC for real-time synchronization across instances.
+
+### Fixed
+
+- Preserved socket and PID file path scoping when a custom `--home` directory flag is provided.
+
+## [1.5.3] - 2026-09-08
+
+Integrations: Model Context Protocol (MCP) Server & Client, Remote Web UI REST with Token Auth, and VS Code Extension.
+
+### Added
+
+- **Model Context Protocol (MCP) Server (`centmem serve --mcp`)**:
+  - Zero-dependency, stdio-based JSON-RPC 2.0 MCP server natively exposing centmem memory tools to Claude Code, Cursor, Windsurf, Zed, and Google Antigravity.
+  - Supported MCP tools: `centmem_recall`, `centmem_put`, `centmem_set`, `centmem_get`, `centmem_timeline`, `centmem_stats`, `centmem_forget`, `centmem_link`.
+- **MCP Client Classifier Enrichment**:
+  - Auto-capture classifier queries external MCP servers before categorization to retrieve supplemental project context.
+- **Remote REST API with Token Authentication**:
+  - `centmem ui` supports binding to `0.0.0.0` securely guarded by mandatory `Authorization: Bearer <token>` validation via `--token` flag or `CENTMEM_UI_TOKEN`.
+  - Frontend `TokenAuthModal` in Web UI with password visibility toggle and authentication persistence.
+- **Official VS Code Extension (`editors/vscode/centmem-memory/`)**:
+  - Sidebar panel providing real-time selection context recall and one-click memory capture from the editor.
+
+### Fixed
+
+- Direct API key resolution in OpenAI-compatible classifier probe and UI input component sanitization.
+
+## [1.5.2] - 2026-09-08
+
+Memory Relationships: Link Graph, Relationship Management, and Graph-Aware Recall.
+
+### Added
+
+- **Relational Graph Schema (Migration v5)**:
+  - Database schema migration `m0005_memory_links.sql` introducing `memory_links` table with directional typed relationships (`supports`, `refines`, `contradicts`, `depends-on`, `supersedes`).
+- **Relationship Management CLI**:
+  - `centmem link <from_id> <to_id> --relation <rel>` to establish verified memory relationships.
+  - `centmem link confirm <link_id>` and `centmem link dismiss <link_id>` to confirm or reject auto-suggested relationships.
+  - `centmem unlink` to remove links by link ID or source/target pair.
+  - `centmem links <id> [--all]` to inspect incoming and outgoing graph edges.
+- **Auto-Suggestion Engine**:
+  - Analyzes semantic similarity on `centmem put` to automatically suggest relationship edges (`suggested=true`).
+- **Graph-Aware Recall**:
+  - `centmem recall --include-links` expands search results with 1-hop relationship edges.
+  - Web UI relationship badge and drawer link navigation.
+
+### Fixed
+
+- Resolved flag parsing, error mapping, and recall edge cases for memory link operations.
+
+## [1.5.1] - 2026-09-08
+
+Richer Capture: Incremental Developer Artifact Ingestion Pipelines.
+
+### Added
+
+- **`centmem capture git`**:
+  - Incremental Git commit and PR description ingestion tracking commit SHA cursor (`.centmem/git-cursor`).
+- **`centmem capture docs`**:
+  - Markdown and documentation file indexing with heading breadcrumb chunking and mtime tracking (`.centmem/docs-cursor`).
+- **`centmem capture shell`**:
+  - Shell command history pattern extraction (`.zsh_history`, `.bash_history`) with secret scrubbing.
+- **`centmem capture comments`**:
+  - Codebase source code annotation scanner indexing `TODO`, `FIXME`, `HACK`, `NOTE`, `OPTIMIZE`, and `SECURITY` tags with file and line provenance.
+
+## [1.5.0] - 2026-09-07
+
+Search & Recall: Importance Scoring & Access Frequency Tracking.
+
+### Added
+
+- **Access Frequency Tracking (Migration v4)**:
+  - Database schema migration `m0004_importance.sql` adding `access_count` and `last_accessed_at` columns to `memories` table.
+  - Asynchronous, non-blocking recall access tracking via `RecordAccessAsync` updating access counts for recalled memories.
+- **Logarithmic Importance Score Boost**:
+  - Importance multiplier applied during RRF scoring: `multiplier = 1.0 + ln(1 + access_count) * weight`, capped at configurable threshold (default 2.0x).
+  - Configuration keys: `search.importance_boost_enabled`, `search.importance_weight`, `search.importance_cap`.
+- **Importance Telemetry**:
+  - Distribution metrics in `centmem stats` output (`zero_access`, `low_access_1_5`, `medium_access_6_20`, `high_access_21_plus`, `max_access_count`, `avg_access_count`).
+
 ## [1.4.5] - 2026-09-05
 
 Smart Skills Installer: Re-engineered `@aradenta.labs/centmem-skills` (`npm/bin/install.js`) with filesystem config directory harness detection, Git-aware scope inference, and interactive disambiguation using Node.js built-in `readline`.
@@ -251,6 +351,13 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[1.5.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.4
+[1.5.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.3
+[1.5.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.2
+[1.5.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.1
+[1.5.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.0
+[1.4.5]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.5
+[1.4.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.4
 [1.4.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.3
 [1.4.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.2
 [1.4.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.4.1

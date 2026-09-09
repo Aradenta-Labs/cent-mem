@@ -106,12 +106,17 @@ Legend: `[S]` small (~few hours), `[M]` medium (~a day), `[L]` large (multi-day)
 
 - [x] **v1.2 (Frictionless UX)**: Standalone `@aradenta.labs/centmem-skills` installer, auto-instruction injection (`AGENTS.md`), and smart-routing `/centmem` slash command.
 - [x] **v1.3 (Auto-capture)**: File watchers, exit traps, and 3-tier classification backends extracting durable knowledge from agent transcripts.
-- [x] **v1.4 (Web UI Dashboard)**: Browser-based memory browser and management UI (`centmem ui`) served by single binary via `go:embed`.
+- [x] **v1.4 (Web UI Dashboard & Recall Accuracy)**: Browser-based memory browser (`centmem ui`), Web UI settings modal, Two-Stage re-ranking pipeline, scope proximity and agent affinity boosting.
+- [x] **v1.4.5 (Smart Skills Installer)**: Harness detection, Git-aware scope inference, interactive prompts via `readline`.
+- [x] **v1.5.0 (Importance Scoring)**: Memory access frequency tracking (`access_count`), logarithmic RRF score boosting, and importance telemetry.
+- [x] **v1.5.1 (Richer Capture)**: Four dedicated artifact capture pipelines (`git`, `docs`, `shell`, `comments`).
+- [x] **v1.5.2 (Memory Relationships)**: Directed graph relational layer (`memory_links`), link/unlink/links commands, auto-suggestions, and graph recall.
+- [x] **v1.5.3 (Integrations)**: Model Context Protocol (MCP) server & client enrichment, secure remote REST API token auth, VS Code extension.
+- [x] **v1.5.4 (Sync & centmemd Daemon)**: Multi-process architecture, gRPC daemon service (`centmemd`), Unix domain socket IPC, transparent CLI delegation, single-writer write serialization, and event streaming.
 
-## Backlog / v2 (server sync)
+## Backlog / v2 (Distributed Multi-Machine Sync)
 
-- `centmemd` daemon: gRPC, API-key auth, owns embedder loop.
-- Multi-machine replication via logical replication of `events`.
+- Multi-machine replication via logical replication of `events` stream over remote gRPC.
 - Per-agent identities + scoped read/write permissions (RBAC).
 
 ---

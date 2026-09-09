@@ -101,6 +101,9 @@ npx @aradenta.labs/centmem-skills --uninstall
 
 | Option | Description |
 |---|---|
+| `--global` | Install globally to user-level harness directories (`~/.claude/`, `~/.cursor/`, etc.) |
+| `--project` | Install locally to project-level harness directories (`./.agents/`, `./.claude/`, etc.) |
+| `--yes, -y` | Skip interactive prompts and accept all detected defaults |
 | `--skill <name>` | Custom skill name (default: `centmem`) |
 | `--dry-run` | Simulate actions without modifying the filesystem |
 | `--list` | Display target install paths and detected instruction files |

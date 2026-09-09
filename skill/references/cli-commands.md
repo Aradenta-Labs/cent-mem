@@ -478,7 +478,7 @@ centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]
 
 **Stdout JSON:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.3"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.4"}
 ```
 
 ---
@@ -623,7 +623,7 @@ centmem serve [--mcp]
 
 ---
 
-## 13. `centmemd` — Background Daemon & Multi-Process Architecture
+## 13. `centmemd` — Background Daemon & Multi-Process Architecture (v1.5.4)
 
 `centmemd` is the background service binary responsible for single-writer SQLite coordination, connection pooling, background embedding queue draining, periodic retention compaction, and multi-agent IPC over Unix domain sockets.
 

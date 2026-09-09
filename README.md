@@ -6,7 +6,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#)
-[![Version](https://img.shields.io/badge/version-v1.3.1-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.5.4-success.svg)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#installation)
 [![Offline](https://img.shields.io/badge/offline-100%25-brightgreen)](#privacy)
 [![No API key](https://img.shields.io/badge/api%20key-not%20required-brightgreen)](#privacy)
@@ -17,9 +17,9 @@
 
 > *Today every AI agent lives on its own island. **cent-mem** puts them all on the same continent.*
 
-cent-mem is a fast, local-first shared memory store. Every agent on your machine integrates via a tiny **skill** that wraps a single **Go CLI**. They all read and write the same memory — scoped by project → agent → session — and retrieve "just the memory that's required" via hybrid search (semantic + keyword + facts + timeline).
+cent-mem is a fast, local-first shared memory store. Every agent on your machine integrates via a tiny **skill**, native **Model Context Protocol (MCP)**, or a single **Go CLI**. They all read and write the same memory — scoped by project → agent → session — and retrieve "just the memory that's required" via hybrid search (semantic + keyword + facts + timeline).
 
-Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Amazon Q Dev**, and any custom harness that can exec a binary.
+Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Windsurf**, **Google Antigravity**, **Amazon Q Dev**, and any custom harness that can exec a binary or speak MCP.
 
 ---
 
@@ -29,7 +29,7 @@ Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Amazon Q Dev*
 - **Stop contradicting.** All agents share one source of truth.
 - **Save tokens.** A 50 ms `recall` replaces re-reading files and re-summarizing the project.
 - **Offline, by default.** Local embeddings (BGE-small, ONNX). No API keys, no telemetry, no cloud.
-- **One binary.** Single static Go executable. No runtime deps, no daemon in v1.
+- **Zero-friction deployment.** Single static Go executable with embedded SQLite, optional high-performance background daemon (`centmemd`), and native MCP server.
 
 ## Features
 
@@ -37,11 +37,15 @@ Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Amazon Q Dev*
 |---|---|
 | 🚀 | **Fast** — p95 read < 300 ms on 100k memories; p95 write overhead < 50 ms |
 | 🧠 | **Hybrid search** — semantic (vec) + keyword (FTS5 bm25) + facts + timeline, fused via RRF |
+| 📈 | **Importance scoring** — access-frequency tracking with logarithmic rank reinforcement |
 | 🗂️ | **Hierarchical scoping** — `global → project → agent → session`, with inheritance |
-| 🎣 | **Auto-capture** — extracts durable decisions, facts, and code from agent transcripts automatically |
+| 🔗 | **Memory link graph** — directional semantic relationships (`supports`, `contradicts`, `supersedes`) |
+| 🔌 | **Model Context Protocol (MCP)** — native `stdio` server (`centmem serve`) for agent harnesses |
+| ⚡ | **`centmemd` daemon** — single-writer serialization & Unix domain socket IPC for multi-agent concurrency |
+| 🎣 | **Richer capture** — extracts from transcripts, Git commits, Markdown docs, shell history, and code annotations |
+| 🖥️ | **Web UI dashboard** — high-density local browser interface with live health monitoring and settings |
 | 🧹 | **Auto-summarize** — old memories consolidate; the store stays lean forever |
 | 🩺 | **Self-checks** — `doctor`, `backup`, `restore` for ops |
-| 🔌 | **Pluggable** — swap embedders or summarizers via interfaces |
 | 🔒 | **Privacy** — data never leaves your machine |
 
 ---
@@ -126,21 +130,24 @@ centmem init                           # one-time setup + model download
 centmem put   --scope <s> --type note  # write a note/log memory
 centmem set   --scope <s> --key <k> --value '<json>'   # upsert a fact
 centmem get   --scope <s> --key <k>    # fetch a fact (with inheritance)
-centmem recall <q> --scope <s>         # hybrid search
+centmem recall <q> --scope <s>         # hybrid search (semantic + keyword + facts + timeline)
 centmem timeline --scope <s>           # chronological logs
 centmem list   --scope <s>             # browse memories
 centmem forget --id N                  # delete a memory
+centmem link <a> <b> --relation <r>    # link memories (supports, contradicts, supersedes)
+centmem unlink <a> <b>                 # delete relationship links
+centmem links <id>                     # view memory relationship graph edges
 centmem compact [--dry-run]            # summarize + archive old memories
+centmem reindex [--all]                # drain embedding queue into vector index
 centmem doctor                         # health checks
 centmem backup   --to <file>           # snapshot the DB
 centmem restore  --from <file>         # restore from snapshot
-centmem capture run [--watch]          # auto-capture from transcript
-centmem capture summary                # view latest capture report
-centmem capture categories --list      # list/manage capture categories
-centmem capture convert --harness <h>  # normalize transcript to JSONL
+centmem capture <git|docs|shell|comments|run> # ingest commits, docs, shell, or transcripts
+centmem serve [--mcp]                  # native Model Context Protocol (MCP) server
+centmem ui [--port N] [--host H] [--token T] # web UI memory browser dashboard
 centmem config set <k> <v>             # configure settings in config.toml
-centmem stats                          # store summary
-centmem ui [--port N] [--no-open]      # web UI memory browser dashboard
+centmem stats                          # store summary & importance telemetry
+centmemd <start|run|status|stop>       # background gRPC daemon for multi-agent concurrency
 ```
 
 ### Scope grammar
@@ -236,8 +243,9 @@ Benchmarks live in `internal/search/search_bench_test.go` and are recorded in [`
 - [x] **v1.0** — Core store, hybrid search, skill, compaction, polish
 - [x] **v1.2** — Frictionless UX (npx installer, workflow loop injection, /centmem slash command)
 - [x] **v1.3** — Auto-capture from agent transcripts (hooks & multi-backend classification)
-- [x] **v1.4** — Web UI Memory Browser dashboard (`centmem ui`, embedded server)
-- [ ] **v2.0** — Sync server (`centmemd`), multi-machine replication via `events` log, per-agent RBAC, remote embedding providers
+- [x] **v1.4** — Web UI Memory Browser dashboard (`centmem ui`) & Two-Stage Re-Ranking
+- [x] **v1.5** — Importance scoring, Richer capture (Git/Docs/Shell/Comments), Link graph, Native MCP server, and `centmemd` daemon
+- [ ] **v2.0** — Distributed multi-machine sync via remote gRPC event streaming, per-agent RBAC
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) and [docs/PRD.md § Open Questions](docs/PRD.md#10-open-questions).
 

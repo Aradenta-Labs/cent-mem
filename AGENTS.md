@@ -60,25 +60,32 @@ This re-extracts only changed files (AST-only, no API cost, ~seconds) to keep th
 6. **Tests gate merges.** Every command gets a golden-file JSON test. Core packages target ≥ 70% coverage.
 7. **Keep the graph current.** Run `graphify update .` after any code change so the next agent inherits an accurate graph.
 
-## Repo layout (target)
+## Repo layout (current)
 
 ```
 cent-mem/
-├── cmd/centmem/          # CLI entrypoint, command handlers
+├── cmd/
+│   ├── centmem/          # CLI entrypoint, command handlers
+│   └── centmemd/         # Background gRPC daemon entrypoint
 ├── internal/
 │   ├── config/           # TOML config + env overrides
 │   ├── store/            # SQLite layer, migrations, SQL
 │   │   └── migrations/   # versioned schema files
-│   ├── search/           # hybrid search + RRF fusion
+│   ├── search/           # hybrid search + RRF fusion + re-ranking
 │   ├── embed/            # ONNX embedder + queue drain
 │   ├── compact/          # retention + summarizer
-│   └── scope/            # scope parsing + inheritance
-├── skill/                # SKILL.md + adapters + install.sh
-├── docs/                 # this documentation set
-├── graphify-out/         # knowledge graph (query before reading raw files)
-├── testdata/             # golden files, fixtures
-├── scripts/              # build/release helpers
-├── .github/workflows/    # CI
+│   ├── scope/            # scope parsing + inheritance
+│   ├── capture/          # auto-capture & artifact ingestion pipelines
+│   ├── daemon/           # gRPC service, IPC transport, sync stream
+│   ├── mcp/              # native Model Context Protocol (MCP) server
+│   └── ui/               # embedded Web UI Memory Browser server
+├── skill/                # SKILL.md + references + harness adapters
+├── editors/vscode/       # official VS Code memory extension
+├── npm/                  # @aradenta.labs/centmem-skills package & templates
+├── docs/                 # documentation set & phased plans
+├── testdata/             # golden files, fixtures, benchmarks
+├── scripts/              # build/release helpers & contract checks
+├── .github/workflows/    # CI/CD & release pipelines
 ├── go.mod
 └── README.md
 ```

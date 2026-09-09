@@ -315,7 +315,7 @@ centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]
 
 **Output:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.3", "auth": false}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.4", "auth": false}
 ```
 
 ---
