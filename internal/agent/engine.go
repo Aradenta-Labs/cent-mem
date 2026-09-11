@@ -194,6 +194,7 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 
 	_, _, err := e.RunReActLoop(ctx, messages, nil)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[centmem/agent] Curate ReAct loop failed, falling back to offline mode: %v\n", err)
 		return e.offlineCurate(ctx, scope, curateType, opts.AutoApply, opts.DryRun)
 	}
 
@@ -258,6 +259,7 @@ func (e *Engine) Summarize(ctx context.Context, opts SummarizeOptions) (*Summari
 		var summaryMarkdown string
 		summaryMarkdown, _, err = e.RunReActLoop(ctx, messages, nil)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "[centmem/agent] Summarize ReAct loop failed, falling back to offline mode: %v\n", err)
 			res, err = e.offlineSummarize(ctx, scope, opts.Focus)
 		} else {
 			citations := e.resolveCitations(ctx, summaryMarkdown)
