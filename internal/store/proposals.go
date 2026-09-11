@@ -179,8 +179,15 @@ func (s *Store) UpdateProposalStatus(ctx context.Context, id int64, status strin
 		return fmt.Errorf("store: invalid proposal status %q; must be one of: %s",
 			status, strings.Join(ValidProposalStatuses, ", "))
 	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
 	var currentStatus string
-	err := s.db.QueryRowContext(ctx, "SELECT status FROM agent_proposals WHERE id = ?", id).Scan(&currentStatus)
+	err = tx.QueryRowContext(ctx, "SELECT status FROM agent_proposals WHERE id = ?", id).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
 		return ErrNotFound
 	}
@@ -196,10 +203,10 @@ func (s *Store) UpdateProposalStatus(ctx context.Context, id int64, status strin
 		t := nowMicro()
 		appliedAt = &t
 	}
-	res, err := s.db.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		UPDATE agent_proposals
 		SET status = ?, applied_at = ?
-		WHERE id = ?`, status, appliedAt, id)
+		WHERE id = ? AND (status != 'applied' OR ? = 'applied')`, status, appliedAt, id, status)
 	if err != nil {
 		return fmt.Errorf("store: update proposal status: %w", err)
 	}
@@ -208,9 +215,9 @@ func (s *Store) UpdateProposalStatus(ctx context.Context, id int64, status strin
 		return err
 	}
 	if affected == 0 {
-		return ErrNotFound
+		return fmt.Errorf("%w: proposal %d already applied (cannot transition to %q)", ErrProposalConflict, id, status)
 	}
-	return nil
+	return tx.Commit()
 }
 
 // DismissProposal marks a proposal as dismissed.

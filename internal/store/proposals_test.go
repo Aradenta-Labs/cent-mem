@@ -557,7 +557,7 @@ func TestApplyProposal_ConcurrentAccess(t *testing.T) {
 		t.Fatalf("CreateProposal: %v", err)
 	}
 
-	const applyGoroutines = 10
+	const applyGoroutines = 50
 	var wg sync.WaitGroup
 	var successCount int64
 	var conflictCount int64
@@ -621,7 +621,8 @@ func TestApplyProposal_ConcurrentAccess(t *testing.T) {
 	var dismissSuccess int64
 	startSignal2 := make(chan struct{})
 
-	for i := 0; i < 5; i++ {
+	const racers = 10
+	for i := 0; i < racers; i++ {
 		wg2.Add(2)
 		// Apply worker
 		go func() {
@@ -644,7 +645,7 @@ func TestApplyProposal_ConcurrentAccess(t *testing.T) {
 	close(startSignal2)
 	wg2.Wait()
 
-	// Exactly one terminal state should have been chosen
+	// Exactly one terminal state should have been chosen and winner must be strictly mutually exclusive
 	p2, err := s.GetProposal(ctx, propID2)
 	if err != nil {
 		t.Fatalf("GetProposal 2: %v", err)
@@ -652,8 +653,20 @@ func TestApplyProposal_ConcurrentAccess(t *testing.T) {
 	if p2.Status != "applied" && p2.Status != "dismissed" {
 		t.Fatalf("expected terminal status ('applied' or 'dismissed'), got %q", p2.Status)
 	}
-	if p2.Status == "applied" && applySuccess != 1 {
-		t.Fatalf("expected 1 apply success when status is applied, got %d", applySuccess)
+	if p2.Status == "applied" {
+		if applySuccess != 1 {
+			t.Fatalf("expected 1 apply success when status is applied, got %d", applySuccess)
+		}
+		if dismissSuccess != 0 {
+			t.Fatalf("expected 0 dismiss success when status is applied, got %d (TOCTOU race detected)", dismissSuccess)
+		}
+	} else if p2.Status == "dismissed" {
+		if applySuccess != 0 {
+			t.Fatalf("expected 0 apply success when status is dismissed, got %d (TOCTOU race detected)", applySuccess)
+		}
+		if dismissSuccess < 1 {
+			t.Fatalf("expected at least 1 dismiss success when status is dismissed, got %d", dismissSuccess)
+		}
 	}
 }
 

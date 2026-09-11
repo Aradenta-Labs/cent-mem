@@ -9,6 +9,7 @@ import {
   Copy,
   Check,
   BookOpen,
+  X,
 } from 'lucide-react';
 import {
   Conversation,
@@ -58,6 +59,7 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
   const [showThreadSelector, setShowThreadSelector] = useState<boolean>(false);
   const [isOfflineBackend, setIsOfflineBackend] = useState<boolean>(false);
+  const [isOfflineBannerDismissed, setIsOfflineBannerDismissed] = useState<boolean>(false);
 
   // Check if LLM backend is offline/disabled from server configuration
   useEffect(() => {
@@ -655,7 +657,7 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
         m.content.includes('offline catalog mode') ||
         m.content.includes('LLM reasoning is offline'))
   );
-  const showOfflineBanner = isOfflineBackend || hasOfflineTurn;
+  const showOfflineBanner = (isOfflineBackend || hasOfflineTurn) && !isOfflineBannerDismissed;
 
   return (
     <div
@@ -824,28 +826,48 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
               <strong style={{ color: 'var(--text-primary)' }}>Offline Mode:</strong> LLM backend is offline or unconfigured. Operating in direct hybrid search recall mode.
             </span>
           </div>
-          {onOpenSettings && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: 'var(--surface-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '2px 8px',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Configure Settings →
+              </button>
+            )}
             <button
               type="button"
-              onClick={onOpenSettings}
+              onClick={() => setIsOfflineBannerDismissed(true)}
+              aria-label="Dismiss offline banner"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px',
-                backgroundColor: 'var(--surface-secondary)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '2px 8px',
-                fontSize: '11px',
-                fontWeight: 500,
-                color: 'var(--text-primary)',
+                justifyContent: 'center',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-tertiary)',
                 cursor: 'pointer',
-                whiteSpace: 'nowrap',
+                padding: '2px',
+                borderRadius: 'var(--radius-xs)',
               }}
             >
-              Configure Settings →
+              <X size={14} />
             </button>
-          )}
+          </div>
         </div>
       )}
 

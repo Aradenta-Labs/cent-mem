@@ -17,7 +17,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
-const testVersion = "1.4.2"
+const testVersion = "2.0.0"
 
 func TestServer_HealthAndStaticServing(t *testing.T) {
 	cfg := ServerConfig{
@@ -1522,6 +1522,25 @@ func TestServer_LinkEndpoints(t *testing.T) {
 	defer respDel.Body.Close()
 	if respDel.StatusCode != http.StatusOK {
 		t.Fatalf("DELETE status %d", respDel.StatusCode)
+	}
+}
+
+func TestServer_DefaultConfigVersion(t *testing.T) {
+	defCfg := DefaultServerConfig()
+	if defCfg.Version != "2.0.0" {
+		t.Errorf("expected DefaultServerConfig().Version to be 2.0.0, got %q", defCfg.Version)
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:   "127.0.0.1",
+		Port:   0,
+		NoOpen: true,
+	})
+	if err != nil {
+		t.Fatalf("NewServer error: %v", err)
+	}
+	if srv.cfg.Version != "2.0.0" {
+		t.Errorf("expected NewServer fallback version 2.0.0, got %q", srv.cfg.Version)
 	}
 }
 

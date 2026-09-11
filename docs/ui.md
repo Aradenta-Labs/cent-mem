@@ -15,7 +15,7 @@ centmem ui
 ```
 
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.4.2"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.0.0"}
 ```
 
 The browser will open automatically to `http://127.0.0.1:4231`. To stop the server, press `Ctrl+C` in your terminal.

@@ -68,7 +68,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "1.5.0",
+		Version:  "2.0.0",
 		Store:    nil,
 		Searcher: nil,
 	}
