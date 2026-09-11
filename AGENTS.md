@@ -145,8 +145,12 @@ Whenever you start a task, follow this 3-step loop:
 <!-- centmem-command:start -->
 ## /centmem Command
 When the user types `/centmem <input>`, act as the Memory Manager. Analyze the intent:
+- **Inquire / Chat**: If asking a natural-language question requiring synthesized answers with citations, or starting an inquiry session, run `centmem ask "<input>" --scope "project:$CENTMEM_PROJ" --top 5` (or `centmem ask --interactive`).
 - **Recall / Context**: If asking a question or looking for context, run `centmem recall "<input>" --scope "project:$CENTMEM_PROJ" --top 5` or `centmem timeline`.
 - **Save Decisions / Facts**: If stating a decision, convention, preference, or learning to save, run `centmem put --scope "project:$CENTMEM_PROJ" --type note --content "<input>"` or `centmem set --scope "project:$CENTMEM_PROJ" --key "<key>" --value '<json>'`.
+- **Autonomous Curation**: If asking to find contradictions, detect semantic duplicates, or curate memory graph consistency, run `centmem curate --scope "project:$CENTMEM_PROJ" --type all` (or `--dry-run`).
+- **Synthesize Summary**: If asking for an architecture summary, developer briefing, or project digest, run `centmem summarize --scope "project:$CENTMEM_PROJ"` (optionally `--focus "<topic>"` or `--save`).
+- **Review Proposals**: If asking to inspect, review, apply, or dismiss staged agent proposals, run `centmem proposals list --scope "project:$CENTMEM_PROJ"`, `centmem proposals show <id>`, `centmem proposals apply <id>`, or `centmem proposals dismiss <id>`.
 - **Relationships / Links**: If asking to link memories, inspect relationships, trace dependencies/contradictions, or confirm/dismiss auto-suggestions, run centmem link, centmem links, or centmem unlink.
 - **Ingest / Capture**: If asking to ingest repository knowledge, commits, docs, shell history, or code annotations, run `centmem capture git`, `centmem capture docs`, `centmem capture shell`, or `centmem capture comments`.
 - **Configuration / Agent Engine**: If asking to configure LLM backend, agent reasoning limits, or inspect settings, run `centmem config get llm`, `centmem config get agent`, or `centmem config set <key> <value>`.

@@ -274,11 +274,47 @@ centmem config set llm.model "deepseek-r1:8b"
 ```
 It confirms the updated settings to the user.
 
+When the user types:
+> `/centmem why do we use SQLite instead of Postgres?`
+
+The agent recognizes the **Inquire / Chat Intent** and executes:
+```bash
+centmem ask "why do we use SQLite instead of Postgres?" --scope "project:backend-api" --top 5
+```
+It reads the synthesized answer with grounded citations and relays it directly to the user.
+
+When the user types:
+> `/centmem curate memories to find contradictions and duplicates`
+
+The agent recognizes the **Autonomous Curation Intent** and executes:
+```bash
+centmem curate --scope "project:backend-api" --type all --dry-run
+```
+It inspects the scan results and reports any candidate proposals to the user.
+
+When the user types:
+> `/centmem summarize our core architecture`
+
+The agent recognizes the **Synthesize Summary Intent** and executes:
+```bash
+centmem summarize --scope "project:backend-api" --focus "Architecture" --save
+```
+It displays the synthesized briefing and confirms the saved digest note ID.
+
+When the user types:
+> `/centmem review pending proposals`
+
+The agent recognizes the **Review Proposals Intent** and executes:
+```bash
+centmem proposals list --scope "project:backend-api" --status pending
+```
+It displays the list of staged proposals waiting for human review.
+
 ---
 
-## Scenario 5: Configuring Built-in AI Agent & Stage 1 Schema v6 (v2.0.0 Preview)
+## Scenario 5: Built-in AI Agent Reasoning, CLI Suite & Review Center (v2.0.0 Stages 1–3)
 
-In v2.0.0 Stage 1, centmem introduces a built-in cognitive reasoning engine (`internal/agent`) and Schema v6 staging tables (`agent_proposals`, `agent_conversations`, `agent_messages`).
+In v2.0.0, centmem introduces a native cognitive reasoning engine (`internal/agent`), Schema v6 staging tables (`agent_proposals`, `agent_conversations`, `agent_messages`), Stage 2 CLI commands (`ask`, `curate`, `summarize`, `proposals`), and an embedded Stage 3 Web UI Review Center.
 
 ### Step 1: Inspecting & Configuring the Unified LLM Backend
 The agent checks the active LLM backend and configures it to point to a local Ollama instance:
@@ -304,10 +340,39 @@ centmem config set agent.confidence_threshold 0.75
 }
 ```
 
-### Step 2: Understanding ReAct Proposals & Human-in-the-Loop Curation
+### Step 2: Running Autonomous Curation & Staging Proposals
 The autonomous curation loop identifies conflicting or duplicate memories using internal store tools (`search_memories`, `read_memory`, `inspect_links`, `detect_knowledge_gaps`). Instead of silently mutating knowledge records, it stages reversible proposals in SQLite (`agent_proposals` table):
 
-- **Link Proposal**: Proposes establishing semantic edges (`supersedes`, `contradicts`, `depends-on`).
-- **Merge Proposal**: Proposes consolidating multiple fragmented memories into a single canonical note while archiving the sources.
+```bash
+centmem curate --scope "project:backend-api" --type all
+```
 
-Once Stage 2 CLI commands (`centmem proposals`) and Stage 3 Web UI are active, agents and developers review, approve, or dismiss these proposals with atomic transaction guarantees.
+**Output returned:**
+```json
+{
+  "ok": true,
+  "proposals_created": [101],
+  "proposals_applied": [],
+  "scanned_memories": 14,
+  "contradictions_found": 0,
+  "duplicates_found": 1,
+  "fallback_used": false
+}
+```
+
+### Step 3: Reviewing & Applying Proposals
+Developers or authorized agents review staged proposals and apply them with atomic SQLite transactions:
+
+```bash
+# Inspect proposal details and diff
+centmem proposals show 101
+
+# Apply proposal atomically
+centmem proposals apply 101
+```
+
+### Step 4: Web UI Assistant Chat & Proposals Review Center (Stage 3)
+Developers can also interact via the browser UI by launching `centmem ui`:
+- **Assistant Chat Tab**: Natural-language conversational inquiry with real-time SSE streaming (`/api/agent/chat`), interactive citation cards, and automated knowledge gap detection.
+- **Proposals Review Center**: Human-in-the-loop review inbox featuring visual side-by-side merge diffs, relationship link previews, and 1-click apply, dismiss, and reopen actions.
+

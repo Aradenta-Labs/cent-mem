@@ -1,7 +1,7 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` CLI to recall prior context, store decisions, save facts, and inspect timeline so every agent shares one persistent brain. Use whenever you need to remember or retrieve project context, architecture decisions, user preferences, API conventions, or session checkpoints.
-version: 1.5.4
+version: 2.0.0
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 allowed-tools:
@@ -123,7 +123,7 @@ centmem capture shell
 centmem capture comments
 ```
 
-### 8. Web UI Memory Browser Dashboard
+### 8. Web UI Memory Browser Dashboard & Review Center (v1.4.0, Stage 3)
 ```bash
 # Launch the embedded web UI memory browser dashboard in your browser
 centmem ui
@@ -134,6 +134,18 @@ centmem ui --port 8080 --no-open
 # Bind to remote network host with mandatory Bearer token (min 16 chars)
 centmem ui --host 0.0.0.0 --port 4231 --token "sec_0123456789abcdef" --no-open
 ```
+
+**Stage 3 Interactive Web UI Capabilities:**
+- **Assistant Chat Tab**: Conversational inquiry with real-time SSE streaming (`/api/agent/chat`), multi-turn thread persistence (`/api/agent/conversations`), grounded citations with similarity badges, and automated knowledge gap alerts.
+- **Proposals Review Center**: Human-in-the-loop review inbox featuring visual merge diffs, relationship link previews, and 1-click apply, dismiss, and reopen actions.
+- **Embedded REST & SSE Endpoints**:
+  - `POST /api/agent/chat`: Real-time SSE streaming completions (`delta`, `citations`, `gaps`, `done`, `error`).
+  - `GET /api/agent/conversations`: List persisted conversation threads filtered by scope.
+  - `GET /api/agent/conversations/{id}/messages`: Retrieve chronological messages and citations for a thread.
+  - `GET /api/proposals`: Filter staged proposals by scope, status (`pending`, `applied`, `dismissed`), and type (`merge`, `link`, `update`).
+  - `POST /api/proposals/{id}/apply`: Execute atomic proposal transaction.
+  - `POST /api/proposals/{id}/dismiss`: Dismiss proposal.
+  - `POST /api/proposals/{id}/reopen`: Reopen dismissed proposal.
 
 ### 9. Memory Relationships: Link Graph (v1.5.2)
 ```bash
@@ -275,13 +287,14 @@ project:<name>/agent:<agent>/session:<id>
 
 *Note: The `centmem` CLI automatically delegates to `centmemd` over Unix domain socket IPC when active. Pass `--direct` or set `CENTMEM_DIRECT=1` to force direct embedded SQLite access.*
 
-### Built-in AI Memory Agent & Schema v6 (v2.0.0 Stage 2)
+### Built-in AI Memory Agent & Schema v6 (v2.0.0 Stages 1–3)
 
-In v2.0.0, centmem introduces a native autonomous reasoning engine and Schema v6:
+In v2.0.0, centmem introduces a native autonomous reasoning engine, Schema v6, and an interactive Web UI review workspace:
 - **Core Agent Engine (`internal/agent`)**: Multi-turn ReAct reasoning loop (`Plan -> Act -> Think`) with tool execution, cycle guards (`agent.max_reasoning_steps`), and offline fallback.
 - **Schema v6 Staging Queue (`agent_proposals`)**: Staged human-in-the-loop proposals for merges, links, and updates, executed via atomic SQLite transactions (`ApplyProposal`).
 - **Conversations & Messages**: `agent_conversations` and `agent_messages` tables tracking interactive chat turns and structured memory citations.
 - **Native v2.0.0 CLI Surface (Stage 2)**: `centmem ask`, `centmem curate`, `centmem summarize`, and `centmem proposals` commands fully operational with offline synthesis and human-in-the-loop lifecycle management.
+- **Web UI Experience & Review Center (Stage 3)**: Assistant Chat tab with real-time SSE streaming, grounded citations, knowledge gap alerts, and Proposals Review Center with visual merge diffs, relationship previews, and 1-click apply/dismiss/reopen actions. Embedded REST/SSE endpoints (`/api/agent/chat`, `/api/agent/conversations`, `/api/proposals`).
 
 ---
 

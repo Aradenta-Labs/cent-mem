@@ -130,6 +130,16 @@ test('injectWorkflowAndCommands creates AGENTS.md if missing', () => {
     assert(content.includes('Manage Relationships'));
     assert(content.includes('Relationships / Links'));
     assert(content.includes('centmem link'));
+    assert(content.includes('Inquire / Chat'));
+    assert(content.includes('centmem ask'));
+    assert(content.includes('Autonomous Curation'));
+    assert(content.includes('centmem curate'));
+    assert(content.includes('Synthesize Summary'));
+    assert(content.includes('centmem summarize'));
+    assert(content.includes('Review Proposals'));
+    assert(content.includes('centmem proposals'));
+    assert(content.includes('Visual Dashboard / UI'));
+    assert(content.includes('centmem ui'));
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

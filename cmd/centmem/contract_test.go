@@ -162,6 +162,46 @@ func TestRegistry_NamesUnique(t *testing.T) {
 	}
 }
 
+// TestContract_SkillMirrorsInSync asserts that skill/SKILL.md and npm/templates/SKILL.md
+// (and .agents/skills/centmem/SKILL.md if present) are byte-for-byte identical,
+// and that their references and examples remain in sync.
+func TestContract_SkillMirrorsInSync(t *testing.T) {
+	root := repoRoot()
+	skillMD := readFile(t, filepath.Join(root, "skill", "SKILL.md"))
+	npmMD := readFile(t, filepath.Join(root, "npm", "templates", "SKILL.md"))
+	if skillMD != npmMD {
+		t.Errorf("npm/templates/SKILL.md has drifted from skill/SKILL.md")
+	}
+
+	agentsMDPath := filepath.Join(root, ".agents", "skills", "centmem", "SKILL.md")
+	if data, err := os.ReadFile(agentsMDPath); err == nil {
+		if string(data) != skillMD {
+			t.Errorf(".agents/skills/centmem/SKILL.md has drifted from skill/SKILL.md")
+		}
+	}
+
+	for _, rel := range []string{
+		filepath.Join("references", "cli-commands.md"),
+		filepath.Join("references", "architecture-and-scoping.md"),
+		filepath.Join("references", "capture-hooks.md"),
+		filepath.Join("examples", "recipes.sh"),
+		filepath.Join("examples", "agent-workflow-examples.md"),
+		filepath.Join("scripts", "centmem-helper.sh"),
+	} {
+		sData := readFile(t, filepath.Join(root, "skill", rel))
+		nData := readFile(t, filepath.Join(root, "npm", "templates", rel))
+		if sData != nData {
+			t.Errorf("npm/templates/%s has drifted from skill/%s", rel, rel)
+		}
+		aPath := filepath.Join(root, ".agents", "skills", "centmem", rel)
+		if data, err := os.ReadFile(aPath); err == nil {
+			if string(data) != sData {
+				t.Errorf(".agents/skills/centmem/%s has drifted from skill/%s", rel, rel)
+			}
+		}
+	}
+}
+
 // --- helpers -----------------------------------------------------------------
 
 func toSet(ss []string) map[string]bool {

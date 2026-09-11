@@ -44,6 +44,15 @@ else
   echo "✗ Could not query LLM config"
 fi
 
+# Check pending proposals
+echo -n "Checking pending proposals... "
+if PROPOSALS_JSON=$(centmem proposals list --scope "project:$PROJECT_NAME" --status pending 2>/dev/null); then
+  PENDING_COUNT=$(echo "$PROPOSALS_JSON" | { grep -o '"id":' || true; } | wc -l | tr -d ' ')
+  echo "✓ $PENDING_COUNT pending proposal(s)"
+else
+  echo "none"
+fi
+
 # Quick recall test
 echo -e "\nRecent memories for project:$PROJECT_NAME:"
 centmem recall "conventions decisions" --scope "project:$PROJECT_NAME" --top 3 --pretty 2>/dev/null || true

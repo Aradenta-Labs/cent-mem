@@ -296,9 +296,9 @@ In v1.5.3, centmem introduces native Model Context Protocol (MCP) support over `
 
 ---
 
-## Built-in AI Memory Agent Engine Architecture (v2.0.0 Stage 1)
+## Built-in AI Memory Agent Engine Architecture (v2.0.0 Stages 1–3)
 
-In v2.0.0, centmem evolves from a passive storage database into an **active cognitive intelligence and autonomous curation layer**. Stage 1 establishes the core ReAct reasoning engine, Schema v6 database persistence, internal tool adapters, and human-in-the-loop proposals staging.
+In v2.0.0, centmem evolves from a passive storage database into an **active cognitive intelligence and autonomous curation layer**. Stage 1 established the core ReAct reasoning engine and Schema v6 persistence; Stage 2 introduced the native CLI command suite (`ask`, `curate`, `summarize`, `proposals`); and Stage 3 brings an interactive browser workspace with real-time SSE streaming and human-in-the-loop review.
 
 ### Cognitive Architecture Overview
 
@@ -440,3 +440,105 @@ auto_apply_safe_links = false
 ```
 
 *Inheritance Rule:* If `[llm]` is not specified, centmem automatically inherits configuration from `[capture]` (`capture.backend`, `capture.local_llm_endpoint`, `capture.api_base_url`, `capture.api_key`), ensuring complete backward compatibility.
+
+### 6. Agent CLI Suite Architecture (v2.0.0 Stage 2)
+
+Stage 2 operationalized the agent reasoning engine into four dedicated CLI subcommands wired into the core router:
+
+- **`centmem ask`**: Executes natural language inquiry through `agent.Engine.Ask()`.
+  - In single-shot mode, it retrieves candidate memories via hybrid search, feeds them into the ReAct cycle, and outputs grounded answers with structured citation objects and knowledge gaps.
+  - In `--interactive` mode, it initiates a terminal REPL supporting persistent multi-turn conversations, terminal commands (`/help`, `/clear`, `exit`), and streaming text output.
+- **`centmem curate`**: Runs autonomous memory curation algorithms:
+  - Contradiction Detection: Identifies semantic conflicts between memories within a scope and stages `link` or `archive` proposals.
+  - Semantic Deduplication: Detects duplicate or heavily overlapping memories via embedding cosine similarity and FTS5 bm25, generating `merge` proposals.
+  - `--apply` flag allows high-confidence proposals to be committed immediately, while `--dry-run` simulates curation passes without mutating the staging queue.
+- **`centmem summarize`**: Generates high-level architectural briefs and scope summaries.
+  - Uses `agent.Engine` to synthesize developer context, architectural pillars, and operational conventions from stored memories.
+  - With `--save`, the generated summary is stored as a new `type=note` memory tagged `summary,architecture,digest`.
+- **`centmem proposals`**: Provides a complete administrative surface (`list`, `show`, `apply`, `dismiss`) for the `agent_proposals` table, allowing developers and automated agents to inspect, approve, or discard pending actions.
+
+### 7. Web UI Experience & Embedded REST/SSE Architecture (v2.0.0 Stage 3)
+
+Stage 3 bridges the memory store and cognitive agent engine to a local Web UI browser workspace embedded directly in `centmem ui`:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Web UI Browser Client (React + Vite)                 │
+│                                                                         │
+│   ┌────────────────────────┐              ┌──────────────────────────┐  │
+│   │   Assistant Chat Tab   │              │  Proposals Review Center │  │
+│   │   (SSE Token Stream)   │              │  (Merge Diffs & Actions) │  │
+│   └───────────┬────────────┘              └────────────┬─────────────┘  │
+└───────────────┼────────────────────────────────────────┼────────────────┘
+                │ EventSource / fetch                    │ REST JSON
+                ▼                                        ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│               centmem ui — Embedded Go HTTP Server (internal/ui)        │
+│                                                                         │
+│   SSE Handler:                              REST Handlers:              │
+│   • POST /api/agent/chat                    • GET  /api/agent/conversat… │
+│     (Chunk flusher, citations, gaps)        • GET  /api/proposals       │
+│                                             • POST /api/proposals/{id}… │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      Core Engine & SQLite Store                         │
+│       internal/agent.Engine    │    internal/store.Store (WAL)          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 7.1 Assistant Chat & Streaming Protocol
+- **Endpoint**: `POST /api/agent/chat`
+- **Headers**: `Accept: text/event-stream`, `Cache-Control: no-cache`
+- **Chunk Flusher**: Uses `http.ResponseController` and `http.Flusher` to push incremental token deltas and event payloads without buffer delay.
+- **Event Lifecycle**:
+  1. `event: delta`: Streaming text tokens `{"content": "...", "role": "assistant"}`
+  2. `event: citations`: Array of grounded memory citations `[{"id": 1, "type": "note", "scope": "...", "snippet": "...", "score": 0.0412}]`
+  3. `event: gaps`: Detected knowledge gaps where context is missing `["..."]`
+  4. `event: done`: Completion metadata `{"conversation_id": "...", "reasoning_steps": 2, "fallback_used": false}`
+  5. `event: error`: Emitted on agent or model failure `{"error": "..."}`
+- **Thread Persistence**: Conversations and individual messages are tracked in `agent_conversations` and `agent_messages`. Threads can be listed via `GET /api/agent/conversations` and individual message histories retrieved via `GET /api/agent/conversations/{id}/messages`.
+
+#### 7.2 Proposals Review Center & Lifecycle
+- **Queue Inspection**: `GET /api/proposals` queries `agent_proposals` with filtering by `scope`, `status` (`pending`, `applied`, `dismissed`), and `type` (`merge`, `link`, `update`).
+- **Visual Merge Diffs**: Redundant source memories and synthesized candidate content are presented side-by-side with color-coded additions/deletions before confirmation.
+- **State Machine Transitions**:
+  ```
+                ┌──────────────┐
+                │   pending    │
+                └──────┬───────┘
+                       │
+             ┌─────────┴─────────┐
+             ▼                   ▼
+       POST .../apply      POST .../dismiss
+             │                   │
+             ▼                   ▼
+      ┌─────────────┐     ┌─────────────┐
+      │   applied   │     │  dismissed  │
+      └─────────────┘     └──────┬──────┘
+                                 │
+                           POST .../reopen
+                                 │
+                                 ▼
+                          ┌─────────────┐
+                          │   pending   │
+                          └─────────────┘
+  ```
+- **1-Click Actions**:
+  - `POST /api/proposals/{id}/apply`: Commits the proposal changes inside an atomic SQLite transaction and records `applied_at`.
+  - `POST /api/proposals/{id}/dismiss`: Sets proposal status to `dismissed`.
+  - `POST /api/proposals/{id}/reopen`: Reverts a `dismissed` proposal back to `pending`.
+
+#### 7.3 Embedded REST & SSE API Endpoint Reference
+
+| Method | Endpoint | Query / Path / Body | Description |
+|--------|----------|---------------------|-------------|
+| `POST` | `/api/agent/chat` | Body: `{"conversation_id": "...", "message": "...", "scope": "...", "top": 5}` | Streams agent reasoning, citations, and answers over SSE |
+| `GET` | `/api/agent/conversations` | Query: `scope`, `limit` (default 50, max 200) | Returns persisted conversation threads ordered by `updated_at DESC` |
+| `GET` | `/api/agent/conversations/{id}/messages` | Path: `id` (string) | Returns chronological user and assistant messages with citation metadata |
+| `GET` | `/api/proposals` | Query: `scope`, `status`, `type`, `limit`, `offset` | Returns staged proposals with pagination and filtering |
+| `POST` | `/api/proposals/{id}/apply` | Path: `id` (int64) | Atomically executes staged changes (merge note creation, links, archives) |
+| `POST` | `/api/proposals/{id}/dismiss` | Path: `id` (int64) | Updates proposal status to `dismissed` |
+| `POST` | `/api/proposals/{id}/reopen` | Path: `id` (int64) | Restores a dismissed proposal to `pending` status |
+

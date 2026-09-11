@@ -81,3 +81,17 @@ centmem config set llm.model "deepseek-r1:8b"
 centmem config set agent.max_reasoning_steps 8
 centmem config set agent.confidence_threshold 0.75
 centmem config set agent.auto_apply_safe_links false
+
+echo -e "\n=== 11. Agent Inquiry, Curation & Proposals (v2.0.0 Stage 2) ==="
+# Conversational inquiry grounded in memories with citations
+centmem ask "what database do we use?" --scope "project:$PROJ" --top 5
+
+# Autonomous curation to detect contradictions and duplicates
+centmem curate --scope "project:$PROJ" --type all --dry-run
+
+# Synthesize architectural pillars and developer briefing
+centmem summarize --scope "project:$PROJ" --focus "Architecture"
+
+# Inspect and manage staged proposals
+centmem proposals list --scope "project:$PROJ" --status pending
+
