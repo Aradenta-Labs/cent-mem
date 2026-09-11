@@ -3,6 +3,10 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aradenta-labs/cent-mem/internal/store"
@@ -521,3 +525,135 @@ func TestProposals_EventsAndStateGuards(t *testing.T) {
 		t.Fatalf("expected error updating summarized memory, got nil")
 	}
 }
+
+func TestApplyProposal_ConcurrentAccess(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 1. Test multiple concurrent ApplyProposal calls on the exact same proposal.
+	// Exactly 1 must succeed, and all others must fail with ErrProposalConflict.
+	m1, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:conc", Type: "note", Content: "Fact A"})
+	if err != nil {
+		t.Fatalf("PutMemory m1: %v", err)
+	}
+	m2, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:conc", Type: "note", Content: "Fact B"})
+	if err != nil {
+		t.Fatalf("PutMemory m2: %v", err)
+	}
+
+	linkPayload, _ := json.Marshal(store.LinkProposalPayload{
+		FromID:   m1,
+		ToID:     m2,
+		Relation: "supports",
+	})
+	propID, err := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:conc",
+		ProposalType: "link",
+		Title:        "Concurrent Link",
+		Reasoning:    "Test atomic concurrency",
+		PayloadJSON:  string(linkPayload),
+	})
+	if err != nil {
+		t.Fatalf("CreateProposal: %v", err)
+	}
+
+	const applyGoroutines = 10
+	var wg sync.WaitGroup
+	var successCount int64
+	var conflictCount int64
+	errCh := make(chan error, applyGoroutines)
+	startSignal := make(chan struct{})
+
+	for i := 0; i < applyGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-startSignal
+
+			err := s.ApplyProposal(ctx, propID)
+			if err == nil {
+				atomic.AddInt64(&successCount, 1)
+			} else if errors.Is(err, store.ErrProposalConflict) {
+				atomic.AddInt64(&conflictCount, 1)
+			} else {
+				errCh <- fmt.Errorf("unexpected error: %w", err)
+			}
+		}()
+	}
+
+	close(startSignal)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("unexpected error in concurrent apply: %v", err)
+	}
+
+	if successCount != 1 {
+		t.Fatalf("expected exactly 1 successful apply, got %d", successCount)
+	}
+	if conflictCount != applyGoroutines-1 {
+		t.Fatalf("expected %d conflict errors, got %d", applyGoroutines-1, conflictCount)
+	}
+
+	p, err := s.GetProposal(ctx, propID)
+	if err != nil {
+		t.Fatalf("GetProposal: %v", err)
+	}
+	if p.Status != "applied" {
+		t.Fatalf("expected proposal status 'applied', got %q", p.Status)
+	}
+
+	// 2. Test race between concurrent ApplyProposal and DismissProposal
+	propID2, err := s.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:conc",
+		ProposalType: "link",
+		Title:        "Concurrent Link 2",
+		Reasoning:    "Race between apply and dismiss",
+		PayloadJSON:  string(linkPayload),
+	})
+	if err != nil {
+		t.Fatalf("CreateProposal 2: %v", err)
+	}
+
+	var wg2 sync.WaitGroup
+	var applySuccess int64
+	var dismissSuccess int64
+	startSignal2 := make(chan struct{})
+
+	for i := 0; i < 5; i++ {
+		wg2.Add(2)
+		// Apply worker
+		go func() {
+			defer wg2.Done()
+			<-startSignal2
+			if err := s.ApplyProposal(ctx, propID2); err == nil {
+				atomic.AddInt64(&applySuccess, 1)
+			}
+		}()
+		// Dismiss worker
+		go func() {
+			defer wg2.Done()
+			<-startSignal2
+			if err := s.DismissProposal(ctx, propID2); err == nil {
+				atomic.AddInt64(&dismissSuccess, 1)
+			}
+		}()
+	}
+
+	close(startSignal2)
+	wg2.Wait()
+
+	// Exactly one terminal state should have been chosen
+	p2, err := s.GetProposal(ctx, propID2)
+	if err != nil {
+		t.Fatalf("GetProposal 2: %v", err)
+	}
+	if p2.Status != "applied" && p2.Status != "dismissed" {
+		t.Fatalf("expected terminal status ('applied' or 'dismissed'), got %q", p2.Status)
+	}
+	if p2.Status == "applied" && applySuccess != 1 {
+		t.Fatalf("expected 1 apply success when status is applied, got %d", applySuccess)
+	}
+}
+

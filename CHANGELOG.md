@@ -5,30 +5,44 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0-dev] - In Progress
+## [2.0.0] - 2026-09-11
 
-Built-in AI Memory Agent: Inquiry, Autonomous Curation, Synthesis & Web UI Assistant (Stage 1: Core Agent Engine & Database Layer).
+Built-in AI Memory Agent: Inquiry, Autonomous Curation, Synthesis, Web UI Assistant & Hardening.
 
 ### Added
 
+- **Active Intelligence Layer & Core Agent Engine (`internal/agent`)**:
+  - Multi-step ReAct reasoning loop (Reason + Act + Observe) with cycle guards (`max_reasoning_steps`, default 8), citation extraction `[id: 42]`, real-time token streaming, and deterministic offline fallbacks.
+  - 6 memory tools exposed as OpenAI-compatible function definitions: `search_memories`, `read_memory`, `inspect_links`, `propose_link`, `propose_merge`, `detect_knowledge_gaps`.
+  - Unified, zero-dependency streaming HTTP client for OpenAI-compatible `/v1/chat/completions` (Ollama, LocalAI, vLLM, and cloud BYOK providers) supporting function calling, SSE chunks, and exponential backoff retry.
 - **Schema Migration v6 (`m0006_agent_proposals.sql`)**:
   - `agent_proposals`: Human-in-the-loop staging queue for merges, links, updates, and archives with status tracking (`pending`, `applied`, `dismissed`).
-  - `agent_conversations`: Persistent threads for Web UI and CLI interactive sessions with cascade constraints.
+  - `agent_conversations`: Persistent threads for Web UI and CLI interactive inquiry sessions with cascade constraints.
   - `agent_messages`: Chronological dialog turns supporting roles (`user`, `assistant`, `system`, `tool`), citations JSON, and tool execution logs.
 - **Store Proposals Engine & Atomic Execution (`internal/store/proposals.go`)**:
   - Full CRUD lifecycle methods: `CreateProposal`, `GetProposal`, `ListProposals`, `UpdateProposalStatus`, `DismissProposal`.
   - Atomic `ApplyProposal` transaction runner executing confirmed graph links, consolidated memory merges with `supersedes` links, content updates, and memory archiving, emitting typed events and managing vector indexing.
-- **Conversation Persistence (`internal/store/conversations.go`)**:
-  - Thread creation, retrieval, listing by scope, cascading message deletion, and message appending.
-- **Unified OpenAI-Compatible LLM Client (`internal/agent/client.go`)**:
-  - Lightweight, zero external dependency HTTP client for OpenAI-compatible `/v1/chat/completions` (Ollama, LocalAI, vLLM, BYOK cloud providers).
-  - Native function calling (`tools` & `tool_calls`), Server-Sent Events (SSE) streaming with 10MB chunk buffers, `config.ResolveAPIKey` token resolution, and exponential backoff retry.
-- **Agent Tool Registry & Store Adapters (`internal/agent/tools.go`)**:
-  - 6 core memory tools exposed as OpenAI function definitions: `search_memories`, `read_memory`, `inspect_links`, `propose_link`, `propose_merge`, `detect_knowledge_gaps`.
-- **ReAct Reasoning Loop Engine (`internal/agent/engine.go`)**:
-  - Multi-step ReAct reasoning loop (Plan $\to$ Act $\to$ Think) with cycle guards (`max_reasoning_steps`, default 8), citation extraction `[id: 42]`, real-time token streaming, and deterministic offline fallbacks.
-- **Extended Configuration (`[llm]` & `[agent]`)**:
-  - TOML configuration tables and dot-notation keys for LLM backend, endpoints, models, reasoning limits, and auto-apply thresholds, with environment variable overrides (`CENTMEM_LLM_*`, `CENTMEM_AGENT_*`).
+- **CLI Command Suite (`cmd/centmem`)**:
+  - `centmem ask`: Conversational Q&A with grounded citation provenance, knowledge gap detection, and interactive terminal mode (`--interactive`) with `/help` and `/clear` commands.
+  - `centmem curate`: Autonomous memory curation detecting conflicts and semantic redundancies to stage link/merge proposals (`--type contradictions|dedup|all`, `--apply`, `--dry-run`).
+  - `centmem summarize`: High-level architectural briefings and convention guides with `--save` and format options.
+  - `centmem proposals`: Comprehensive management commands (`list`, `show`, `apply`, `dismiss`) for staged actions.
+- **Web UI Experience (`ui/src`)**:
+  - **Assistant Tab**: Streaming markdown chat with syntax-highlighted code blocks, clickable citation badges linking to the memory drawer, knowledge gap record alerts, and calm offline retrieval mode notice with 1-click Settings shortcut.
+  - **Proposals Review Center**: Side-by-side visual merge diffs, directional relationship preview cards, and 1-click **Approve & Apply**, **Dismiss**, and **Undo/Reopen** actions with live counter badges.
+  - REST/SSE endpoints in `internal/ui`: `POST /api/agent/chat`, `GET /api/agent/conversations`, `GET /api/agent/conversations/:id/messages`, `GET /api/proposals`, `POST /api/proposals/:id/apply`, `POST /api/proposals/:id/dismiss`, `POST /api/proposals/:id/reopen`.
+- **Extended Configuration & Settings**:
+  - Configuration tables `[llm]` and `[agent]` in TOML with environment variable overrides (`CENTMEM_LLM_*`, `CENTMEM_AGENT_*`) and live settings modification in Web UI.
+- **Documentation & Guides**:
+  - Dedicated AI Memory Agent Guide (`docs/guides/agent-guide.md`) detailing ReAct architecture, configuration, CLI commands, and offline fallbacks.
+
+### Hardened
+
+- **Offline & Graceful Degradation**:
+  - Zero-configuration and unreachable endpoint fallback: `ask` outputs hybrid search results with clear guidance notice; `curate` executes heuristic hash/exact deduplication staging merge proposals; Web UI renders calm alert banner.
+- **Daemon Concurrency & Lock-Free Multi-Agent Writes**:
+  - Stress-tested under 30+ concurrent IPC write workers alongside simultaneous curation and proposal application transactions with zero SQLite lock errors (`_txlock=immediate`).
+  - Atomic proposal application conflict resolution returning `ErrProposalConflict` on concurrent application races.
 
 ## [1.5.4] - 2026-09-09
 
@@ -376,6 +390,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.0.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.0
 [1.5.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.4
 [1.5.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.3
 [1.5.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.2

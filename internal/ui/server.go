@@ -94,7 +94,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "1.5.0"
+		cfg.Version = "2.0.0"
 	}
 
 	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
@@ -1320,6 +1320,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			if s.cfg.Config.Capture.Harness != "" {
 				loadedCfg.Capture = s.cfg.Config.Capture
 			}
+			if s.cfg.Config.LLM.Backend != "" {
+				loadedCfg.LLM = s.cfg.Config.LLM
+			}
+			if s.cfg.Config.Agent != (config.AgentConfig{}) {
+				loadedCfg.Agent = s.cfg.Config.Agent
+			}
 			s.mu.RUnlock()
 		}
 
@@ -1339,6 +1345,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				"model":     loadedCfg.Model,
 				"retention": loadedCfg.Retention,
 				"capture":   loadedCfg.Capture,
+				"llm":       loadedCfg.LLM,
+				"agent":     loadedCfg.Agent,
 			},
 			"meta": map[string]any{
 				"home":        home,

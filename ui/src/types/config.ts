@@ -33,10 +33,30 @@ export interface CaptureConfig {
   categories: string[];
 }
 
+export interface LLMConfig {
+  backend: string;
+  endpoint: string;
+  model: string;
+  api_key?: string;
+  timeout_seconds?: number;
+  max_tokens?: number;
+  temperature?: number;
+}
+
+export interface AgentConfig {
+  enabled: boolean;
+  max_reasoning_steps: number;
+  confidence_threshold: number;
+  auto_apply_proposals: boolean;
+  inquiry_top_citations: number;
+}
+
 export interface ConfigData {
   model: ModelConfig;
   retention: RetentionConfig;
   capture: CaptureConfig;
+  llm?: LLMConfig;
+  agent?: AgentConfig;
 }
 
 export interface ConfigMeta {

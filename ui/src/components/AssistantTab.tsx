@@ -21,6 +21,7 @@ import {
   fetchConversationMessages,
   streamChat,
   restoreMemory,
+  fetchConfig,
 } from '../services/api';
 import { Button } from './Button';
 import { Badge } from './Badge';
@@ -31,6 +32,7 @@ export interface AssistantTabProps {
   selectedScope: string;
   onSelectMemory: (id: number) => void;
   onToast?: (message: string, type: 'success' | 'error' | 'info') => void;
+  onOpenSettings?: () => void;
 }
 
 interface LocalTurn {
@@ -46,6 +48,7 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
   selectedScope,
   onSelectMemory,
   onToast,
+  onOpenSettings,
 }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
@@ -54,6 +57,21 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
   const [showThreadSelector, setShowThreadSelector] = useState<boolean>(false);
+  const [isOfflineBackend, setIsOfflineBackend] = useState<boolean>(false);
+
+  // Check if LLM backend is offline/disabled from server configuration
+  useEffect(() => {
+    fetchConfig()
+      .then((res) => {
+        if (res.ok && res.config) {
+          const llm = res.config.llm;
+          if (llm && (llm.backend === 'disabled' || !llm.backend)) {
+            setIsOfflineBackend(true);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Quick Memory Record Dialog (for knowledge gaps)
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
@@ -217,6 +235,9 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
       },
       onDone: (doneData) => {
         setIsStreaming(false);
+        if (doneData.fallback_used) {
+          setIsOfflineBackend(true);
+        }
         setMessages((prev) =>
           prev.map((t) =>
             t.id === assistantTurnId
@@ -627,6 +648,15 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
     },
   ];
 
+  const hasOfflineTurn = messages.some(
+    (m) =>
+      m.role === 'assistant' &&
+      (m.content.includes('Offline Mode') ||
+        m.content.includes('offline catalog mode') ||
+        m.content.includes('LLM reasoning is offline'))
+  );
+  const showOfflineBanner = isOfflineBackend || hasOfflineTurn;
+
   return (
     <div
       style={{
@@ -772,6 +802,52 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
           </Button>
         </div>
       </div>
+
+      {/* Offline & Graceful Degradation Setup Notice */}
+      {showOfflineBanner && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: 'var(--space-2) var(--space-4)',
+            backgroundColor: 'var(--color-warning-subtle, rgba(234, 179, 8, 0.08))',
+            borderBottom: '1px solid var(--border-subtle)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-secondary)',
+            gap: 'var(--space-3)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={15} style={{ color: 'var(--color-warning-text, #eab308)', flexShrink: 0 }} />
+            <span>
+              <strong style={{ color: 'var(--text-primary)' }}>Offline Mode:</strong> LLM backend is offline or unconfigured. Operating in direct hybrid search recall mode.
+            </span>
+          </div>
+          {onOpenSettings && (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                backgroundColor: 'var(--surface-secondary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 8px',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Configure Settings →
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Main Dialogue Scroll Area */}
       <div

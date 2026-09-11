@@ -879,3 +879,117 @@ func TestAgentCLI_Ask_InteractiveCommands(t *testing.T) {
 		t.Errorf("expected clear output in stdout, got: %s", stdout)
 	}
 }
+
+func TestAgentCLI_Ask_UnreachableEndpoint_Fallback(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	// Configure an unreachable LLM endpoint with a short timeout
+	runCLI(t, home, "config", "set", "llm.backend", "openai_compatible")
+	runCLI(t, home, "config", "set", "llm.endpoint", "http://127.0.0.1:59999")
+	runCLI(t, home, "config", "set", "llm.timeout_seconds", "1")
+
+	// Seed memory
+	_, _, code := runCLI(t, home, "put", "--scope", "project:unreach", "--type", "note", "--content", "Unreachable endpoint fallback test memory")
+	if code != 0 {
+		t.Fatalf("put failed with code %d", code)
+	}
+
+	// Run ask - should gracefully fall back to hybrid search recall
+	stdout, stderr, code := runCLI(t, home, "ask", "fallback test", "--scope", "project:unreach", "--top", "3")
+	if code != 0 {
+		t.Fatalf("ask code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+
+	if res["ok"] != true {
+		t.Errorf("expected ok=true, got %v", res["ok"])
+	}
+	if res["fallback_used"] != true {
+		t.Errorf("expected fallback_used=true, got %v", res["fallback_used"])
+	}
+	answer, _ := res["answer"].(string)
+	if !strings.Contains(answer, "Offline Mode") {
+		t.Errorf("expected answer to contain 'Offline Mode', got: %s", answer)
+	}
+	if !strings.Contains(answer, "Unreachable endpoint fallback test memory") {
+		t.Errorf("expected answer to contain memory snippet, got: %s", answer)
+	}
+
+	citations, ok := res["citations"].([]any)
+	if !ok || len(citations) == 0 {
+		t.Errorf("expected at least 1 citation, got: %v", res["citations"])
+	}
+}
+
+func TestAgentCLI_Curate_UnreachableEndpoint_Fallback(t *testing.T) {
+	stubDownloader()
+	home := newHome(t)
+	runCLI(t, home, "init")
+
+	// Configure an unreachable LLM endpoint with a short timeout
+	runCLI(t, home, "config", "set", "llm.backend", "openai_compatible")
+	runCLI(t, home, "config", "set", "llm.endpoint", "http://127.0.0.1:59999")
+	runCLI(t, home, "config", "set", "llm.timeout_seconds", "1")
+
+	// Seed identical duplicate memories
+	s, err := store.Open(config.Config{DBPath: filepath.Join(home, "centmem.db")})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	ctx := context.Background()
+	m1, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:curate-unreach", Type: "note", Content: "Identical memory for offline curation"})
+	_, _ = s.DB().ExecContext(ctx, "UPDATE memories SET updated_at = ? WHERE id = ?", time.Now().Add(-5*time.Minute).UnixMicro(), m1)
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:curate-unreach", Type: "note", Content: "Identical memory for offline curation"})
+	s.Close()
+
+	// Run curate - should gracefully fall back to heuristic exact deduplication
+	stdout, stderr, code := runCLI(t, home, "curate", "--scope", "project:curate-unreach", "--type", "dedup")
+	if code != 0 {
+		t.Fatalf("curate code = %d, want 0, stderr: %s", code, stderr)
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+
+	if res["ok"] != true {
+		t.Errorf("expected ok=true, got %v", res["ok"])
+	}
+	if res["fallback_used"] != true {
+		t.Errorf("expected fallback_used=true, got %v", res["fallback_used"])
+	}
+	created, ok := res["proposals_created"].([]any)
+	if !ok || len(created) == 0 {
+		t.Fatalf("expected at least 1 proposal created, got: %v", res["proposals_created"])
+	}
+
+	propID := fmt.Sprintf("%v", created[0])
+
+	// Show proposal
+	stdout, _, code = runCLI(t, home, "proposals", "show", propID)
+	if code != 0 {
+		t.Fatalf("proposals show code = %d, want 0", code)
+	}
+	var showRes map[string]any
+	if err := json.Unmarshal([]byte(stdout), &showRes); err != nil {
+		t.Fatalf("json parse error: %v", err)
+	}
+	prop, _ := showRes["proposal"].(map[string]any)
+	if prop["proposal_type"] != "merge" {
+		t.Errorf("expected proposal_type=merge, got %v", prop["proposal_type"])
+	}
+
+	// Apply proposal
+	stdout, _, code = runCLI(t, home, "proposals", "apply", propID)
+	if code != 0 {
+		t.Fatalf("proposals apply code = %d, want 0", code)
+	}
+}
+

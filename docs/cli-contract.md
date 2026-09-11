@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 1.5.4
+**Version:** 2.0.0
 **Binary:** `centmem`, `centmemd`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
@@ -315,7 +315,7 @@ centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]
 
 **Output:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "1.5.4", "auth": false}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.0.0", "auth": false}
 ```
 
 ---

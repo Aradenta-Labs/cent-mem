@@ -6,7 +6,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#)
-[![Version](https://img.shields.io/badge/version-v1.5.4-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v2.0.0-success.svg)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#installation)
 [![Offline](https://img.shields.io/badge/offline-100%25-brightgreen)](#privacy)
 [![No API key](https://img.shields.io/badge/api%20key-not%20required-brightgreen)](#privacy)
@@ -144,6 +144,10 @@ centmem doctor                         # health checks
 centmem backup   --to <file>           # snapshot the DB
 centmem restore  --from <file>         # restore from snapshot
 centmem capture <git|docs|shell|comments|run> # ingest commits, docs, shell, or transcripts
+centmem ask <q> [--scope <s>] [--top N] # conversational Q&A with citations provenance
+centmem curate [--scope <s>] [--type dedup|contradictions|all] # autonomous curation & proposals
+centmem summarize [--scope <s>] [--focus <f>] # high-level architectural & convention briefings
+centmem proposals <list|show|apply|dismiss> # review and apply staged curation actions
 centmem serve [--mcp]                  # native Model Context Protocol (MCP) server
 centmem ui [--port N] [--host H] [--token T] # web UI memory browser dashboard
 centmem config set <k> <v>             # configure settings in config.toml
@@ -189,6 +193,7 @@ Full documentation map: [docs/README.md](docs/README.md).
 | Doc | Purpose |
 |-----|---------|
 | [docs/guides/getting-started.md](docs/guides/getting-started.md) | Step-by-step install for first-time users |
+| [docs/guides/agent-guide.md](docs/guides/agent-guide.md) | Built-in AI Memory Agent: Inquiry, Curation, Summarize & Proposals |
 | [docs/ui.md](docs/ui.md) | Web UI Memory Browser dashboard guide (`centmem ui`) |
 | [docs/guides/capture-hooks.md](docs/guides/capture-hooks.md) | Comprehensive guide for auto-capture & transcript hooks |
 | [docs/guides/troubleshooting.md](docs/guides/troubleshooting.md) | Common issues & fixes |

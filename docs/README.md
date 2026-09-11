@@ -25,6 +25,7 @@ Practical walkthroughs and diagnostic runbooks for developers and operators.
 | Document | Description |
 |---|---|
 | [guides/getting-started.md](guides/getting-started.md) | Step-by-step setup, configuration, and basic CLI usage walkthrough |
+| [guides/agent-guide.md](guides/agent-guide.md) | Built-in AI Memory Agent: Inquiry, Autonomous Curation, Synthesis & Proposals |
 | [ui.md](ui.md) | Web UI Memory Browser dashboard guide (`centmem ui`) |
 | [guides/mcp-setup.md](guides/mcp-setup.md) | Model Context Protocol (MCP) server setup for agent harnesses |
 | [guides/daemon.md](guides/daemon.md) | Background `centmemd` daemon architecture, IPC sockets, and gRPC sync |
@@ -49,7 +50,7 @@ Roadmaps and per-phase specifications tracking project milestones from inception
 | [plans/plan-v1.5.2.md](plans/plan-v1.5.2.md) | v1.5.2 | Completed | Memory Relationships: Link Graph & Auto-Suggest |
 | [plans/plan-v1.5.3.md](plans/plan-v1.5.3.md) | v1.5.3 | Completed | Integrations (MCP Server/Client, Remote REST, VS Code) |
 | [plans/plan-v1.5.4.md](plans/plan-v1.5.4.md) | v1.5.4 | Completed | Sync: `centmemd` gRPC Daemon |
-| [plans/plan-v2.0.0.md](plans/plan-v2.0.0.md) | v2.0.0 | In Progress | **Built-in AI Memory Agent**: Inquiry, Autonomous Curation & Web UI Assistant (Stage 1 Completed) |
+| [plans/plan-v2.0.0.md](plans/plan-v2.0.0.md) | v2.0.0 | Completed | **Built-in AI Memory Agent**: Inquiry, Autonomous Curation & Web UI Assistant |
 
 ---
 

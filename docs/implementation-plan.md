@@ -113,11 +113,11 @@ Legend: `[S]` small (~few hours), `[M]` medium (~a day), `[L]` large (multi-day)
 - [x] **v1.5.2 (Memory Relationships)**: Directed graph relational layer (`memory_links`), link/unlink/links commands, auto-suggestions, and graph recall.
 - [x] **v1.5.3 (Integrations)**: Model Context Protocol (MCP) server & client enrichment, secure remote REST API token auth, VS Code extension.
 - [x] **v1.5.4 (Sync & centmemd Daemon)**: Multi-process architecture, gRPC daemon service (`centmemd`), Unix domain socket IPC, transparent CLI delegation, single-writer write serialization, and event streaming.
-- [ ] **v2.0.0 (Built-in AI Memory Agent)**:
+- [x] **v2.0.0 (Built-in AI Memory Agent)**:
   - [x] **Stage 1 (Core Agent Engine & Database Layer)**: Schema migration v6 (`agent_proposals`, `agent_conversations`, `agent_messages`), Store proposals CRUD & atomic transactions, `[llm]` and `[agent]` configuration, unified OpenAI-compatible streaming LLM client, tool registry adapters, ReAct reasoning loop engine with cycle guards and offline fallbacks.
-  - [ ] **Stage 2 (CLI Command Suite)**: `centmem ask`, `centmem curate`, `centmem summarize`, `centmem proposals`.
-  - [ ] **Stage 3 (Web UI Experience)**: Assistant Chat tab with SSE streaming, Proposals Review Center with visual diffs.
-  - [ ] **Stage 4 (Hardening & Documentation)**: Concurrency stress tests, CLI contracts, guides.
+  - [x] **Stage 2 (CLI Command Suite)**: `centmem ask`, `centmem curate`, `centmem summarize`, `centmem proposals`.
+  - [x] **Stage 3 (Web UI Experience)**: Assistant Chat tab with SSE streaming, Proposals Review Center with visual diffs and 1-click approvals.
+  - [x] **Stage 4 (Hardening, Benchmarking & Documentation)**: Concurrency stress tests, CLI contracts, offline graceful degradation, release v2.0.0 and dedicated AI Memory Agent guide.
 
 ## Backlog / Future Roadmap
 - **v2.0.1**: Taxonomy & Tag Clustering (normalizing fragmented tags like `db` vs `database`).

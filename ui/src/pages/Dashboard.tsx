@@ -241,6 +241,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
                 selectedScope={selectedScope}
                 onSelectMemory={handleOpenMemoryById}
                 onToast={(msg, variant) => showToast(msg, variant)}
+                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
           </div>
