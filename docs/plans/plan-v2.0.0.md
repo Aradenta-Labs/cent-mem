@@ -326,29 +326,29 @@ Stage 1: Core Engine & DB ──► Stage 2: CLI Suite ──► Stage 3: Web UI
 ## 5. Milestone Verification Checklist
 
 ### Stage 1: Core Engine & DB
-- [ ] Schema migration `m0006_agent_proposals.sql` applies cleanly on top of v5
-- [ ] `Proposal` and `Conversation` CRUD operations tested with 100% test coverage
-- [ ] Unified LLM client verified against Ollama mock and OpenAI mock endpoints
-- [ ] ReAct reasoning loop verified with tool-calling step sequence
+- [x] Schema migration `m0006_agent_proposals.sql` applies cleanly on top of v5
+- [x] `Proposal` and `Conversation` CRUD operations tested with 100% test coverage
+- [x] Unified LLM client verified against Ollama mock and OpenAI mock endpoints
+- [x] ReAct reasoning loop verified with tool-calling step sequence
 
 ### Stage 2: CLI Commands
-- [ ] `centmem ask "how do we ship?"` returns synthesized answer with valid citation IDs
-- [ ] `centmem curate --type contradictions` detects conflicting memories and creates pending link proposals
-- [ ] `centmem curate --type dedup` detects redundant memories and creates merge proposals
-- [ ] `centmem summarize` produces structured Markdown architectural overview
-- [ ] `centmem proposals list/apply/dismiss` successfully transitions proposal states and modifies underlying memories
-- [ ] CLI contract golden files passing `scripts/check_contract.sh`
+- [x] `centmem ask "how do we ship?"` returns synthesized answer with valid citation IDs
+- [x] `centmem curate --type contradictions` detects conflicting memories and creates pending link proposals
+- [x] `centmem curate --type dedup` detects redundant memories and creates merge proposals
+- [x] `centmem summarize` produces structured Markdown architectural overview
+- [x] `centmem proposals list/apply/dismiss` successfully transitions proposal states and modifies underlying memories
+- [x] CLI contract golden files passing `scripts/check_contract.sh`
 
 ### Stage 3: Web UI Experience
-- [ ] `GET /api/proposals` and `POST /api/proposals/:id/apply` functional
-- [ ] SSE streaming chat endpoint `POST /api/agent/chat` functional
-- [ ] Web UI Assistant Chat tab renders messages, citations, and gap indicators cleanly
-- [ ] Proposals Review Center renders merge diffs and relationship previews with 1-click apply
-- [ ] UI builds cleanly without TypeScript or bundle errors (`npm run build`)
+- [x] `GET /api/proposals` and `POST /api/proposals/:id/apply` functional
+- [x] SSE streaming chat endpoint `POST /api/agent/chat` functional
+- [x] Web UI Assistant Chat tab renders messages, citations, and gap indicators cleanly
+- [x] Proposals Review Center renders merge diffs and relationship previews with 1-click apply
+- [x] UI builds cleanly without TypeScript or bundle errors (`npm run build`)
 
 ### Stage 4: Release & Documentation
-- [ ] Graceful fallback tested with zero configured LLMs
-- [ ] Documentation updated (`cli-contract.md`, `data-model.md`, `architecture.md`, `README.md`)
-- [ ] Full Go test suite passing (`go test -tags fts5 ./... -race`)
-- [ ] Version bumped to `2.0.0`
-- [ ] `graphify update .` executed
+- [x] Graceful fallback tested with zero configured LLMs
+- [x] Documentation updated (`cli-contract.md`, `data-model.md`, `architecture.md`, `README.md`)
+- [x] Full Go test suite passing (`go test -tags fts5 ./... -race`)
+- [x] Version bumped to `2.0.0`
+- [x] `graphify update .` executed
