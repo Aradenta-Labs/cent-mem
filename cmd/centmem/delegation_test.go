@@ -75,6 +75,7 @@ func TestDelegation_ActiveDaemonAndFallback(t *testing.T) {
 
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
+	r.Close()
 	var putOut map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &putOut); err != nil {
 		t.Fatalf("unmarshal put output: %v, raw: %s", err, buf.String())
@@ -102,6 +103,7 @@ func TestDelegation_ActiveDaemonAndFallback(t *testing.T) {
 	}
 	buf.Reset()
 	_, _ = buf.ReadFrom(r)
+	r.Close()
 	var recallOut map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &recallOut); err != nil {
 		t.Fatalf("unmarshal recall output: %v, raw: %s", err, buf.String())
@@ -129,6 +131,7 @@ func TestDelegation_ActiveDaemonAndFallback(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("recall --direct returned exitCode %d, want 0", exitCode)
 	}
+	r.Close()
 
 	// 4. Test CENTMEM_DIRECT=1 env var
 	t.Setenv("CENTMEM_DIRECT", "1")
@@ -150,6 +153,7 @@ func TestDelegation_ActiveDaemonAndFallback(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("put with CENTMEM_DIRECT=1 returned exitCode %d, want 0", exitCode)
 	}
+	r.Close()
 	t.Setenv("CENTMEM_DIRECT", "")
 
 	// 5. Failover / Graceful Fallback: Stop daemon -> subsequent commands must succeed via direct SQLite mode
@@ -176,6 +180,7 @@ func TestDelegation_ActiveDaemonAndFallback(t *testing.T) {
 	}
 	buf.Reset()
 	_, _ = buf.ReadFrom(r)
+	r.Close()
 	putOut = nil
 	if err := json.Unmarshal(buf.Bytes(), &putOut); err != nil {
 		t.Fatalf("unmarshal fallback put output: %v, raw: %s", err, buf.String())

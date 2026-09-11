@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Menu, X, LayoutTemplate, Activity, CheckCircle2, AlertTriangle, XCircle, RotateCcw, HelpCircle, Settings } from 'lucide-react';
+import { Search, Menu, X, LayoutTemplate, Activity, CheckCircle2, AlertTriangle, XCircle, RotateCcw, HelpCircle, Settings, Sparkles } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { HealthResponse } from '../types/scope';
 
@@ -11,6 +11,8 @@ export interface TopBarProps {
   isSidebarOpen: boolean;
   activeView: 'dashboard' | 'design-system';
   onViewChange: (view: 'dashboard' | 'design-system') => void;
+  activeTab?: 'memories' | 'proposals' | 'assistant';
+  onTabChange?: (tab: 'memories' | 'proposals' | 'assistant') => void;
   onRefreshHealth?: () => void;
   onOpenShortcuts?: () => void;
   onOpenSettings?: () => void;
@@ -24,6 +26,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   isSidebarOpen,
   activeView,
   onViewChange,
+  activeTab = 'memories',
+  onTabChange,
   onRefreshHealth,
   onOpenShortcuts,
   onOpenSettings,
@@ -46,6 +50,12 @@ export const TopBar: React.FC<TopBarProps> = ({
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         searchInputRef.current?.focus();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j' && onTabChange) {
+        e.preventDefault();
+        onTabChange(activeTab === 'assistant' ? 'memories' : 'assistant');
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p' && onTabChange) {
+        e.preventDefault();
+        onTabChange('proposals');
       } else if ((e.metaKey || e.ctrlKey) && e.key === ',' && onOpenSettings) {
         e.preventDefault();
         onOpenSettings();
@@ -66,7 +76,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       window.removeEventListener('mousedown', handleOutsideClick);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isHealthOpen, onOpenShortcuts, onOpenSettings]);
+  }, [isHealthOpen, onOpenShortcuts, onOpenSettings, activeTab, onTabChange]);
 
   const status = health?.status || (health?.store === 'connected' ? 'healthy' : 'unhealthy');
   const isHealthy = status === 'healthy';
@@ -243,6 +253,31 @@ export const TopBar: React.FC<TopBarProps> = ({
 
       {/* Right: View Switcher, Health & Theme */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+        {onTabChange && (
+          <button
+            type="button"
+            onClick={() => onTabChange(activeTab === 'assistant' ? 'memories' : 'assistant')}
+            title="Toggle AI Memory Assistant (Cmd+J)"
+            aria-label="AI Memory Assistant"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: 'var(--text-xs)',
+              color: activeTab === 'assistant' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              backgroundColor: activeTab === 'assistant' ? 'var(--accent-lightest)' : 'transparent',
+              border: `1px solid ${activeTab === 'assistant' ? 'var(--accent-border)' : 'var(--border-subtle)'}`,
+              borderRadius: 'var(--radius-sm)',
+              padding: '4px 8px',
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <Sparkles size={14} color={activeTab === 'assistant' ? 'var(--accent-primary)' : undefined} />
+            <span>Assistant</span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => onViewChange(activeView === 'dashboard' ? 'design-system' : 'dashboard')}

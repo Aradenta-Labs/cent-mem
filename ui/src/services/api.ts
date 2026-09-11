@@ -19,6 +19,21 @@ import {
   TestClassifierParams,
   TestClassifierResponse,
 } from '../types/config';
+import {
+  Proposal,
+  ProposalFilters,
+  ProposalsResponse,
+  ProposalActionResponse,
+  Conversation,
+  ConversationsResponse,
+  Message,
+  MessagesResponse,
+  ChatRequest,
+  ChatStreamCallbacks,
+  StreamDeltaEvent,
+  StreamDoneEvent,
+  Citation,
+} from '../types/agent';
 
 /**
  * API service for communicating with embedded centmem server.
@@ -377,4 +392,209 @@ export async function deleteLink(linkId: number): Promise<{ ok: boolean; deleted
   }
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Agent & Proposals Endpoints
+// ---------------------------------------------------------------------------
+
+export async function fetchProposals(filters: ProposalFilters = {}): Promise<Proposal[]> {
+  const params = new URLSearchParams();
+  if (filters.scope && filters.scope !== 'global') params.set('scope', filters.scope);
+  if (filters.status && filters.status !== 'all') params.set('status', filters.status);
+  if (filters.type && filters.type !== 'all') params.set('type', filters.type);
+  if (filters.limit !== undefined) params.set('limit', String(filters.limit));
+  if (filters.offset !== undefined) params.set('offset', String(filters.offset));
+
+  const query = params.toString();
+  const res = await apiFetch(`/api/proposals${query ? `?${query}` : ''}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load proposals: HTTP ${res.status}`);
+  }
+  const data: ProposalsResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load proposals');
+  }
+  return data.proposals || [];
+}
+
+export async function fetchPendingProposalsCount(scope?: string): Promise<number> {
+  const params = new URLSearchParams();
+  params.set('status', 'pending');
+  if (scope && scope !== 'global') {
+    params.set('scope', scope);
+  }
+  try {
+    const res = await apiFetch(`/api/proposals?${params.toString()}`);
+    if (!res.ok) return 0;
+    const data: ProposalsResponse = await res.json();
+    return data.count ?? data.proposals?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function applyProposal(id: number): Promise<ProposalActionResponse> {
+  const res = await apiFetch(`/api/proposals/${id}/apply`, {
+    method: 'POST',
+  });
+  const data: ProposalActionResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to apply proposal ${id}: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function dismissProposal(id: number): Promise<ProposalActionResponse> {
+  const res = await apiFetch(`/api/proposals/${id}/dismiss`, {
+    method: 'POST',
+  });
+  const data: ProposalActionResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to dismiss proposal ${id}: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function reopenProposal(id: number): Promise<ProposalActionResponse> {
+  const res = await apiFetch(`/api/proposals/${id}/reopen`, {
+    method: 'POST',
+  });
+  const data: ProposalActionResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to reopen proposal ${id}: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export const createMemory = restoreMemory;
+
+export async function fetchConversations(scope?: string, limit?: number): Promise<Conversation[]> {
+  const params = new URLSearchParams();
+  if (scope && scope !== 'global') params.set('scope', scope);
+  if (limit !== undefined) params.set('limit', String(limit));
+
+  const query = params.toString();
+  const res = await apiFetch(`/api/agent/conversations${query ? `?${query}` : ''}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load conversations: HTTP ${res.status}`);
+  }
+  const data: ConversationsResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load conversations');
+  }
+  return data.conversations || [];
+}
+
+export async function fetchConversationMessages(id: string): Promise<Message[]> {
+  const res = await apiFetch(`/api/agent/conversations/${encodeURIComponent(id)}/messages`);
+  if (!res.ok) {
+    throw new Error(`Failed to load conversation messages: HTTP ${res.status}`);
+  }
+  const data: MessagesResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load messages');
+  }
+  return data.messages || [];
+}
+
+export function streamChat(req: ChatRequest, callbacks: ChatStreamCallbacks): () => void {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await apiFetch('/api/agent/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify(req),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        let errMsg = `Chat request failed: HTTP ${res.status}`;
+        try {
+          const errJson = await res.json();
+          if (errJson?.error?.message) {
+            errMsg = errJson.error.message;
+          }
+        } catch {}
+        callbacks.onError(errMsg);
+        return;
+      }
+
+      if (!res.body) {
+        callbacks.onError('Response body is empty');
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let currentEvent = '';
+      let receivedDone = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            currentEvent = '';
+            continue;
+          }
+
+          if (trimmed.startsWith('event:')) {
+            currentEvent = trimmed.slice(6).trim();
+          } else if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
+            try {
+              if (currentEvent === 'delta') {
+                const parsed: StreamDeltaEvent = JSON.parse(dataStr);
+                if (parsed.content) {
+                  callbacks.onDelta(parsed.content);
+                }
+              } else if (currentEvent === 'citations') {
+                const parsed: Citation[] = JSON.parse(dataStr);
+                callbacks.onCitations?.(parsed);
+              } else if (currentEvent === 'gaps') {
+                const parsed: string[] = JSON.parse(dataStr);
+                callbacks.onGaps?.(parsed);
+              } else if (currentEvent === 'done') {
+                receivedDone = true;
+                const parsed: StreamDoneEvent = JSON.parse(dataStr);
+                callbacks.onDone(parsed);
+              } else if (currentEvent === 'error') {
+                const parsed = JSON.parse(dataStr);
+                callbacks.onError(parsed.error || 'Unknown stream error');
+              }
+            } catch (err) {
+              console.warn('Failed to parse SSE data:', err, dataStr);
+            }
+          }
+        }
+      }
+
+      if (!receivedDone) {
+        callbacks.onDone({});
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return;
+      }
+      callbacks.onError(err.message || 'Stream connection error');
+    }
+  })();
+
+  return () => {
+    controller.abort();
+  };
+}
+
 

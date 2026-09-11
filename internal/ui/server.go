@@ -22,6 +22,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/aradenta-labs/cent-mem/internal/agent"
 	"github.com/aradenta-labs/cent-mem/internal/config"
 	"github.com/aradenta-labs/cent-mem/internal/embed"
 	"github.com/aradenta-labs/cent-mem/internal/scope"
@@ -81,6 +82,7 @@ type Server struct {
 	addr        string
 	mu          sync.RWMutex
 	probeClient *http.Client
+	agent       *agent.Engine
 }
 
 // NewServer creates a new centmem UI server.
@@ -109,6 +111,9 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	s := &Server{
 		cfg:         cfg,
 		probeClient: &http.Client{Timeout: 5 * time.Second},
+	}
+	if cfg.Store != nil {
+		s.agent = agent.NewEngine(cfg.Config, cfg.Store, cfg.Searcher)
 	}
 
 	mux := http.NewServeMux()
@@ -1767,6 +1772,604 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			})
 			return
 		}
+	})
+
+	// Agent: Interactive Q&A Chat with Real-time SSE Streaming
+	mux.HandleFunc("POST /api/agent/chat", func(w http.ResponseWriter, r *http.Request) {
+		if s.agent == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "agent_unavailable",
+					"message": "agent engine is not configured",
+				},
+			})
+			return
+		}
+
+		var req struct {
+			ConversationID string `json:"conversation_id"`
+			Message        string `json:"message"`
+			Scope          string `json:"scope"`
+			Top            int    `json:"top"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_request",
+					"message": "invalid JSON body",
+				},
+			})
+			return
+		}
+
+		req.Message = strings.TrimSpace(req.Message)
+		if req.Message == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_request",
+					"message": "message is required",
+				},
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		rc := http.NewResponseController(w)
+		_ = rc.SetWriteDeadline(time.Time{})
+
+		flusher, isFlusher := w.(http.Flusher)
+		flush := func() {
+			if isFlusher {
+				flusher.Flush()
+			}
+		}
+		flush()
+
+		streamCallback := func(chunk *agent.StreamChunk) error {
+			if chunk == nil {
+				return nil
+			}
+			payload, err := json.Marshal(map[string]any{
+				"content":       chunk.DeltaContent,
+				"role":          chunk.DeltaRole,
+				"finish_reason": chunk.FinishReason,
+			})
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(w, "event: delta\ndata: %s\n\n", payload)
+			flush()
+			return err
+		}
+
+		opts := agent.InquiryOptions{
+			Scope:          req.Scope,
+			Top:            req.Top,
+			ConversationID: req.ConversationID,
+			StreamCallback: streamCallback,
+		}
+
+		res, err := s.agent.Ask(r.Context(), req.Message, opts)
+		if err != nil {
+			errPayload, _ := json.Marshal(map[string]any{
+				"error": err.Error(),
+			})
+			_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", errPayload)
+			flush()
+			return
+		}
+
+		citations := res.Citations
+		if citations == nil {
+			citations = []store.Citation{}
+		}
+		citData, _ := json.Marshal(citations)
+		_, _ = fmt.Fprintf(w, "event: citations\ndata: %s\n\n", citData)
+		flush()
+
+		gaps := res.KnowledgeGaps
+		if gaps == nil {
+			gaps = []string{}
+		}
+		gapsData, _ := json.Marshal(gaps)
+		_, _ = fmt.Fprintf(w, "event: gaps\ndata: %s\n\n", gapsData)
+		flush()
+
+		doneData, _ := json.Marshal(map[string]any{
+			"conversation_id": res.ConversationID,
+			"reasoning_steps": res.ReasoningSteps,
+			"fallback_used":   res.FallbackUsed,
+		})
+		_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", doneData)
+		flush()
+	})
+
+	// Agent: List Conversations
+	mux.HandleFunc("GET /api/agent/conversations", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":            true,
+				"conversations": []store.Conversation{},
+			})
+			return
+		}
+
+		scopePath := strings.TrimSpace(r.URL.Query().Get("scope"))
+		limit := 50
+		if lVal := r.URL.Query().Get("limit"); lVal != "" {
+			if l, err := strconv.Atoi(lVal); err == nil && l > 0 {
+				limit = l
+			}
+		}
+		if limit > 200 {
+			limit = 200
+		}
+
+		var scopeID int64
+		if scopePath != "" && scopePath != "global" {
+			sc, err := scope.Parse(scopePath)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_scope",
+						"message": err.Error(),
+					},
+				})
+				return
+			}
+			sids, err := cfg.Store.ResolveScopeIDs(r.Context(), sc, false, false)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "store_error",
+						"message": err.Error(),
+					},
+				})
+				return
+			}
+			if len(sids) == 0 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":            true,
+					"conversations": []store.Conversation{},
+				})
+				return
+			}
+			scopeID = sids[0]
+		}
+
+		convs, err := cfg.Store.ListConversations(r.Context(), scopeID, limit)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if convs == nil {
+			convs = []store.Conversation{}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":            true,
+			"conversations": convs,
+		})
+	})
+
+	// Agent: Get Conversation Messages
+	mux.HandleFunc("GET /api/agent/conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		id := strings.TrimSpace(r.PathValue("id"))
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_id",
+					"message": "conversation id is required",
+				},
+			})
+			return
+		}
+
+		_, err := cfg.Store.GetConversation(r.Context(), id)
+		if errors.Is(err, store.ErrNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": fmt.Sprintf("conversation %q not found", id),
+				},
+			})
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		msgs, err := cfg.Store.GetConversationMessages(r.Context(), id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if msgs == nil {
+			msgs = []store.Message{}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       true,
+			"messages": msgs,
+		})
+	})
+
+	// Proposals: List Proposals
+	mux.HandleFunc("GET /api/proposals", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":        true,
+				"proposals": []store.Proposal{},
+				"count":     0,
+			})
+			return
+		}
+
+		qVals := r.URL.Query()
+		scopePath := strings.TrimSpace(qVals.Get("scope"))
+		if scopePath == "global" {
+			scopePath = ""
+		}
+		status := strings.TrimSpace(qVals.Get("status"))
+		propType := strings.TrimSpace(qVals.Get("type"))
+
+		limit := 50
+		if lVal := qVals.Get("limit"); lVal != "" {
+			if l, err := strconv.Atoi(lVal); err == nil && l > 0 {
+				limit = l
+			}
+		}
+		if limit > 200 {
+			limit = 200
+		}
+
+		offset := 0
+		if oVal := qVals.Get("offset"); oVal != "" {
+			if o, err := strconv.Atoi(oVal); err == nil && o >= 0 {
+				offset = o
+			}
+		}
+
+		q := store.ProposalListQuery{
+			ScopePath:    scopePath,
+			Status:       status,
+			ProposalType: propType,
+			Limit:        limit,
+			Offset:       offset,
+		}
+
+		proposals, err := cfg.Store.ListProposals(r.Context(), q)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if proposals == nil {
+			proposals = []store.Proposal{}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":        true,
+			"proposals": proposals,
+			"count":     len(proposals),
+		})
+	})
+
+	// Proposals: Apply Proposal
+	mux.HandleFunc("POST /api/proposals/{id}/apply", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		idStr := r.PathValue("id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_id",
+					"message": fmt.Sprintf("invalid proposal id: %q", idStr),
+				},
+			})
+			return
+		}
+
+		err = cfg.Store.ApplyProposal(r.Context(), id)
+		if errors.Is(err, store.ErrNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": fmt.Sprintf("proposal %d not found", id),
+				},
+			})
+			return
+		}
+		if errors.Is(err, store.ErrProposalConflict) {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "conflict",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "apply_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		p, err := cfg.Store.GetProposal(r.Context(), id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "get_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       true,
+			"applied":  true,
+			"proposal": p,
+		})
+	})
+
+	// Proposals: Dismiss Proposal
+	mux.HandleFunc("POST /api/proposals/{id}/dismiss", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		idStr := r.PathValue("id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_id",
+					"message": fmt.Sprintf("invalid proposal id: %q", idStr),
+				},
+			})
+			return
+		}
+
+		err = cfg.Store.DismissProposal(r.Context(), id)
+		if errors.Is(err, store.ErrNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": fmt.Sprintf("proposal %d not found", id),
+				},
+			})
+			return
+		}
+		if errors.Is(err, store.ErrProposalConflict) {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "conflict",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "dismiss_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		p, err := cfg.Store.GetProposal(r.Context(), id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "get_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":        true,
+			"dismissed": true,
+			"proposal":  p,
+		})
+	})
+
+	// Proposals: Reopen Proposal (Undo Dismiss)
+	mux.HandleFunc("POST /api/proposals/{id}/reopen", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		idStr := r.PathValue("id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_id",
+					"message": fmt.Sprintf("invalid proposal id: %q", idStr),
+				},
+			})
+			return
+		}
+
+		err = cfg.Store.UpdateProposalStatus(r.Context(), id, "pending")
+		if errors.Is(err, store.ErrNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": fmt.Sprintf("proposal %d not found", id),
+				},
+			})
+			return
+		}
+		if errors.Is(err, store.ErrProposalConflict) {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "conflict",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "reopen_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		p, err := cfg.Store.GetProposal(r.Context(), id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "get_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       true,
+			"reopened": true,
+			"proposal": p,
+		})
 	})
 
 	// Embedded Static File Server with SPA Fallback

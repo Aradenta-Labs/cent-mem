@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Plus, RefreshCw, BookOpen, Layers } from 'lucide-react';
+import { Plus, RefreshCw, BookOpen, Layers, GitMerge, Sparkles } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { ScopeTree } from './ScopeTree';
 import { Button } from './Button';
 import { CreateScopeModal } from './CreateScopeModal';
 
 export interface SidebarProps {
+  activeTab: 'memories' | 'proposals' | 'assistant';
+  onTabChange: (tab: 'memories' | 'proposals' | 'assistant') => void;
+  pendingProposalsCount?: number;
   scopes: ScopeNode[];
   selectedScope: string | null;
   onSelectScope: (path: string) => void;
@@ -16,6 +19,9 @@ export interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  activeTab,
+  onTabChange,
+  pendingProposalsCount,
   scopes,
   selectedScope,
   onSelectScope,
@@ -72,6 +78,116 @@ export const Sidebar: React.FC<SidebarProps> = ({
           transition: 'transform var(--transition-normal)',
         }}
       >
+        {/* Primary View Switcher Navigation */}
+        <nav
+          style={{
+            padding: 'var(--space-2) var(--space-3)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2px',
+            borderBottom: '1px solid var(--border-subtle)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onTabChange('memories');
+              onClose();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: 'var(--space-2) var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: activeTab === 'memories' ? 'var(--surface-primary)' : 'transparent',
+              border: activeTab === 'memories' ? '1px solid var(--border-subtle)' : '1px solid transparent',
+              color: activeTab === 'memories' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              fontWeight: activeTab === 'memories' ? 600 : 500,
+              fontSize: 'var(--text-xs)',
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <Layers size={14} />
+              <span>Memories</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onTabChange('proposals');
+              onClose();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: 'var(--space-2) var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: activeTab === 'proposals' ? 'var(--surface-primary)' : 'transparent',
+              border: activeTab === 'proposals' ? '1px solid var(--border-subtle)' : '1px solid transparent',
+              color: activeTab === 'proposals' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              fontWeight: activeTab === 'proposals' ? 600 : 500,
+              fontSize: 'var(--text-xs)',
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <GitMerge size={14} />
+              <span>Proposals</span>
+            </div>
+            {pendingProposalsCount !== undefined && pendingProposalsCount > 0 && (
+              <span
+                style={{
+                  backgroundColor: 'var(--accent-lightest)',
+                  color: 'var(--accent-primary)',
+                  border: '1px solid var(--accent-border)',
+                  borderRadius: 'var(--radius-pill)',
+                  padding: '1px 6px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                }}
+              >
+                {pendingProposalsCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onTabChange('assistant');
+              onClose();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: 'var(--space-2) var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: activeTab === 'assistant' ? 'var(--surface-primary)' : 'transparent',
+              border: activeTab === 'assistant' ? '1px solid var(--border-subtle)' : '1px solid transparent',
+              color: activeTab === 'assistant' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              fontWeight: activeTab === 'assistant' ? 600 : 500,
+              fontSize: 'var(--text-xs)',
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <Sparkles size={14} />
+              <span>Assistant</span>
+            </div>
+          </button>
+        </nav>
+
         {/* Sidebar Header */}
         <div
           style={{

@@ -183,7 +183,7 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	}
 
 	// Track proposals count before loop
-	existingProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope})
+	existingProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope, Limit: 10000})
 	preExistingMap := make(map[int64]bool)
 	for _, p := range existingProps {
 		preExistingMap[p.ID] = true
@@ -195,7 +195,7 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	}
 
 	// Find newly created proposals
-	afterProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope})
+	afterProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope, Limit: 10000})
 	createdIDs := make([]int64, 0)
 	appliedIDs := make([]int64, 0)
 	var contradictionsCount, duplicatesCount int

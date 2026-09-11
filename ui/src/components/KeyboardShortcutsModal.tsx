@@ -22,6 +22,9 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ 
   const shortcuts = [
     { key: '/', description: 'Focus memory search input' },
     { key: 'Cmd / Ctrl + K', description: 'Focus memory search input' },
+    { key: 'Cmd / Ctrl + J', description: 'Toggle AI Memory Assistant' },
+    { key: 'Cmd + Shift + P', description: 'Open Proposals Review Center' },
+    { key: 'Cmd + Enter', description: 'Send Assistant inquiry' },
     { key: 'J / ↓', description: 'Select next memory row' },
     { key: 'K / ↑', description: 'Select previous memory row' },
     { key: 'Enter', description: 'Open selected memory detail' },

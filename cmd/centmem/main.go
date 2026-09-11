@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
@@ -54,7 +55,7 @@ func run(args []string) int {
 
 func printUsage(w *os.File) {
 	fmt.Fprintln(w, "Usage: centmem <command> [flags]")
-	fmt.Fprintln(w, "Commands: init, put, set, get, recall, timeline, list, forget, stats, compact, doctor, backup, restore, capture, config, ui, reindex, link, unlink, links")
+	fmt.Fprintf(w, "Commands: %s\n", strings.Join(Names(), ", "))
 }
 
 // loadConfig builds a config.Config applying global overrides.

@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { fetchScopes, fetchHealth } from '../services/api';
+import { fetchScopes, fetchHealth, fetchPendingProposalsCount, fetchMemoryDetail } from '../services/api';
 import { ScopeNode, HealthResponse } from '../types/scope';
+import { Memory } from '../types/memory';
 import { TopBar } from '../components/TopBar';
 import { Sidebar } from '../components/Sidebar';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { MemoryBrowser } from '../components/MemoryBrowser';
+import { AssistantTab } from '../components/AssistantTab';
+import { ProposalsView } from '../components/ProposalsView';
+import { MemoryDetailDrawer } from '../components/MemoryDetailDrawer';
 import { KeyboardShortcutsModal } from '../components/KeyboardShortcutsModal';
 import { SettingsModal } from '../components/settings/SettingsModal';
 import { Toast } from '../components/Toast';
@@ -18,35 +22,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
   const [scopes, setScopes] = useState<ScopeNode[]>([]);
   const [selectedScope, setSelectedScope] = useState<string>('global');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'memories' | 'proposals' | 'assistant'>('memories');
+  const [pendingProposalsCount, setPendingProposalsCount] = useState<number>(0);
+  const [drawerMemory, setDrawerMemory] = useState<Memory | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [isLoadingScopes, setIsLoadingScopes] = useState<boolean>(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [toast, setToast] = useState<{ title: string; variant: 'success' | 'error' | 'info' } | null>(null);
+  const [toast, setToast] = useState<{
+    title: string;
+    variant: 'success' | 'error' | 'info';
+    action?: { label: string; onClick: () => void };
+  } | null>(null);
 
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setToast({ title: message, variant: type });
-    setTimeout(() => {
-      setToast(null);
-    }, 4000);
-  }, []);
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'error' | 'info' = 'info', action?: { label: string; onClick: () => void }) => {
+      setToast({ title: message, variant: type, action });
+      setTimeout(() => {
+        setToast(null);
+      }, 5000);
+    },
+    []
+  );
 
   // Initialize from URL search parameters
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const scopeParam = params.get('scope');
     const qParam = params.get('q');
+    const tabParam = params.get('tab');
     if (scopeParam) {
       setSelectedScope(scopeParam);
     }
     if (qParam) {
       setSearchQuery(qParam);
     }
+    if (tabParam === 'proposals' || tabParam === 'assistant' || tabParam === 'memories') {
+      setActiveTab(tabParam);
+    }
   }, []);
 
   // Synchronize state changes to URL query parameters
-  const updateUrlParams = useCallback((scope: string, query: string) => {
+  const updateUrlParams = useCallback((scope: string, query: string, tab: string) => {
     const params = new URLSearchParams(window.location.search);
     if (scope && scope !== 'global') {
       params.set('scope', scope);
@@ -58,6 +76,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
     } else {
       params.delete('q');
     }
+    if (tab && tab !== 'memories') {
+      params.set('tab', tab);
+    } else {
+      params.delete('tab');
+    }
 
     const newQuery = params.toString();
     const newUrl = `${window.location.pathname}${newQuery ? `?${newQuery}` : ''}`;
@@ -66,31 +89,54 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
 
   const handleSelectScope = (path: string) => {
     setSelectedScope(path);
-    updateUrlParams(path, searchQuery);
+    updateUrlParams(path, searchQuery, activeTab);
   };
 
   const handleSearchChange = (q: string) => {
     setSearchQuery(q);
-    updateUrlParams(selectedScope, q);
+    updateUrlParams(selectedScope, q, activeTab);
   };
+
+  const handleTabChange = (tab: 'memories' | 'proposals' | 'assistant') => {
+    setActiveTab(tab);
+    updateUrlParams(selectedScope, searchQuery, tab);
+  };
+
+  const refreshPendingCount = useCallback(async () => {
+    try {
+      const count = await fetchPendingProposalsCount(selectedScope);
+      setPendingProposalsCount(count);
+    } catch {}
+  }, [selectedScope]);
 
   const loadData = useCallback(async () => {
     setIsLoadingScopes(true);
     try {
-      const [scopesData, healthData] = await Promise.all([
+      const [scopesData, healthData, count] = await Promise.all([
         fetchScopes().catch(() => []),
         fetchHealth().catch(() => null),
+        fetchPendingProposalsCount(selectedScope).catch(() => 0),
       ]);
       setScopes(scopesData);
       setHealth(healthData);
+      setPendingProposalsCount(count);
     } finally {
       setIsLoadingScopes(false);
     }
-  }, []);
+  }, [selectedScope]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleOpenMemoryById = useCallback(async (id: number) => {
+    try {
+      const mem = await fetchMemoryDetail(id);
+      setDrawerMemory(mem);
+    } catch (err: any) {
+      showToast(err.message || `Failed to load memory #${id}`, 'error');
+    }
+  }, [showToast]);
 
   // Find the selected ScopeNode in the tree
   const findNode = (nodes: ScopeNode[], targetPath: string): ScopeNode | null => {
@@ -116,6 +162,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
         activeView={activeView}
         onViewChange={onViewChange}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
         onRefreshHealth={loadData}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -123,6 +171,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
 
       <div style={{ display: 'flex', flex: 1, position: 'relative' }}>
         <Sidebar
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          pendingProposalsCount={pendingProposalsCount}
           scopes={scopes}
           selectedScope={selectedScope}
           onSelectScope={handleSelectScope}
@@ -165,16 +216,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
               boxSizing: 'border-box',
             }}
           >
-            <MemoryBrowser
-              node={activeNode}
-              selectedScope={selectedScope}
-              searchQuery={searchQuery}
-              onSearchChange={handleSearchChange}
-              onSelectScope={handleSelectScope}
-            />
+            {activeTab === 'memories' && (
+              <MemoryBrowser
+                node={activeNode}
+                selectedScope={selectedScope}
+                searchQuery={searchQuery}
+                onSearchChange={handleSearchChange}
+                onSelectScope={handleSelectScope}
+              />
+            )}
+            {activeTab === 'proposals' && (
+              <ProposalsView
+                selectedScope={selectedScope}
+                onSelectMemory={handleOpenMemoryById}
+                onToast={showToast}
+                onProposalApplied={() => {
+                  loadData();
+                  refreshPendingCount();
+                }}
+              />
+            )}
+            {activeTab === 'assistant' && (
+              <AssistantTab
+                selectedScope={selectedScope}
+                onSelectMemory={handleOpenMemoryById}
+                onToast={(msg, variant) => showToast(msg, variant)}
+              />
+            )}
           </div>
         </main>
       </div>
+
+      <MemoryDetailDrawer
+        memory={drawerMemory}
+        onClose={() => setDrawerMemory(null)}
+        onSelectMemory={handleOpenMemoryById}
+        onSelectScope={handleSelectScope}
+      />
 
       <KeyboardShortcutsModal
         isOpen={isShortcutsOpen}
@@ -199,6 +277,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
           <Toast
             variant={toast.variant}
             title={toast.title}
+            action={toast.action}
             onDismiss={() => setToast(null)}
           />
         </div>
