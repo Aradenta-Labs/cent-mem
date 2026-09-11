@@ -134,6 +134,34 @@ export function computeDiff(source: ConfigData, draft: ConfigData): Record<strin
     diff['capture.categories'] = draft.capture.categories;
   }
 
+  // LLM
+  if (draft.llm && source.llm) {
+    const llmKeys: Array<keyof typeof draft.llm> = [
+      'backend', 'endpoint', 'model', 'api_key', 'timeout_seconds', 'max_tokens', 'temperature',
+    ];
+    for (const k of llmKeys) {
+      if (source.llm[k] !== draft.llm[k]) {
+        diff[`llm.${k}`] = draft.llm[k];
+      }
+    }
+  } else if (draft.llm && !source.llm) {
+    Object.entries(draft.llm).forEach(([k, v]) => { diff[`llm.${k}`] = v; });
+  }
+
+  // Agent
+  if (draft.agent && source.agent) {
+    const agentKeys: Array<keyof typeof draft.agent> = [
+      'enabled', 'max_reasoning_steps', 'confidence_threshold', 'auto_apply_proposals', 'inquiry_top_citations',
+    ];
+    for (const k of agentKeys) {
+      if (source.agent[k] !== draft.agent[k]) {
+        diff[`agent.${k}`] = draft.agent[k];
+      }
+    }
+  } else if (draft.agent && !source.agent) {
+    Object.entries(draft.agent).forEach(([k, v]) => { diff[`agent.${k}`] = v; });
+  }
+
   return diff;
 }
 
@@ -199,6 +227,32 @@ export function useConfig() {
 
       // Clear field-level error when field is updated
       const dotKey = `${String(section)}.${String(field)}`;
+      setFieldErrors((prev) => {
+        if (!prev[dotKey]) return prev;
+        const next = { ...prev };
+        delete next[dotKey];
+        return next;
+      });
+    },
+    []
+  );
+
+  /**
+   * Weakly-typed variant for optional config sections (e.g. llm, agent).
+   */
+  const updateSection = useCallback(
+    (section: string, field: string, value: unknown) => {
+      setDraft((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          [section]: {
+            ...(prev as any)[section],
+            [field]: value,
+          },
+        };
+      });
+      const dotKey = `${section}.${field}`;
       setFieldErrors((prev) => {
         if (!prev[dotKey]) return prev;
         const next = { ...prev };
@@ -319,6 +373,7 @@ export function useConfig() {
     fieldErrors,
     testResult,
     updateField,
+    updateSection,
     revert,
     resetToDefaults,
     save,

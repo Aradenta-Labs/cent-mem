@@ -11,6 +11,7 @@ import {
   RefreshCw,
   AlertTriangle,
   FileText,
+  Bot,
 } from 'lucide-react';
 import { useConfig } from '../../hooks/useConfig';
 import { SettingsTabId } from '../../types/config';
@@ -20,6 +21,7 @@ import { RetentionTab } from './RetentionTab';
 import { CaptureTab } from './CaptureTab';
 import { ClassifierTab } from './ClassifierTab';
 import { CategoriesTab } from './CategoriesTab';
+import { AgentTab } from './AgentTab';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -33,6 +35,7 @@ const TABS: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> =
   { id: 'capture', label: 'Auto-Capture', icon: <Layers size={15} /> },
   { id: 'classifier', label: 'Classifier', icon: <Cpu size={15} /> },
   { id: 'categories', label: 'Categories', icon: <Tag size={15} /> },
+  { id: 'ai-agent', label: 'AI Agent', icon: <Bot size={15} /> },
 ];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onToast }) => {
@@ -52,6 +55,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
     fieldErrors,
     testResult,
     updateField,
+    updateSection,
     revert,
     resetToDefaults,
     save,
@@ -248,6 +252,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                   ? k.startsWith('capture.backend') || k.startsWith('capture.local_llm') || k.startsWith('capture.api_') || k.startsWith('capture.confidence_threshold')
                   : tab.id === 'categories'
                   ? k.startsWith('capture.categories')
+                  : tab.id === 'ai-agent'
+                  ? k.startsWith('llm.') || k.startsWith('agent.')
                   : k.startsWith(tab.id)
               );
 
@@ -441,6 +447,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                   <CategoriesTab
                     categories={draft.capture.categories}
                     onChange={(cats) => updateField('capture', 'categories', cats)}
+                  />
+                )}
+
+                {activeTab === 'ai-agent' && draft.llm && draft.agent && (
+                  <AgentTab
+                    llm={draft.llm}
+                    agent={draft.agent}
+                    onLLMChange={(k, v) => updateSection('llm', k, v)}
+                    onAgentChange={(k, v) => updateSection('agent', k, v)}
                   />
                 )}
               </>

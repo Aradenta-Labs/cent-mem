@@ -107,7 +107,7 @@ export interface TestClassifierResponse {
   };
 }
 
-export type SettingsTabId = 'general' | 'retention' | 'capture' | 'classifier' | 'categories';
+export type SettingsTabId = 'general' | 'retention' | 'capture' | 'classifier' | 'categories' | 'ai-agent';
 
 export interface TabItem {
   id: SettingsTabId;
