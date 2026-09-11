@@ -169,6 +169,7 @@ func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 			return false, reqErr
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "application/json, text/event-stream")
 		if c.apiKey != "" {
 			httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 		}
@@ -193,9 +194,29 @@ func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 			return false, fmt.Errorf("agent: llm request failed (status %d): %s", httpResp.StatusCode, strings.TrimSpace(string(body)))
 		}
 
+		bodyBytes, readErr := io.ReadAll(httpResp.Body)
+		if readErr != nil {
+			return false, fmt.Errorf("agent: read response: %w", readErr)
+		}
+
+		trimmed := strings.TrimSpace(string(bodyBytes))
+		// Handle reverse proxies / gateways that return SSE stream ("data: ...") even when stream: false was requested
+		if strings.HasPrefix(trimmed, "data:") || strings.Contains(httpResp.Header.Get("Content-Type"), "text/event-stream") {
+			sseResp, sseErr := parseSSEReader(bytes.NewReader(bodyBytes), nil)
+			if sseErr != nil {
+				return false, fmt.Errorf("agent: decode sse response: %w", sseErr)
+			}
+			resp = sseResp
+			return false, nil
+		}
+
 		var chatResp ChatResponse
-		if decodeErr := json.NewDecoder(httpResp.Body).Decode(&chatResp); decodeErr != nil {
-			return false, fmt.Errorf("agent: decode response: %w", decodeErr)
+		if decodeErr := json.Unmarshal(bodyBytes, &chatResp); decodeErr != nil {
+			preview := trimmed
+			if len(preview) > 120 {
+				preview = preview[:120] + "..."
+			}
+			return false, fmt.Errorf("agent: decode response (%q): %w", preview, decodeErr)
 		}
 		resp = &chatResp
 		return false, nil
@@ -250,7 +271,13 @@ func (c *Client) StreamChat(ctx context.Context, req *ChatRequest, onChunk func(
 		return nil, fmt.Errorf("agent: stream request failed (status %d): %s", httpResp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	scanner := bufio.NewScanner(httpResp.Body)
+	return parseSSEReader(httpResp.Body, onChunk)
+}
+
+// parseSSEReader reads and decodes an SSE event stream from r, invoking onChunk if non-nil,
+// and returns the fully assembled ChatResponse.
+func parseSSEReader(r io.Reader, onChunk func(chunk *StreamChunk) error) (*ChatResponse, error) {
+	scanner := bufio.NewScanner(r)
 	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 10*1024*1024) // up to 10MB per line to avoid ErrTooLong on large payloads
 	var accumulatedContent strings.Builder

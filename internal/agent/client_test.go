@@ -299,3 +299,39 @@ func TestClient_StreamingLargeLine(t *testing.T) {
 		t.Errorf("expected %d bytes, got %d", len(largeContent), len(accumulated.Choices[0].Message.Content))
 	}
 }
+
+func TestClient_NonStreamingChatReceivingSSE(t *testing.T) {
+	// Tests reverse proxies / routers that return SSE streams (data: ...)
+	// even when stream: false is requested.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+
+		chunk1 := `{"id":"sse-stream-1","choices":[{"index":0,"delta":{"role":"assistant","content":"Streamed "},"finish_reason":null}]}`
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk1)
+		flusher.Flush()
+
+		chunk2 := `{"id":"sse-stream-1","choices":[{"index":0,"delta":{"content":"response!"},"finish_reason":"stop"}]}`
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk2)
+		flusher.Flush()
+
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := agent.NewClient(config.LLMConfig{
+		Endpoint: server.URL,
+		Model:    "test-model",
+	})
+
+	resp, err := client.Chat(context.Background(), &agent.ChatRequest{
+		Messages: []agent.ChatMessage{{Role: "user", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed when receiving SSE: %v", err)
+	}
+	if len(resp.Choices) != 1 || resp.Choices[0].Message.Content != "Streamed response!" {
+		t.Errorf("expected 'Streamed response!', got %+v", resp.Choices[0].Message)
+	}
+}
