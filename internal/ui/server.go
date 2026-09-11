@@ -68,7 +68,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "2.0.0",
+		Version:  "2.0.2",
 		Store:    nil,
 		Searcher: nil,
 	}
@@ -94,7 +94,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "2.0.0"
+		cfg.Version = "2.0.2"
 	}
 
 	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
@@ -1476,6 +1476,11 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 		s.mu.Lock()
 		s.cfg.Config = candidateConfig
+		// Rebuild the agent engine so new LLM config takes effect immediately
+		// without requiring a server restart.
+		if s.cfg.Store != nil {
+			s.agent = agent.NewEngine(candidateConfig, s.cfg.Store, s.cfg.Searcher)
+		}
 		s.mu.Unlock()
 
 		writable := isPathWritable(cfgPath, home)
@@ -1485,6 +1490,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				"model":     candidateConfig.Model,
 				"retention": candidateConfig.Retention,
 				"capture":   candidateConfig.Capture,
+				"llm":       candidateConfig.LLM,
+				"agent":     candidateConfig.Agent,
 			},
 			"meta": map[string]any{
 				"home":        home,

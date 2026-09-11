@@ -102,6 +102,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const handleSave = async () => {
     const success = await save();
     if (success) {
+      window.dispatchEvent(new CustomEvent('centmem:config-updated'));
       onToast?.('Settings saved to ~/.centmem/config.toml', 'success');
     } else {
       onToast?.(error || 'Failed to save settings', 'error');

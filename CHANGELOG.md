@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-09-11
+
+Web UI Agent Settings, Live Engine Hot-Reloading & Assistant Widget Offline State Synchronization.
+
+### Added
+
+- **Web UI AI Agent Configuration Panel (`ui/src/components/settings/AgentTab.tsx`)**:
+  - Dedicated **AI Agent** tab in the Settings modal to configure LLM provider settings (`llm.*`) and memory agent reasoning loop behaviour (`agent.*`).
+  - Quick-pick preset buttons for common providers: Ollama (local default), OpenAI, Gemini, and Anthropic.
+  - Interactive inputs with visibility toggling for endpoint URL, model identifier, API key / environment variable name, timeout, and max tokens.
+  - Interactive sliders for ReAct reasoning step limits (`max_reasoning_steps`, 1–16), curation confidence threshold (`confidence_threshold`, 0.50–1.00), and auto-apply safe link proposals toggle.
+  - Real-time dirty-diff detection and save status indicators across all agent and LLM settings.
+
+### Fixed
+
+- **Live Agent Engine Hot-Reloading (`internal/ui/server.go`)**:
+  - Re-instantiates `s.agent = agent.NewEngine(candidateConfig, s.cfg.Store, s.cfg.Searcher)` immediately upon saving settings via `PATCH /api/config`.
+  - Ensures newly configured LLM endpoints, credentials, and reasoning options take effect instantly without restarting the `centmem ui` server process.
+  - Returns `llm` and `agent` sections in the `PATCH /api/config` JSON response to keep client-side draft states synchronized.
+- **Dynamic Assistant Widget Offline State (`ui/src/components/AssistantTab.tsx`)**:
+  - Dispatches and listens for `centmem:config-updated` window events so the Assistant chat tab automatically refreshes its backend status upon saving settings.
+  - Clears `isOfflineBackend` to `false` when subsequent assistant queries complete successfully (`fallback_used: false`).
+  - Refines `showOfflineBanner` condition to only activate when the LLM backend is actually offline or unconfigured, preventing historical offline conversation turns from triggering persistent warning banners in active threads.
+- **Agent ReAct Error Diagnostics (`internal/agent/engine.go`)**:
+  - Logs actual ReAct loop failure reasons to `stderr` when falling back to offline retrieval mode, enabling immediate root-cause identification in UI server logs and CLI outputs.
+
 ## [2.0.0] - 2026-09-11
 
 Built-in AI Memory Agent: Inquiry, Autonomous Curation, Synthesis, Web UI Assistant & Hardening.
@@ -390,6 +416,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.0.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.2
 [2.0.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.0
 [1.5.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.4
 [1.5.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.3

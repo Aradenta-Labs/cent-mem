@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -119,7 +120,9 @@ func (e *Engine) Ask(ctx context.Context, question string, opts InquiryOptions) 
 	// 4. Run ReAct reasoning loop
 	answer, steps, err := e.RunReActLoop(ctx, messages, opts.StreamCallback)
 	if err != nil {
-		// LLM endpoint failure -> graceful fallback
+		// LLM endpoint failure → graceful fallback
+		// Log the real error to stderr so it's visible in centmem ui output
+		fmt.Fprintf(os.Stderr, "[centmem/agent] ReAct loop failed, falling back to offline mode: %v\n", err)
 		res := e.offlineAsk(ctx, question, scope, opts.Top)
 		res.ConversationID = convID
 		e.persistAssistantMessage(ctx, convID, res)

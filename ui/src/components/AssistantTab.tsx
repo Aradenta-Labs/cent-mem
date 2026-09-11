@@ -62,18 +62,29 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
   const [isOfflineBannerDismissed, setIsOfflineBannerDismissed] = useState<boolean>(false);
 
   // Check if LLM backend is offline/disabled from server configuration
-  useEffect(() => {
+  const refreshBackendStatus = useCallback(() => {
     fetchConfig()
       .then((res) => {
         if (res.ok && res.config) {
           const llm = res.config.llm;
           if (llm && (llm.backend === 'disabled' || !llm.backend)) {
             setIsOfflineBackend(true);
+          } else {
+            setIsOfflineBackend(false);
           }
         }
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refreshBackendStatus();
+    const handleConfigUpdated = () => refreshBackendStatus();
+    window.addEventListener('centmem:config-updated', handleConfigUpdated);
+    return () => {
+      window.removeEventListener('centmem:config-updated', handleConfigUpdated);
+    };
+  }, [refreshBackendStatus]);
 
   // Quick Memory Record Dialog (for knowledge gaps)
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
@@ -239,6 +250,8 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
         setIsStreaming(false);
         if (doneData.fallback_used) {
           setIsOfflineBackend(true);
+        } else {
+          setIsOfflineBackend(false);
         }
         setMessages((prev) =>
           prev.map((t) =>
@@ -650,14 +663,7 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
     },
   ];
 
-  const hasOfflineTurn = messages.some(
-    (m) =>
-      m.role === 'assistant' &&
-      (m.content.includes('Offline Mode') ||
-        m.content.includes('offline catalog mode') ||
-        m.content.includes('LLM reasoning is offline'))
-  );
-  const showOfflineBanner = (isOfflineBackend || hasOfflineTurn) && !isOfflineBannerDismissed;
+  const showOfflineBanner = isOfflineBackend && !isOfflineBannerDismissed;
 
   return (
     <div

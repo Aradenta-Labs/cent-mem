@@ -2,7 +2,7 @@
   "name": "centmem-vscode",
   "displayName": "cent-mem Developer Memory",
   "description": "Fast, local-first shared memory store for AI agents in VS Code",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "publisher": "aradenta-labs",
   "repository": {
     "type": "git",
