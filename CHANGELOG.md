@@ -30,6 +30,9 @@ Web UI Agent Settings, Live Engine Hot-Reloading & Assistant Widget Offline Stat
   - Refines `showOfflineBanner` condition to only activate when the LLM backend is actually offline or unconfigured, preventing historical offline conversation turns from triggering persistent warning banners in active threads.
 - **Agent ReAct Error Diagnostics (`internal/agent/engine.go`)**:
   - Logs actual ReAct loop failure reasons to `stderr` when falling back to offline retrieval mode, enabling immediate root-cause identification in UI server logs and CLI outputs.
+- **Proxy SSE Stream Decoding in Non-Streaming Requests (`internal/agent/client.go`)**:
+  - Automatically detects when reverse proxies or gateways return Server-Sent Events (`data: ...` / `text/event-stream`) even when `stream: false` was requested.
+  - Assembles streaming chunks and reconstructs fragmented `tool_calls` arrays, eliminating `invalid character 'd' looking for beginning of value` errors during large curation and reasoning runs.
 
 ## [2.0.0] - 2026-09-11
 
