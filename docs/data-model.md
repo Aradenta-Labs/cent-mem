@@ -38,6 +38,21 @@ Hierarchical scope registry. Row per scope. `path` is a materialized path used f
 
 **Indexes:** `UNIQUE(path)`, `INDEX(parent_path)`, `INDEX(kind)`
 
+#### Scope Subtree Cascading Deletion & Prefix Isolation
+`Store.DeleteScopeTree(ctx, scopePath)` provides atomic, cascading deletion of any non-global scope and its entire subtree:
+1. **Scope Resolution**: Recursively resolves the target scope ID and all descendant scope IDs.
+2. **Exact Prefix Isolation**: Descendants are matched using `scope.DescendantPrefix(s)`, which appends a trailing slash (`s.Path + "/%"`) for non-global scopes. This ensures sibling scopes with common prefixes (such as `project:frontend` vs `project:frontend-v2`) are never accidentally matched or pruned.
+3. **Atomic Cascade Order**:
+   - `memories_vec` & `embeddings`: Virtual table vectors and raw BLOB embeddings for all memories within resolved scope IDs.
+   - `embed_queue`: Queued embedding background tasks.
+   - `memory_links`: Graph relationships where either `from_id` or `to_id` is an affected memory.
+   - `agent_proposals`: Staged merge, link, update, or archive proposals targeting affected memories.
+   - `agent_conversations` & `agent_messages`: Conversation dialog threads and assistant execution turns scoped to affected scopes.
+   - `memories`: All memories within the scope IDs (triggers automatically clean up `memories_fts`).
+   - `scopes`: The scope records themselves from `scopes`.
+   - `events`: Monotonic audit event recorded for synchronization.
+4. **Root Scope Invariant**: The root `global` scope is strictly immutable against deletion. Deletion attempts return `ErrCannotDeleteGlobalScope`.
+
 ### 2.2 `memories`
 
 All memory types live in one table for unified search.

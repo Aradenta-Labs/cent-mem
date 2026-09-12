@@ -244,13 +244,20 @@ centmem ui
 - **Visual Merge Diffs**: Displays source memories side-by-side with proposed consolidated text and combined tags.
 - **Relationship Previews**: Visual graph arrows (`[from] ── supersedes ──► [to]`).
 - **1-Click Actions**: Instant **Approve & Apply**, **Dismiss**, and **Undo/Reopen** actions with live counter badges.
+- **Bulk Review Actions**: Dedicated toolbar with **Approve All** and **Reject All** buttons, opening a confirmation modal (`BatchProposalConfirmDialog`) with type breakdowns, consequence warnings, and transparent client-side chunking for large review queues.
+
+### Settings & Diagnostics
+- **Agent Settings Tab**: Manage provider presets (Ollama, OpenAI, Gemini, Anthropic), model names, credentials, and ReAct loop parameters with instant hot-reloading.
+- **Live "Test Connection"**: Fast, zero-token probe button verifying endpoint reachability and displaying round-trip latency in milliseconds.
+- **Doctor Diagnostics**: `centmem doctor` and the Web UI Doctor Popover verify the `"ai_agent"` subsystem, reporting active model and latency with soft warning semantics.
 
 ---
 
 ## 5. Offline Degradation & Zero-Configuration Mode
 
 When no LLM is configured (`backend = "disabled"` or unreachable endpoint):
-1. **`centmem ask`**: Automatically runs hybrid search recall and outputs ranked memories with citations, setting `"fallback_used": true` and including a clear guidance notice.
-2. **`centmem curate`**: Falls back to content-hash and normalized exact-text grouping to identify duplicates and create merge proposals without requiring AI inference.
-3. **`centmem summarize`**: Outputs a deterministic catalog digest grouped by memory type (`fact`, `note`, `log`).
-4. **Web UI**: Renders an informative banner with an interactive button navigating straight to Settings to configure your backend.
+1. **`centmem doctor`**: Reports `"ai_agent"` with `status: "warn"` and diagnostic advice without failing with exit code 1.
+2. **`centmem ask`**: Automatically runs hybrid search recall and outputs ranked memories with citations, setting `"fallback_used": true` and including a clear guidance notice.
+3. **`centmem curate`**: Falls back to content-hash and normalized exact-text grouping to identify duplicates and create merge proposals without requiring AI inference.
+4. **`centmem summarize`**: Outputs a deterministic catalog digest grouped by memory type (`fact`, `note`, `log`).
+5. **Web UI**: Renders an informative banner with an interactive button navigating straight to Settings to configure your backend.

@@ -86,7 +86,7 @@ centmem compact
 ## 6. Check health & back up
 
 ```bash
-centmem doctor                 # health checks (exit 0 = healthy)
+centmem doctor                 # health checks (integrity, schema, model, queue, permissions, AI agent)
 centmem backup --to ~/backups/centmem-$(date +%F).db
 centmem restore --from ~/backups/centmem-2026-08-31.db
 ```

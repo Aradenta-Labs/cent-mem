@@ -38,15 +38,15 @@ Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Windsurf**, *
 | 🚀 | **Fast** — p95 read < 300 ms on 100k memories; p95 write overhead < 50 ms |
 | 🧠 | **Hybrid search** — semantic (vec) + keyword (FTS5 bm25) + facts + timeline, fused via RRF |
 | 📈 | **Importance scoring** — access-frequency tracking with logarithmic rank reinforcement |
-| 🗂️ | **Hierarchical scoping** — `global → project → agent → session`, with inheritance |
+| 🗂️ | **Hierarchical scoping** — `global → project → agent → session`, with inheritance and cascade deletion |
 | 🔗 | **Memory link graph** — directional semantic relationships (`supports`, `contradicts`, `supersedes`) |
 | 🔌 | **Model Context Protocol (MCP)** — native `stdio` server (`centmem serve`) for agent harnesses |
 | ⚡ | **`centmemd` daemon** — single-writer serialization & Unix domain socket IPC for multi-agent concurrency |
 | 🤖 | **AI Memory Agent (v2.0)** — Built-in ReAct reasoning engine for inquiry, autonomous curation, and merge proposals |
 | 🎣 | **Richer capture** — extracts from transcripts, Git commits, Markdown docs, shell history, and code annotations |
-| 🖥️ | **Web UI dashboard** — high-density local browser interface with live health monitoring and settings |
+| 🖥️ | **Web UI dashboard** — high-density local browser interface with live health monitoring, AI assistant chat, bulk proposals, and settings |
 | 🧹 | **Auto-summarize** — old memories consolidate; the store stays lean forever |
-| 🩺 | **Self-checks** — `doctor`, `backup`, `restore` for ops |
+| 🩺 | **Self-checks** — `doctor` (integrity, schema, model, queue, permissions, AI agent probe), `backup`, `restore` for ops |
 | 🔒 | **Privacy** — data never leaves your machine |
 
 ---
@@ -253,7 +253,7 @@ Benchmarks live in `internal/search/search_bench_test.go` and are recorded in [`
 - [x] **v1.3** — Auto-capture from agent transcripts (hooks & multi-backend classification)
 - [x] **v1.4** — Web UI Memory Browser dashboard (`centmem ui`) & Two-Stage Re-Ranking
 - [x] **v1.5** — Importance scoring, Richer capture (Git/Docs/Shell/Comments), Link graph, Native MCP server, and `centmemd` daemon
-- [ ] **v2.0.0** — Built-in AI Memory Agent: Inquiry, Autonomous Curation, Synthesis & Web UI Assistant (Stage 1: Core Engine & DB completed)
+- [x] **v2.0.0** — Built-in AI Memory Agent: Inquiry, Autonomous Curation, Synthesis, Web UI Assistant & Hierarchical Scope Management
 - [ ] **v2.1** — Distributed multi-machine sync via remote gRPC event streaming, per-agent RBAC
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) and [docs/PRD.md § Open Questions](docs/PRD.md#10-open-questions).

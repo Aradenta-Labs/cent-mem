@@ -5,6 +5,40 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-09-12
+
+Hierarchical Scope Deletion, AI Agent Diagnostics & Connectivity Testing, and Web UI Bulk Proposal Management.
+
+### Added
+
+- **Hierarchical Scope & Project Subtree Deletion (`Store.DeleteScopeTree`)**:
+  - Added `centmem scope delete <path> [--force]` to cascade-delete any non-global scope subtree (projects, agents, or sessions) and all descendant scopes, memories, vector embeddings, queue jobs, memory links, proposals, and conversation threads in an atomic transaction.
+  - Added `centmem scope list` CLI command to output a hierarchical JSON scope tree with node counts and descendant aggregation.
+  - Implemented exact sibling prefix isolation in `DescendantPrefix(s)` (`s.Path + "/%"`) to prevent accidental deletion of sibling scopes with shared name prefixes (e.g. `project:alpha` vs `project:alpha-beta`).
+  - Added interactive `[y/N]` confirmation in CLI when running in a terminal, bypassable with `--force` for scripts/automation.
+  - Added Web UI scope deletion entry points: prominent "Delete Scope" button in `ScopeOverview` card and trash icon on hover in `ScopeTree` sidebar.
+  - Implemented `DeleteScopeConfirmDialog.tsx` modal requiring typing the exact scope name to unlock the delete button, showing real-time memory and child scope counts.
+  - Added `DELETE /api/scopes?path=<scope>` endpoint to embedded REST API with root `global` scope deletion protection.
+- **AI Agent Health Check & Diagnostics (`centmem doctor`)**:
+  - Added `"ai_agent"` health check to `centmem doctor` (CLI and Web UI Doctor Diagnostics popover).
+  - Implemented lightweight `agent.ProbeEndpoint` measuring HTTP round-trip latency (ms) and validating credentials via `/models` with zero token consumption.
+  - Implemented soft warning semantics (`status: "warn"` on unreachable or offline LLM endpoints) appending actionable remediation hints to `warnings` without failing doctor with exit code 1 or blocking core store operations.
+  - Added live **"Test Connection"** button to the Web UI Agent Settings tab (`POST /api/config/test-agent`), validating endpoint reachability and displaying round-trip latency in milliseconds.
+- **Bulk Proposal Management in Web UI**:
+  - Added **"Approve All"** and **"Reject All"** batch action buttons to the Proposals Review Center toolbar when viewing pending proposals.
+  - Implemented `BatchProposalConfirmDialog.tsx` providing item counts, breakdown by proposal type, and explicit consequence warnings before applying bulk mutations.
+  - Added `POST /api/proposals/batch` backend endpoint supporting batch apply and dismiss operations with transparent client-side chunking and conflict handling.
+- **Skill & Harness Synchronizations**:
+  - Updated `skill/SKILL.md` and all 4 mirrors (`.agents/skills/centmem/`, `.claude/skills/centmem/`, `npm/templates/`) with Recipe 13 (Scope Management & Subtree Deletion), Recipe 14 (Doctor Diagnostics & AI Agent Connectivity), and bulk proposal review guidance.
+  - Updated `/centmem` slash command adapters across all supported agent harnesses (AGY, Claude Code, Cursor, Codex, Trae, Hermes, Generic).
+
+### Fixed
+
+- **Sibling Scope Prefix Collisions (`internal/scope/scope.go`)**:
+  - Resolved bug where deleting `project:foo` could inadvertently match and delete `project:foo-bar` by ensuring `DescendantPrefix` includes a trailing slash `/` for non-global scopes.
+- **Proposals Batch Threshold**:
+  - Increased backend batch proposal cap to 500 and added transparent client chunking to ensure large review sets process smoothly without hitting request size limits.
+
 ## [2.0.2] - 2026-09-11
 
 Web UI Agent Settings, Live Engine Hot-Reloading & Assistant Widget Offline State Synchronization.
@@ -419,6 +453,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.0.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.3
 [2.0.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.2
 [2.0.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.0
 [1.5.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v1.5.4

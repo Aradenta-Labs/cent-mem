@@ -64,6 +64,10 @@
 - SQL is centralized in `internal/store/sql.go` for review/grep.
 - Exposes typed methods; no raw SQL leaks outside this package.
 - **Migration system**: versioned migrations in `internal/store/migrations/` applied on open; `init` creates schema.
+- **Hierarchical Scope Deletion (`DeleteScopeTree`)**:
+  - Cascades atomically across the target scope and all descendants, deleting associated memories, vector embeddings (`memories_vec`), queue jobs (`embed_queue`), memory links (`memory_links`), agent proposals (`agent_proposals`), conversations (`agent_conversations`), and messages (`agent_messages`).
+  - Strict prefix isolation: uses `scope.DescendantPrefix(s)` which returns `s.Path + "/%"` for non-global scopes, ensuring sibling scopes (e.g. `project:alpha` vs `project:alpha-beta`) never cross-contaminate.
+  - Root scope protection: `global` scope is strictly protected against deletion.
 
 ### 3.3 `internal/search` — query engine
 - `Hybrid(query, filters)` orchestrates:
@@ -96,6 +100,7 @@
 ### 3.8 `internal/agent` — AI memory agent engine (v2.0.0)
 - `Engine` coordinates multi-step **ReAct reasoning loops** (Plan $\to$ Act $\to$ Think) for interactive inquiry, autonomous curation, and architecture synthesis.
 - `Client`: Lightweight, zero-dependency streaming and non-streaming HTTP client compatible with OpenAI `/v1/chat/completions` (supporting Ollama, LocalAI, vLLM, and BYOK cloud providers).
+- `ProbeEndpoint`: Lightweight zero-token HTTP probe verifying LLM endpoint reachability and measuring round-trip latency via `/models` for `doctor` and Web UI settings.
 - `ToolRegistry`: Dispatches OpenAI tool definitions to native Store and Search engine operations (`search_memories`, `read_memory`, `inspect_links`, `propose_link`, `propose_merge`, `detect_knowledge_gaps`).
 - `Prompts`: Grounded system prompts enforcing Antislop principles, strict `[id: 42]` citations, and deterministic offline fallbacks.
 
@@ -111,6 +116,7 @@
 
 ### 3.12 `internal/ui` — Web UI Memory Browser server
 - Embedded HTTP REST API and React single-page application (`centmem ui`) with token authentication and live statistics.
+- Key capabilities: interactive memory exploration, hybrid search, hierarchical scope pruning (`DELETE /api/scopes`), Proposals Review Center with bulk approve/reject (`POST /api/proposals/batch`), doctor diagnostics with AI Agent probe, live settings hot-reloading with connection testing (`POST /api/config/test-agent`), and streaming assistant chat (`POST /api/agent/chat`).
 
 ## 4. Data Flow
 
