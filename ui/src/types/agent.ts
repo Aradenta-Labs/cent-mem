@@ -68,6 +68,18 @@ export interface ProposalActionResponse {
   };
 }
 
+export interface BatchProposalsResponse {
+  ok: boolean;
+  action: 'apply' | 'dismiss';
+  total: number;
+  succeeded: number[];
+  failed: Array<{ id: number; error: string }>;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
 export interface Conversation {
   id: string;
   scope_id: number;

@@ -2093,8 +2093,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				limit = l
 			}
 		}
-		if limit > 200 {
-			limit = 200
+		if limit > 500 {
+			limit = 500
 		}
 
 		offset := 0
@@ -2384,6 +2384,104 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			"ok":       true,
 			"reopened": true,
 			"proposal": p,
+		})
+	})
+
+	// Proposals: Batch Apply or Dismiss Proposals
+	mux.HandleFunc("POST /api/proposals/batch", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		var req struct {
+			Action string  `json:"action"`
+			IDs    []int64 `json:"ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_json",
+					"message": fmt.Sprintf("invalid json payload: %v", err),
+				},
+			})
+			return
+		}
+
+		if req.Action != "apply" && req.Action != "dismiss" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_action",
+					"message": "action must be 'apply' or 'dismiss'",
+				},
+			})
+			return
+		}
+
+		if len(req.IDs) == 0 || len(req.IDs) > 500 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_ids",
+					"message": "ids must contain between 1 and 500 proposal IDs",
+				},
+			})
+			return
+		}
+
+		type batchFailure struct {
+			ID    int64  `json:"id"`
+			Error string `json:"error"`
+		}
+
+		succeeded := make([]int64, 0, len(req.IDs))
+		failed := make([]batchFailure, 0)
+
+		for _, id := range req.IDs {
+			if id <= 0 {
+				failed = append(failed, batchFailure{
+					ID:    id,
+					Error: fmt.Sprintf("invalid proposal id: %d", id),
+				})
+				continue
+			}
+
+			var err error
+			if req.Action == "apply" {
+				err = cfg.Store.ApplyProposal(r.Context(), id)
+			} else {
+				err = cfg.Store.DismissProposal(r.Context(), id)
+			}
+
+			if err != nil {
+				failed = append(failed, batchFailure{
+					ID:    id,
+					Error: err.Error(),
+				})
+			} else {
+				succeeded = append(succeeded, id)
+			}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":        true,
+			"action":    req.Action,
+			"total":     len(req.IDs),
+			"succeeded": succeeded,
+			"failed":    failed,
 		})
 	})
 

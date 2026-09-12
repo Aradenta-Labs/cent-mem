@@ -21,10 +21,12 @@ import {
   applyProposal,
   dismissProposal,
   reopenProposal,
+  batchProposals,
 } from '../services/api';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { SegmentedControl } from './SegmentedControl';
+import { BatchProposalConfirmDialog } from './BatchProposalConfirmDialog';
 
 export interface ProposalsViewProps {
   selectedScope: string;
@@ -52,6 +54,10 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
     dismissed: 0,
   });
 
+  // Batch action state
+  const [batchDialogAction, setBatchDialogAction] = useState<'apply' | 'dismiss' | null>(null);
+  const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
+
   const loadProposals = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -60,18 +66,22 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
           scope: selectedScope,
           status: activeStatus,
           type: typeFilter === 'all' ? undefined : typeFilter,
+          limit: 200,
         }),
         fetchProposals({
           scope: selectedScope,
           status: 'pending',
+          limit: 200,
         }),
         fetchProposals({
           scope: selectedScope,
           status: 'applied',
+          limit: 200,
         }),
         fetchProposals({
           scope: selectedScope,
           status: 'dismissed',
+          limit: 200,
         }),
       ]);
       setProposals(statusList);
@@ -167,6 +177,39 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
       onToast?.(err.message || 'Failed to restore proposal', 'error');
     } finally {
       setActionInProgress(null);
+    }
+  };
+
+  const handleBatchConfirm = async () => {
+    if (!batchDialogAction || proposals.length === 0) return;
+    setIsBatchProcessing(true);
+    const action = batchDialogAction;
+    const targetIds = proposals.map((p) => p.id);
+    try {
+      const res = await batchProposals(action, targetIds);
+      if (res.ok) {
+        const successCount = res.succeeded.length;
+        const failCount = res.failed.length;
+        if (failCount === 0) {
+          if (action === 'apply') {
+            onToast?.(`Successfully applied ${successCount} proposal${successCount === 1 ? '' : 's'}`, 'success');
+          } else {
+            onToast?.(`Dismissed ${successCount} proposal${successCount === 1 ? '' : 's'}. Review or restore under the Dismissed tab.`, 'info');
+          }
+        } else {
+          onToast?.(
+            `${action === 'apply' ? 'Applied' : 'Dismissed'} ${successCount} proposal${successCount === 1 ? '' : 's'} (${failCount} failed)`,
+            failCount > 0 && successCount === 0 ? 'error' : 'info'
+          );
+        }
+        onProposalApplied?.();
+        setBatchDialogAction(null);
+        await loadProposals();
+      }
+    } catch (err: any) {
+      onToast?.(err.message || `Failed to ${action} proposals in batch`, 'error');
+    } finally {
+      setIsBatchProcessing(false);
     }
   };
 
@@ -579,6 +622,64 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
         </div>
       </div>
 
+      {/* Batch Actions Toolbar */}
+      {activeStatus === 'pending' && proposals.length > 0 && !isLoading && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--space-3)',
+            padding: 'var(--space-3) var(--space-4)',
+            backgroundColor: 'var(--surface-primary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--text-secondary)',
+              fontWeight: 500,
+            }}
+          >
+            <span>
+              Showing <strong style={{ color: 'var(--text-primary)' }}>{proposals.length}</strong> pending proposal{proposals.length === 1 ? '' : 's'}
+              {typeFilter !== 'all' && (
+                <span>
+                  {' '}(filtered by <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-primary)' }}>{typeFilter}</code>)
+                </span>
+              )}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setBatchDialogAction('dismiss')}
+              disabled={actionInProgress !== null || isBatchProcessing}
+              leftIcon={<XCircle size={14} />}
+            >
+              Reject All
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setBatchDialogAction('apply')}
+              disabled={actionInProgress !== null || isBatchProcessing}
+              leftIcon={<CheckCircle2 size={14} />}
+            >
+              Approve All
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Proposals Content Cards */}
       {isLoading ? (
         <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -674,7 +775,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
                       variant="ghost"
                       size="sm"
                       onClick={() => handleDismiss(proposal.id)}
-                      disabled={actionInProgress === proposal.id}
+                      disabled={actionInProgress !== null || isBatchProcessing}
                       style={{ color: 'var(--text-muted)' }}
                     >
                       <XCircle size={14} style={{ marginRight: '4px' }} />
@@ -684,7 +785,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
                       variant="primary"
                       size="sm"
                       onClick={() => handleApply(proposal.id)}
-                      disabled={actionInProgress === proposal.id}
+                      disabled={actionInProgress !== null || isBatchProcessing}
                     >
                       <CheckCircle2 size={14} style={{ marginRight: '4px' }} />
                       <span>Approve & Apply</span>
@@ -699,7 +800,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
                       variant="secondary"
                       size="sm"
                       onClick={() => handleReopen(proposal.id)}
-                      disabled={actionInProgress === proposal.id}
+                      disabled={actionInProgress !== null || isBatchProcessing}
                       title="Restore proposal to pending"
                     >
                       <RefreshCw size={13} style={{ marginRight: '4px' }} />
@@ -719,6 +820,18 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
           ))}
         </div>
       )}
+
+      {/* Batch Proposal Confirmation Dialog */}
+      <BatchProposalConfirmDialog
+        isOpen={batchDialogAction !== null}
+        onClose={() => setBatchDialogAction(null)}
+        onConfirm={handleBatchConfirm}
+        action={batchDialogAction}
+        proposals={proposals}
+        selectedScope={selectedScope}
+        typeFilter={typeFilter}
+        isProcessing={isBatchProcessing}
+      />
     </div>
   );
 };

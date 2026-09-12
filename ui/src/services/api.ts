@@ -24,6 +24,7 @@ import {
   ProposalFilters,
   ProposalsResponse,
   ProposalActionResponse,
+  BatchProposalsResponse,
   Conversation,
   ConversationsResponse,
   Message,
@@ -420,6 +421,7 @@ export async function fetchProposals(filters: ProposalFilters = {}): Promise<Pro
 export async function fetchPendingProposalsCount(scope?: string): Promise<number> {
   const params = new URLSearchParams();
   params.set('status', 'pending');
+  params.set('limit', '500');
   if (scope && scope !== 'global') {
     params.set('scope', scope);
   }
@@ -464,6 +466,51 @@ export async function reopenProposal(id: number): Promise<ProposalActionResponse
     throw new Error(data.error?.message || `Failed to reopen proposal ${id}: HTTP ${res.status}`);
   }
   return data;
+}
+
+export async function batchProposals(
+  action: 'apply' | 'dismiss',
+  ids: number[]
+): Promise<BatchProposalsResponse> {
+  if (ids.length === 0) {
+    return {
+      ok: true,
+      action,
+      total: 0,
+      succeeded: [],
+      failed: [],
+    };
+  }
+
+  // Chunk in batches of 100 to avoid request size or server cap bottlenecks
+  const chunkSize = 100;
+  const combined: BatchProposalsResponse = {
+    ok: true,
+    action,
+    total: ids.length,
+    succeeded: [],
+    failed: [],
+  };
+
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const res = await apiFetch('/api/proposals/batch', {
+      method: 'POST',
+      body: JSON.stringify({ action, ids: chunk }),
+    });
+    const data: BatchProposalsResponse = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || `Failed to ${action} proposals: HTTP ${res.status}`);
+    }
+    if (data.succeeded) {
+      combined.succeeded.push(...data.succeeded);
+    }
+    if (data.failed) {
+      combined.failed.push(...data.failed);
+    }
+  }
+
+  return combined;
 }
 
 export const createMemory = restoreMemory;

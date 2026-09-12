@@ -235,6 +235,307 @@ func TestServer_Proposals_Dismiss(t *testing.T) {
 	}
 }
 
+func TestServer_Proposals_Batch(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Seed memories
+	m1ID, _, err := st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:batch",
+		Type:    "note",
+		Content: "Batch memory 1",
+	})
+	if err != nil {
+		t.Fatalf("put m1: %v", err)
+	}
+	m2ID, _, err := st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:batch",
+		Type:    "note",
+		Content: "Batch memory 2",
+	})
+	if err != nil {
+		t.Fatalf("put m2: %v", err)
+	}
+	m3ID, _, err := st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:batch",
+		Type:    "note",
+		Content: "Batch memory 3",
+	})
+	if err != nil {
+		t.Fatalf("put m3: %v", err)
+	}
+	m4ID, _, err := st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:batch",
+		Type:    "note",
+		Content: "Batch memory 4",
+	})
+	if err != nil {
+		t.Fatalf("put m4: %v", err)
+	}
+
+	// Create 2 proposals for batch apply
+	linkPayload1, _ := json.Marshal(store.LinkProposalPayload{
+		FromID:   m1ID,
+		ToID:     m2ID,
+		Relation: "supersedes",
+	})
+	p1ID, err := st.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:batch",
+		ProposalType: "link",
+		Title:        "Link 1 and 2",
+		PayloadJSON:  string(linkPayload1),
+	})
+	if err != nil {
+		t.Fatalf("create p1: %v", err)
+	}
+
+	linkPayload2, _ := json.Marshal(store.LinkProposalPayload{
+		FromID:   m3ID,
+		ToID:     m4ID,
+		Relation: "supersedes",
+	})
+	p2ID, err := st.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:batch",
+		ProposalType: "link",
+		Title:        "Link 3 and 4",
+		PayloadJSON:  string(linkPayload2),
+	})
+	if err != nil {
+		t.Fatalf("create p2: %v", err)
+	}
+
+	// Create 2 proposals for batch dismiss
+	p3ID, err := st.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:batch",
+		ProposalType: "archive",
+		Title:        "Archive p3",
+		PayloadJSON:  `{"target_id":1}`,
+	})
+	if err != nil {
+		t.Fatalf("create p3: %v", err)
+	}
+	p4ID, err := st.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:batch",
+		ProposalType: "archive",
+		Title:        "Archive p4",
+		PayloadJSON:  `{"target_id":2}`,
+	})
+	if err != nil {
+		t.Fatalf("create p4: %v", err)
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	// 1. Batch Apply p1 and p2
+	applyBody, _ := json.Marshal(map[string]any{
+		"action": "apply",
+		"ids":    []int64{p1ID, p2ID},
+	})
+	req := httptest.NewRequest("POST", "/api/proposals/batch", bytes.NewReader(applyBody))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch apply status=%d, body=%s", rec.Code, rec.Body.String())
+	}
+	var batchApplyResp struct {
+		Ok        bool     `json:"ok"`
+		Action    string   `json:"action"`
+		Total     int      `json:"total"`
+		Succeeded []int64  `json:"succeeded"`
+		Failed    []struct {
+			ID    int64  `json:"id"`
+			Error string `json:"error"`
+		} `json:"failed"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&batchApplyResp); err != nil {
+		t.Fatalf("decode batch apply: %v", err)
+	}
+	if !batchApplyResp.Ok || batchApplyResp.Action != "apply" || batchApplyResp.Total != 2 {
+		t.Errorf("unexpected batch apply response: %+v", batchApplyResp)
+	}
+	if len(batchApplyResp.Succeeded) != 2 || len(batchApplyResp.Failed) != 0 {
+		t.Errorf("expected 2 succeeded, 0 failed, got %+v", batchApplyResp)
+	}
+
+	p1After, _ := st.GetProposal(ctx, p1ID)
+	p2After, _ := st.GetProposal(ctx, p2ID)
+	if p1After.Status != "applied" || p2After.Status != "applied" {
+		t.Errorf("expected p1 & p2 status 'applied', got p1=%s, p2=%s", p1After.Status, p2After.Status)
+	}
+
+	// 2. Batch Dismiss p3 and p4
+	dismissBody, _ := json.Marshal(map[string]any{
+		"action": "dismiss",
+		"ids":    []int64{p3ID, p4ID},
+	})
+	req = httptest.NewRequest("POST", "/api/proposals/batch", bytes.NewReader(dismissBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch dismiss status=%d, body=%s", rec.Code, rec.Body.String())
+	}
+	var batchDismissResp struct {
+		Ok        bool     `json:"ok"`
+		Action    string   `json:"action"`
+		Total     int      `json:"total"`
+		Succeeded []int64  `json:"succeeded"`
+		Failed    []struct {
+			ID    int64  `json:"id"`
+			Error string `json:"error"`
+		} `json:"failed"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&batchDismissResp); err != nil {
+		t.Fatalf("decode batch dismiss: %v", err)
+	}
+	if !batchDismissResp.Ok || batchDismissResp.Action != "dismiss" || batchDismissResp.Total != 2 {
+		t.Errorf("unexpected batch dismiss response: %+v", batchDismissResp)
+	}
+	if len(batchDismissResp.Succeeded) != 2 || len(batchDismissResp.Failed) != 0 {
+		t.Errorf("expected 2 succeeded, 0 failed, got %+v", batchDismissResp)
+	}
+
+	p3After, _ := st.GetProposal(ctx, p3ID)
+	p4After, _ := st.GetProposal(ctx, p4ID)
+	if p3After.Status != "dismissed" || p4After.Status != "dismissed" {
+		t.Errorf("expected p3 & p4 status 'dismissed', got p3=%s, p4=%s", p3After.Status, p4After.Status)
+	}
+
+	// 3. Partial Failure: valid ID + non-existent ID + negative ID
+	p5ID, err := st.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:batch",
+		ProposalType: "archive",
+		Title:        "Archive p5",
+		PayloadJSON:  `{"target_id":3}`,
+	})
+	if err != nil {
+		t.Fatalf("create p5: %v", err)
+	}
+
+	partialBody, _ := json.Marshal(map[string]any{
+		"action": "dismiss",
+		"ids":    []int64{p5ID, 999999, -10},
+	})
+	req = httptest.NewRequest("POST", "/api/proposals/batch", bytes.NewReader(partialBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("partial failure batch status=%d, body=%s", rec.Code, rec.Body.String())
+	}
+	var partialResp struct {
+		Ok        bool     `json:"ok"`
+		Total     int      `json:"total"`
+		Succeeded []int64  `json:"succeeded"`
+		Failed    []struct {
+			ID    int64  `json:"id"`
+			Error string `json:"error"`
+		} `json:"failed"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&partialResp); err != nil {
+		t.Fatalf("decode partial response: %v", err)
+	}
+	if len(partialResp.Succeeded) != 1 || partialResp.Succeeded[0] != p5ID {
+		t.Errorf("expected succeeded=[%d], got %+v", p5ID, partialResp.Succeeded)
+	}
+	if len(partialResp.Failed) != 2 {
+		t.Errorf("expected 2 failed items, got %+v", partialResp.Failed)
+	}
+
+	// 4. Validation: Empty IDs
+	emptyBody, _ := json.Marshal(map[string]any{
+		"action": "apply",
+		"ids":    []int64{},
+	})
+	req = httptest.NewRequest("POST", "/api/proposals/batch", bytes.NewReader(emptyBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty IDs, got %d", rec.Code)
+	}
+
+	// 5. Validation: Invalid Action
+	badActionBody, _ := json.Marshal(map[string]any{
+		"action": "invalid_action",
+		"ids":    []int64{1},
+	})
+	req = httptest.NewRequest("POST", "/api/proposals/batch", bytes.NewReader(badActionBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid action, got %d", rec.Code)
+	}
+
+	// 6. Validation: Exceeding batch cap (>500 IDs)
+	tooManyIDs := make([]int64, 501)
+	for i := range tooManyIDs {
+		tooManyIDs[i] = int64(i + 1)
+	}
+	tooManyBody, _ := json.Marshal(map[string]any{
+		"action": "apply",
+		"ids":    tooManyIDs,
+	})
+	req = httptest.NewRequest("POST", "/api/proposals/batch", bytes.NewReader(tooManyBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for >500 IDs, got %d", rec.Code)
+	}
+
+	// 7. Conflict & Idempotency: re-applying p1 (already applied) alongside a newly created p6
+	p6ID, err := st.CreateProposal(ctx, &store.Proposal{
+		ScopePath:    "project:batch",
+		ProposalType: "archive",
+		Title:        "Archive p6",
+		PayloadJSON:  `{"target_id":4}`,
+	})
+	if err != nil {
+		t.Fatalf("create p6: %v", err)
+	}
+	conflictBody, _ := json.Marshal(map[string]any{
+		"action": "apply",
+		"ids":    []int64{p1ID, p6ID},
+	})
+	req = httptest.NewRequest("POST", "/api/proposals/batch", bytes.NewReader(conflictBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for partial conflict apply, got %d", rec.Code)
+	}
+	var conflictResp struct {
+		Ok        bool     `json:"ok"`
+		Action    string   `json:"action"`
+		Total     int      `json:"total"`
+		Succeeded []int64  `json:"succeeded"`
+		Failed    []struct {
+			ID    int64  `json:"id"`
+			Error string `json:"error"`
+		} `json:"failed"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&conflictResp); err != nil {
+		t.Fatalf("decode conflict response: %v", err)
+	}
+	if len(conflictResp.Succeeded) != 1 || conflictResp.Succeeded[0] != p6ID {
+		t.Errorf("expected succeeded=[%d], got %+v", p6ID, conflictResp.Succeeded)
+	}
+	if len(conflictResp.Failed) != 1 || conflictResp.Failed[0].ID != p1ID {
+		t.Errorf("expected failed=[%d], got %+v", p1ID, conflictResp.Failed)
+	}
+}
+
 func TestServer_Agent_Conversations_And_Messages(t *testing.T) {
 	st, cleanup := setupTestStore(t)
 	defer cleanup()
