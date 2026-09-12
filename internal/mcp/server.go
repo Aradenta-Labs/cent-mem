@@ -29,7 +29,7 @@ type Server struct {
 // NewServer creates an MCP Server with given dependencies and IO streams.
 func NewServer(st *store.Store, searcher *search.Searcher, cfg config.Config, in io.Reader, out io.Writer, version string) *Server {
 	if version == "" {
-		version = "2.0.2"
+		version = "2.0.3"
 	}
 	return &Server{
 		store:    st,

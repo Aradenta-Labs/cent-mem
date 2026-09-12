@@ -6,7 +6,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#)
-[![Version](https://img.shields.io/badge/version-v2.0.2-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v2.0.3-success.svg)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#installation)
 [![Offline](https://img.shields.io/badge/offline-100%25-brightgreen)](#privacy)
 [![No API key](https://img.shields.io/badge/api%20key-not%20required-brightgreen)](#privacy)
