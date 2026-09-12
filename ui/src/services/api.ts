@@ -18,6 +18,8 @@ import {
   UpdateConfigPayload,
   TestClassifierParams,
   TestClassifierResponse,
+  TestAgentParams,
+  TestAgentResponse,
 } from '../types/config';
 import {
   Proposal,
@@ -327,6 +329,45 @@ export async function testClassifierEndpoint(params: TestClassifierParams): Prom
       ok: false,
       status: 'error',
       message: err.message || 'Network error during classifier probe.',
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function testAgentEndpoint(params: TestAgentParams): Promise<TestAgentResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    const payload: TestAgentParams = {
+      backend: params?.backend,
+      endpoint: params?.endpoint,
+      model: params?.model,
+      api_key: params?.api_key,
+      timeout_seconds: params?.timeout_seconds,
+    };
+    const res = await apiFetch('/api/config/test-agent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const data: TestAgentResponse = await res.json();
+    return data;
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 'timeout',
+        message: 'Agent connection test timed out after 8 seconds.',
+      };
+    }
+    return {
+      ok: false,
+      status: 'error',
+      message: err.message || 'Network error during agent probe.',
     };
   } finally {
     clearTimeout(timeoutId);

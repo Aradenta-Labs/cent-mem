@@ -1,6 +1,6 @@
 export interface DoctorCheck {
   name: string;
-  status: 'ok' | 'fail';
+  status: 'ok' | 'warn' | 'fail';
   detail?: string;
 }
 

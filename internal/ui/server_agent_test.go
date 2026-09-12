@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -997,3 +999,443 @@ func TestServer_Agent_Chat_Client_Abort(t *testing.T) {
 		t.Fatalf("health check status=%d after client abort", healthResp.StatusCode)
 	}
 }
+
+func TestServer_TestAgent(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	srv, err := NewServer(ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	t.Run("success_connected", func(t *testing.T) {
+		mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/models") {
+				t.Errorf("unexpected probe request: %s %s", r.Method, r.URL.Path)
+			}
+			if r.Header.Get("Authorization") != "Bearer secret-123" {
+				t.Errorf("expected Bearer secret-123, got %q", r.Header.Get("Authorization"))
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":[{"id":"qwen-2.5"}]}`))
+		}))
+		defer mockLLM.Close()
+
+		payload, _ := json.Marshal(map[string]any{
+			"endpoint": mockLLM.URL,
+			"model":    "qwen-2.5",
+			"api_key":  "secret-123",
+		})
+		resp, err := client.Post(srv.URL()+"/api/config/test-agent", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatalf("POST /api/config/test-agent: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var res struct {
+			Ok        bool   `json:"ok"`
+			Status    string `json:"status"`
+			LatencyMs int64  `json:"latency_ms"`
+			Model     string `json:"model"`
+			Endpoint  string `json:"endpoint"`
+			Message   string `json:"message"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+
+		if !res.Ok {
+			t.Errorf("expected ok=true, got false: %s", res.Message)
+		}
+		if res.Status != "connected" {
+			t.Errorf("expected status=connected, got %s", res.Status)
+		}
+		if res.Model != "qwen-2.5" {
+			t.Errorf("expected model qwen-2.5, got %s", res.Model)
+		}
+	})
+
+	t.Run("auth_error", func(t *testing.T) {
+		mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`Invalid token`))
+		}))
+		defer mockLLM.Close()
+
+		payload, _ := json.Marshal(map[string]any{
+			"endpoint": mockLLM.URL,
+			"model":    "qwen-2.5",
+			"api_key":  "wrong-key",
+		})
+		resp, err := client.Post(srv.URL()+"/api/config/test-agent", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatalf("POST /api/config/test-agent: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var res struct {
+			Ok     bool   `json:"ok"`
+			Status string `json:"status"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+
+		if res.Ok {
+			t.Errorf("expected ok=false on auth error, got true")
+		}
+		if res.Status != "auth_error" {
+			t.Errorf("expected status=auth_error, got %s", res.Status)
+		}
+	})
+
+	t.Run("unreachable", func(t *testing.T) {
+		payload, _ := json.Marshal(map[string]any{
+			"endpoint": "http://127.0.0.1:59998/v1",
+			"model":    "qwen-2.5",
+		})
+		resp, err := client.Post(srv.URL()+"/api/config/test-agent", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatalf("POST /api/config/test-agent: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var res struct {
+			Ok     bool   `json:"ok"`
+			Status string `json:"status"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+
+		if res.Ok {
+			t.Errorf("expected ok=false on unreachable, got true")
+		}
+		if res.Status != "unreachable" {
+			t.Errorf("expected status=unreachable, got %s", res.Status)
+		}
+	})
+}
+
+func TestServer_Health_AIAgentCheck(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	// 1. When agent is disabled in config: status is ok, detail "disabled in config"
+	cfgDisabled := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+		Config: config.Config{
+			Agent: config.AgentConfig{Enabled: false},
+			LLM:   config.LLMConfig{Backend: "disabled"},
+		},
+	}
+	srvDisabled, err := NewServer(cfgDisabled)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srvDisabled.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srvDisabled.Shutdown(shutCtx)
+	}()
+
+	resp, err := http.Get(srvDisabled.URL() + "/api/health")
+	if err != nil {
+		t.Fatalf("GET /api/health: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var healthRes struct {
+		Ok     bool          `json:"ok"`
+		Status string        `json:"status"`
+		Checks []DoctorCheck `json:"checks"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&healthRes); err != nil {
+		t.Fatalf("decode health: %v", err)
+	}
+
+	var aiCheck *DoctorCheck
+	for i := range healthRes.Checks {
+		if healthRes.Checks[i].Name == "ai_agent" {
+			aiCheck = &healthRes.Checks[i]
+			break
+		}
+	}
+	if aiCheck == nil {
+		t.Fatalf("expected ai_agent check in health response")
+	}
+	if aiCheck.Status != "ok" {
+		t.Errorf("expected ai_agent status ok when disabled, got %s", aiCheck.Status)
+	}
+
+	// 2. When agent is enabled with offline endpoint: status is warn, composite status is degraded
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	mockServer.Close() // Immediately close to simulate unreachable endpoint
+
+	cfgUnreachable := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+		Config: config.Config{
+			Agent: config.AgentConfig{Enabled: true},
+			LLM: config.LLMConfig{
+				Backend:  "ollama",
+				Endpoint: mockServer.URL,
+			},
+		},
+	}
+	srvUnreachable, err := NewServer(cfgUnreachable)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srvUnreachable.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srvUnreachable.Shutdown(shutCtx)
+	}()
+
+	resp2, err := http.Get(srvUnreachable.URL() + "/api/health")
+	if err != nil {
+		t.Fatalf("GET /api/health: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	var healthRes2 struct {
+		Ok       bool          `json:"ok"`
+		Status   string        `json:"status"`
+		Checks   []DoctorCheck `json:"checks"`
+		Warnings []string      `json:"warnings"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&healthRes2); err != nil {
+		t.Fatalf("decode health: %v", err)
+	}
+
+	var aiCheck2 *DoctorCheck
+	for i := range healthRes2.Checks {
+		if healthRes2.Checks[i].Name == "ai_agent" {
+			aiCheck2 = &healthRes2.Checks[i]
+			break
+		}
+	}
+	if aiCheck2 == nil {
+		t.Fatalf("expected ai_agent check in health response")
+	}
+	if aiCheck2.Status != "warn" {
+		t.Errorf("expected ai_agent status warn when unreachable, got %s", aiCheck2.Status)
+	}
+	if healthRes2.Status != "degraded" {
+		t.Errorf("expected composite status degraded, got %s", healthRes2.Status)
+	}
+	if !healthRes2.Ok {
+		t.Errorf("expected ok=true when status is degraded, got false")
+	}
+}
+
+func TestServer_Health_AIAgentCheck_DynamicConfigUpdate(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	dbPath := filepath.Join(dir, "centmem.db")
+	stCfg := config.Config{
+		Home:   dir,
+		DBPath: dbPath,
+	}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+	_ = os.Chmod(dbPath, 0600)
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+		Config: config.Config{
+			Home:   dir,
+			DBPath: dbPath,
+			Agent:  config.AgentConfig{Enabled: false},
+			LLM:    config.LLMConfig{Backend: "disabled"},
+		},
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	// Initial health: disabled
+	resp, err := http.Get(srv.URL() + "/api/health")
+	if err != nil {
+		t.Fatalf("GET /api/health: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var h1 struct {
+		Status string        `json:"status"`
+		Checks []DoctorCheck `json:"checks"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&h1)
+
+	var initialStatus string
+	for _, c := range h1.Checks {
+		if c.Name == "ai_agent" {
+			initialStatus = c.Status
+			break
+		}
+	}
+	if initialStatus != "ok" {
+		t.Errorf("expected initial ai_agent status ok (disabled), got %s", initialStatus)
+	}
+
+	modelsDir := filepath.Join(dir, "models")
+	_ = os.MkdirAll(modelsDir, 0755)
+	_ = os.WriteFile(filepath.Join(modelsDir, "bge-small-en-v1.5.onnx"), []byte("model-data"), 0644)
+
+	// Dynamic update: enable agent and point to an offline endpoint
+	patchPayload := []byte(`{"agent":{"enabled":true},"llm":{"backend":"ollama","endpoint":"http://127.0.0.1:59997/v1"}}`)
+	patchReq, err := http.NewRequest(http.MethodPatch, srv.URL()+"/api/config", bytes.NewReader(patchPayload))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(patchReq)
+	if err != nil {
+		t.Fatalf("PATCH /api/config: %v", err)
+	}
+	defer patchResp.Body.Close()
+	if patchResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(patchResp.Body)
+		t.Fatalf("PATCH /api/config status = %d: %s", patchResp.StatusCode, string(body))
+	}
+
+	// Verify GET /api/health immediately sees the updated config and reports warn/degraded
+	resp2, err := http.Get(srv.URL() + "/api/health")
+	if err != nil {
+		t.Fatalf("GET /api/health after update: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	var h2 struct {
+		Status string        `json:"status"`
+		Checks []DoctorCheck `json:"checks"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&h2)
+
+	var updatedStatus string
+	for _, c := range h2.Checks {
+		if c.Name == "ai_agent" {
+			updatedStatus = c.Status
+			break
+		}
+	}
+	if updatedStatus != "warn" {
+		t.Errorf("expected updated ai_agent status warn, got %s", updatedStatus)
+	}
+	if h2.Status != "degraded" {
+		t.Errorf("expected composite status degraded, got %s; checks = %+v", h2.Status, h2.Checks)
+	}
+}
+
+func TestServer_TestAgent_WhenActiveConfigDisabled(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+		Config: config.Config{
+			Agent: config.AgentConfig{Enabled: false},
+			LLM:   config.LLMConfig{Backend: "disabled"},
+		},
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[{"id":"qwen-2.5"}]}`))
+	}))
+	defer mockLLM.Close()
+
+	payload, _ := json.Marshal(map[string]any{
+		"endpoint": mockLLM.URL,
+		"model":    "qwen-2.5",
+	})
+	resp, err := http.Post(srv.URL()+"/api/config/test-agent", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("POST /api/config/test-agent: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var res struct {
+		Ok     bool   `json:"ok"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if !res.Ok {
+		t.Errorf("expected ok=true when testing endpoint with active backend disabled, got false")
+	}
+	if res.Status != "connected" {
+		t.Errorf("expected status=connected, got %s", res.Status)
+	}
+}
+

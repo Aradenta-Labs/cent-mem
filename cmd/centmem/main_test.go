@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -298,12 +300,19 @@ func TestCLI_Doctor(t *testing.T) {
 	names := map[string]bool{}
 	for _, c := range checks {
 		cm := c.(map[string]any)
-		names[cm["name"].(string)] = true
+		name := cm["name"].(string)
+		names[name] = true
+		if name == "ai_agent" {
+			if cm["status"] != "ok" && cm["status"] != "warn" {
+				t.Errorf("check ai_agent status = %v, want ok or warn", cm["status"])
+			}
+			continue
+		}
 		if cm["status"] != "ok" {
 			t.Errorf("check %v status = %v, want ok", cm["name"], cm["status"])
 		}
 	}
-	for _, want := range []string{"integrity", "schema_version", "extensions", "model", "embed_queue", "permissions"} {
+	for _, want := range []string{"integrity", "schema_version", "extensions", "model", "embed_queue", "permissions", "ai_agent"} {
 		if !names[want] {
 			t.Errorf("doctor missing check %q", want)
 		}
@@ -380,6 +389,109 @@ func TestDoctor_CorruptDB(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("doctor exit code = %d, want 1\nstderr: %s", code, stderr)
 	}
+}
+
+func TestDoctor_AIAgentStates(t *testing.T) {
+	stubDownloader()
+
+	t.Run("disabled_in_config", func(t *testing.T) {
+		home := newHome(t)
+		runCLI(t, home, "init")
+		runCLI(t, home, "config", "set", "agent.enabled", "false")
+
+		stdout, _, code := runCLI(t, home, "doctor")
+		if code != 0 {
+			t.Fatalf("doctor exit code = %d, want 0", code)
+		}
+		m := parseJSON(t, stdout)
+		checks := m["checks"].([]any)
+		var aiCheck map[string]any
+		for _, c := range checks {
+			cm := c.(map[string]any)
+			if cm["name"] == "ai_agent" {
+				aiCheck = cm
+				break
+			}
+		}
+		if aiCheck == nil {
+			t.Fatalf("missing ai_agent check")
+		}
+		if aiCheck["status"] != "ok" || aiCheck["detail"] != "disabled in config" {
+			t.Errorf("expected ok / disabled in config, got %+v", aiCheck)
+		}
+	})
+
+	t.Run("connected_to_mock_llm", func(t *testing.T) {
+		mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":[{"id":"mock-model"}]}`))
+		}))
+		defer mockLLM.Close()
+
+		home := newHome(t)
+		runCLI(t, home, "init")
+		runCLI(t, home, "config", "set", "llm.endpoint", mockLLM.URL)
+		runCLI(t, home, "config", "set", "llm.model", "mock-model")
+
+		stdout, _, code := runCLI(t, home, "doctor")
+		if code != 0 {
+			t.Fatalf("doctor exit code = %d, want 0", code)
+		}
+		m := parseJSON(t, stdout)
+		checks := m["checks"].([]any)
+		var aiCheck map[string]any
+		for _, c := range checks {
+			cm := c.(map[string]any)
+			if cm["name"] == "ai_agent" {
+				aiCheck = cm
+				break
+			}
+		}
+		if aiCheck == nil {
+			t.Fatalf("missing ai_agent check")
+		}
+		if aiCheck["status"] != "ok" {
+			t.Errorf("expected status ok, got %v", aiCheck["status"])
+		}
+		detail, _ := aiCheck["detail"].(string)
+		if !strings.Contains(detail, "mock-model") || !strings.Contains(detail, "endpoint=") {
+			t.Errorf("expected detail to contain model and endpoint, got %q", detail)
+		}
+	})
+
+	t.Run("unreachable_soft_warning", func(t *testing.T) {
+		home := newHome(t)
+		runCLI(t, home, "init")
+		runCLI(t, home, "config", "set", "llm.endpoint", "http://127.0.0.1:59996/v1")
+
+		stdout, _, code := runCLI(t, home, "doctor")
+		if code != 0 {
+			t.Fatalf("doctor exit code = %d, want 0 (soft warning)", code)
+		}
+		m := parseJSON(t, stdout)
+		if m["ok"] != true {
+			t.Errorf("expected ok=true (soft warning), got %v", m["ok"])
+		}
+		checks := m["checks"].([]any)
+		var aiCheck map[string]any
+		for _, c := range checks {
+			cm := c.(map[string]any)
+			if cm["name"] == "ai_agent" {
+				aiCheck = cm
+				break
+			}
+		}
+		if aiCheck == nil {
+			t.Fatalf("missing ai_agent check")
+		}
+		if aiCheck["status"] != "warn" {
+			t.Errorf("expected status warn, got %v", aiCheck["status"])
+		}
+		warnings, _ := m["warnings"].([]any)
+		if len(warnings) == 0 {
+			t.Errorf("expected warnings array to be populated")
+		}
+	})
 }
 
 func TestBackup_RoundTrip(t *testing.T) {

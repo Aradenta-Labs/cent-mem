@@ -115,7 +115,7 @@ func NewClient(cfg config.LLMConfig) *Client {
 		endpoint = "http://127.0.0.1:11434/v1"
 	}
 	if !strings.HasSuffix(endpoint, "/chat/completions") {
-		if !strings.HasSuffix(endpoint, "/v1") {
+		if !strings.HasSuffix(endpoint, "/v1") && !strings.HasSuffix(endpoint, "/openai") {
 			endpoint += "/v1"
 		}
 		endpoint += "/chat/completions"
@@ -436,3 +436,164 @@ func (c *Client) retry(ctx context.Context, op func() (retryable bool, err error
 	}
 	return errors.New("agent: max retries exceeded")
 }
+
+// ProbeResult captures the outcome of an LLM connectivity check.
+type ProbeResult struct {
+	OK        bool          `json:"ok"`
+	Status    string        `json:"status"` // "connected" | "unreachable" | "auth_error" | "missing_api_key" | "disabled" | "error"
+	Latency   time.Duration `json:"latency"`
+	LatencyMs int64         `json:"latency_ms"`
+	Model     string        `json:"model"`
+	Endpoint  string        `json:"endpoint"`
+	Message   string        `json:"message"`
+}
+
+// ProbeEndpoint tests connectivity to the configured LLM endpoint without incurring generation tokens.
+// It issues a lightweight GET request to the /models endpoint.
+func ProbeEndpoint(ctx context.Context, cfg config.LLMConfig, httpClient *http.Client) ProbeResult {
+	endpoint := strings.TrimSpace(cfg.Endpoint)
+	if endpoint == "" {
+		endpoint = "http://127.0.0.1:11434/v1"
+	}
+
+	model := strings.TrimSpace(cfg.Model)
+	if model == "" {
+		model = "default"
+	}
+
+	if cfg.Backend == "disabled" {
+		return ProbeResult{
+			OK:       false,
+			Status:   "disabled",
+			Model:    model,
+			Endpoint: endpoint,
+			Message:  "AI agent LLM is disabled in configuration",
+		}
+	}
+
+	apiKey, fromEnv := config.ResolveAPIKey(cfg.APIKey)
+	if cfg.APIKey != "" && apiKey == "" {
+		msg := fmt.Sprintf("API key or environment variable %q is not set or empty (set it via 'centmem config set llm.api_key <key>' or export %s)", cfg.APIKey, cfg.APIKey)
+		if !fromEnv {
+			msg = "API key is empty (set it via 'centmem config set llm.api_key <key>' or leave blank for Ollama)"
+		}
+		return ProbeResult{
+			OK:       false,
+			Status:   "missing_api_key",
+			Model:    model,
+			Endpoint: endpoint,
+			Message:  msg,
+		}
+	}
+
+	probeURL := strings.TrimRight(endpoint, "/")
+	probeURL = strings.TrimSuffix(probeURL, "/chat/completions")
+	if !strings.HasSuffix(probeURL, "/models") {
+		if !strings.HasSuffix(probeURL, "/v1") && !strings.HasSuffix(probeURL, "/openai") {
+			probeURL += "/v1"
+		}
+		probeURL += "/models"
+	}
+
+	timeout := 5 * time.Second
+	if cfg.TimeoutSeconds > 0 && cfg.TimeoutSeconds <= 10 {
+		timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, nil)
+	if err != nil {
+		return ProbeResult{
+			OK:       false,
+			Status:   "error",
+			Model:    model,
+			Endpoint: endpoint,
+			Message:  fmt.Sprintf("Invalid probe URL %q: %v", probeURL, err),
+		}
+	}
+	req.Header.Set("Accept", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := httpClient
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	latency := time.Since(start)
+	latencyMs := latency.Milliseconds()
+
+	if err != nil {
+		advice := "check network connectivity or endpoint URL"
+		if strings.Contains(endpoint, "127.0.0.1") || strings.Contains(endpoint, "localhost") {
+			advice = "ensure local model server is running (e.g. 'ollama serve') or update endpoint URL"
+		} else if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "deadline exceeded") {
+			advice = "endpoint probe timed out; check network connectivity or increase timeout"
+		}
+		return ProbeResult{
+			OK:        false,
+			Status:    "unreachable",
+			Latency:   latency,
+			LatencyMs: latencyMs,
+			Model:     model,
+			Endpoint:  endpoint,
+			Message:   fmt.Sprintf("Failed to connect to LLM endpoint: %v (%s)", err, advice),
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return ProbeResult{
+			OK:        true,
+			Status:    "connected",
+			Latency:   latency,
+			LatencyMs: latencyMs,
+			Model:     model,
+			Endpoint:  endpoint,
+			Message:   "Connected to LLM endpoint successfully",
+		}
+	}
+
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	bodyStr := strings.TrimSpace(string(bodyBytes))
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		msg := fmt.Sprintf("Authentication failed (HTTP %d): verify your API key or environment variable", resp.StatusCode)
+		if bodyStr != "" {
+			msg += ": " + bodyStr
+		}
+		return ProbeResult{
+			OK:        false,
+			Status:    "auth_error",
+			Latency:   latency,
+			LatencyMs: latencyMs,
+			Model:     model,
+			Endpoint:  endpoint,
+			Message:   msg,
+		}
+	}
+
+	advice := "check endpoint URL configuration"
+	if resp.StatusCode == http.StatusNotFound {
+		advice = "verify endpoint supports OpenAI-compatible /models API"
+	}
+	msg := fmt.Sprintf("LLM endpoint returned HTTP %d (%s)", resp.StatusCode, advice)
+	if bodyStr != "" {
+		msg += ": " + bodyStr
+	}
+	return ProbeResult{
+		OK:        false,
+		Status:    "error",
+		Latency:   latency,
+		LatencyMs: latencyMs,
+		Model:     model,
+		Endpoint:  endpoint,
+		Message:   msg,
+	}
+}
+

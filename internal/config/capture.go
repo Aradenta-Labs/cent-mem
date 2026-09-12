@@ -122,6 +122,13 @@ func ResolveAPIKey(keyOrEnv string) (apiKey string, fromEnv bool) {
 		}
 	}
 
+	// Clean up optional "$" or "${...}" prefix if supplied (e.g. $OPENAI_API_KEY or ${OPENAI_API_KEY})
+	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") {
+		trimmed = strings.TrimSpace(trimmed[2 : len(trimmed)-1])
+	} else if strings.HasPrefix(trimmed, "$") {
+		trimmed = strings.TrimSpace(trimmed[1:])
+	}
+
 	if trimmed == "" {
 		return "", false
 	}

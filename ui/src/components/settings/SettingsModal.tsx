@@ -60,6 +60,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
     resetToDefaults,
     save,
     testClassifier,
+    isTestingAgent,
+    agentTestResult,
+    testAgent,
     reload,
   } = useConfig();
 
@@ -457,6 +460,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                     agent={draft.agent}
                     onLLMChange={(k, v) => updateSection('llm', k, v)}
                     onAgentChange={(k, v) => updateSection('agent', k, v)}
+                    isTesting={isTestingAgent}
+                    testResult={agentTestResult}
+                    onTest={() => testAgent(draft.llm)}
                   />
                 )}
               </>

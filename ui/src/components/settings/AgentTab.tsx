@@ -1,14 +1,18 @@
 import React from 'react';
-import { Eye, EyeOff, Bot, Sliders } from 'lucide-react';
-import { LLMConfig, AgentConfig } from '../../types/config';
+import { Eye, EyeOff, Bot, Sliders, Activity, RefreshCw, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { LLMConfig, AgentConfig, TestAgentResponse } from '../../types/config';
 import { Input } from '../Input';
 import { Slider } from '../Slider';
+import { Button } from '../Button';
 
 export interface AgentTabProps {
   llm: LLMConfig;
   agent: AgentConfig;
   onLLMChange: <K extends keyof LLMConfig>(key: K, value: LLMConfig[K]) => void;
   onAgentChange: <K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) => void;
+  isTesting?: boolean;
+  testResult?: TestAgentResponse | null;
+  onTest?: () => void;
 }
 
 const PRESET_ENDPOINTS = [
@@ -18,7 +22,15 @@ const PRESET_ENDPOINTS = [
   { label: 'Anthropic', value: 'https://api.anthropic.com/v1' },
 ];
 
-export const AgentTab: React.FC<AgentTabProps> = ({ llm, agent, onLLMChange, onAgentChange }) => {
+export const AgentTab: React.FC<AgentTabProps> = ({
+  llm,
+  agent,
+  onLLMChange,
+  onAgentChange,
+  isTesting = false,
+  testResult = null,
+  onTest,
+}) => {
   const [showKey, setShowKey] = React.useState(false);
 
   const isLocal =
@@ -163,6 +175,86 @@ export const AgentTab: React.FC<AgentTabProps> = ({ llm, agent, onLLMChange, onA
             value={String(llm.max_tokens ?? 4096)}
             onChange={(e) => onLLMChange('max_tokens', Number(e.target.value))}
           />
+        </div>
+
+        {/* Live Connection Test Button & Callout */}
+        <div
+          style={{
+            paddingTop: 'var(--space-2)',
+            borderTop: '1px solid var(--border-subtle)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-2)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600 }}>
+                LLM Connection Test
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Verify endpoint latency and model availability without consuming tokens
+              </div>
+            </div>
+
+            {onTest && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onTest()}
+                disabled={isTesting}
+              >
+                {isTesting ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Activity size={13} />
+                )}
+                <span>{isTesting ? 'Testing...' : 'Test Connection'}</span>
+              </Button>
+            )}
+          </div>
+
+          {testResult && (
+            <div
+              style={{
+                padding: 'var(--space-2) var(--space-3)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '11px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: testResult.ok
+                  ? 'var(--color-success-bg)'
+                  : testResult.status === 'auth_error' || testResult.status === 'missing_api_key'
+                  ? 'var(--color-warning-bg)'
+                  : 'var(--color-error-bg)',
+                color: testResult.ok
+                  ? 'var(--color-success-text)'
+                  : testResult.status === 'auth_error' || testResult.status === 'missing_api_key'
+                  ? 'var(--color-warning-text)'
+                  : 'var(--color-error-text)',
+                border: `1px solid ${
+                  testResult.ok
+                    ? 'var(--color-success-border)'
+                    : testResult.status === 'auth_error' || testResult.status === 'missing_api_key'
+                    ? 'var(--color-warning-border)'
+                    : 'var(--color-error-border)'
+                }`,
+              }}
+            >
+              {testResult.ok ? (
+                <CheckCircle2 size={14} />
+              ) : testResult.status === 'auth_error' || testResult.status === 'missing_api_key' ? (
+                <AlertTriangle size={14} />
+              ) : (
+                <XCircle size={14} />
+              )}
+              <span style={{ wordBreak: 'break-word', flex: 1, lineHeight: 1.3 }}>
+                {testResult.message || `Status: ${testResult.status}`}
+                {testResult.latency_ms !== undefined && testResult.latency_ms > 0 && ` (${testResult.latency_ms}ms)`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

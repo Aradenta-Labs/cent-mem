@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aradenta-labs/cent-mem/internal/agent"
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/compact"
 	"github.com/aradenta-labs/cent-mem/internal/config"
@@ -943,7 +944,7 @@ func cmdCompact(args []string) int {
 // doctorCheck is a single named health check result.
 type doctorCheck struct {
 	Name   string `json:"name"`
-	Status string `json:"status"` // "ok" | "fail"
+	Status string `json:"status"` // "ok" | "warn" | "fail"
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -1046,15 +1047,36 @@ func cmdDoctor(args []string) int {
 			}
 		}
 
-		// Determine overall status.
-		ok := true
+		// 7. AI Agent connectivity.
+		if !cfg.Agent.Enabled || cfg.LLM.Backend == "disabled" {
+			checks = append(checks, doctorCheck{Name: "ai_agent", Status: "ok", Detail: "disabled in config"})
+		} else {
+			probe := agent.ProbeEndpoint(context.Background(), cfg.LLM, nil)
+			if probe.OK {
+				checks = append(checks, doctorCheck{
+					Name:   "ai_agent",
+					Status: "ok",
+					Detail: fmt.Sprintf("endpoint=%s model=%s (%dms)", probe.Endpoint, probe.Model, probe.Latency.Milliseconds()),
+				})
+			} else {
+				checks = append(checks, doctorCheck{
+					Name:   "ai_agent",
+					Status: "warn",
+					Detail: probe.Message,
+				})
+				warnings = append(warnings, fmt.Sprintf("AI Agent: %s", probe.Message))
+			}
+		}
+
+		// Determine overall status (only fail causes exit code 1; warn reports warnings without blocking).
+		hasFail := false
 		for _, c := range checks {
-			if c.Status != "ok" {
-				ok = false
+			if c.Status == "fail" {
+				hasFail = true
 				break
 			}
 		}
-		if !ok {
+		if hasFail {
 			// Print the full checks report on stdout (with ok=false), then exit 1.
 			_ = prettyPrint(fs, map[string]any{
 				"ok":       false,

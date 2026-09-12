@@ -33,7 +33,7 @@ import (
 // DoctorCheck represents a single health check result.
 type DoctorCheck struct {
 	Name   string `json:"name"`
-	Status string `json:"status"` // "ok" | "fail"
+	Status string `json:"status"` // "ok" | "warn" | "fail"
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -121,11 +121,15 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	// API Endpoints: Health (Comprehensive Doctor status)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if cfg.Store == nil {
+		s.mu.RLock()
+		serverCfg := s.cfg
+		s.mu.RUnlock()
+
+		if serverCfg.Store == nil {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":       true,
 				"status":   "healthy",
-				"version":  cfg.Version,
+				"version":  serverCfg.Version,
 				"store":    "disconnected",
 				"checks":   []DoctorCheck{},
 				"warnings": []string{},
@@ -139,7 +143,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 		// 1. DB opens + integrity.
 		var integrity string
-		if err := cfg.Store.DB().QueryRowContext(r.Context(), "PRAGMA integrity_check").Scan(&integrity); err != nil {
+		if err := serverCfg.Store.DB().QueryRowContext(r.Context(), "PRAGMA integrity_check").Scan(&integrity); err != nil {
 			storeStatus = "error"
 			checks = append(checks, DoctorCheck{Name: "integrity", Status: "fail", Detail: err.Error()})
 		} else if integrity != "ok" {
@@ -150,7 +154,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		}
 
 		// 2. Schema version matches binary.
-		cur, _ := cfg.Store.SchemaVersion()
+		cur, _ := serverCfg.Store.SchemaVersion()
 		want := store.LatestSchemaVersion()
 		if cur == "" || cur != want {
 			checks = append(checks, DoctorCheck{
@@ -164,9 +168,9 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 		// 3. Extensions present (sqlite_vec + fts5).
 		var vecTable int
-		_ = cfg.Store.DB().QueryRowContext(r.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories_vec'`).Scan(&vecTable)
+		_ = serverCfg.Store.DB().QueryRowContext(r.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories_vec'`).Scan(&vecTable)
 		fts5 := false
-		if rows, err := cfg.Store.DB().QueryContext(r.Context(), `PRAGMA compile_options`); err == nil {
+		if rows, err := serverCfg.Store.DB().QueryContext(r.Context(), `PRAGMA compile_options`); err == nil {
 			for rows.Next() {
 				var opt string
 				if rows.Scan(&opt) == nil && strings.Contains(opt, "ENABLE_FTS5") {
@@ -184,17 +188,17 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		}
 
 		// 4. Model file exists + sha256 matches catalog.
-		if cfg.Config.Model.Name != "" {
-			model, known := embed.ModelCatalog[cfg.Config.Model.Name]
+		if serverCfg.Config.Model.Name != "" {
+			model, known := embed.ModelCatalog[serverCfg.Config.Model.Name]
 			modelOK := true
-			modelDetail := "model=" + cfg.Config.Model.Name
+			modelDetail := "model=" + serverCfg.Config.Model.Name
 			if !known {
 				modelOK = false
 				modelDetail += " unknown model in catalog"
-			} else if _, err := os.Stat(cfg.Config.Model.Path); err != nil {
+			} else if _, err := os.Stat(serverCfg.Config.Model.Path); err != nil {
 				modelOK = false
 				modelDetail += " missing (run: centmem init)"
-			} else if sum, err := sha256File(cfg.Config.Model.Path); err != nil {
+			} else if sum, err := sha256File(serverCfg.Config.Model.Path); err != nil {
 				modelOK = false
 				modelDetail += " sha256 error: " + err.Error()
 			} else if sum != model.SHA256 {
@@ -210,19 +214,19 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 		// 5. Embed queue backlog.
 		var pending int64
-		_ = cfg.Store.DB().QueryRowContext(r.Context(), `SELECT COUNT(*) FROM embed_queue WHERE claimed_at IS NULL`).Scan(&pending)
+		_ = serverCfg.Store.DB().QueryRowContext(r.Context(), `SELECT COUNT(*) FROM embed_queue WHERE claimed_at IS NULL`).Scan(&pending)
 		checks = append(checks, DoctorCheck{Name: "embed_queue", Status: "ok", Detail: fmt.Sprintf("pending=%d", pending)})
 		if pending > 1000 {
 			warnings = append(warnings, fmt.Sprintf("embed queue backlog: %d pending embeddings", pending))
 		}
 
 		// 6. Permissions: home dir 0700, DB 0600.
-		if cfg.Config.Home != "" {
-			homeOK, homeDetail := checkPerm(cfg.Config.Home, 0700)
+		if serverCfg.Config.Home != "" {
+			homeOK, homeDetail := checkPerm(serverCfg.Config.Home, 0700)
 			if !homeOK {
 				checks = append(checks, DoctorCheck{Name: "permissions", Status: "fail", Detail: homeDetail})
-			} else if cfg.Config.DBPath != "" {
-				dbOK, dbDetail := checkPerm(cfg.Config.DBPath, 0600)
+			} else if serverCfg.Config.DBPath != "" {
+				dbOK, dbDetail := checkPerm(serverCfg.Config.DBPath, 0600)
 				if !dbOK {
 					checks = append(checks, DoctorCheck{Name: "permissions", Status: "fail", Detail: dbDetail})
 				} else {
@@ -231,26 +235,51 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			}
 		}
 
+		// 7. AI Agent connectivity
+		if !serverCfg.Config.Agent.Enabled || serverCfg.Config.LLM.Backend == "disabled" {
+			checks = append(checks, DoctorCheck{Name: "ai_agent", Status: "ok", Detail: "disabled in config"})
+		} else {
+			probe := agent.ProbeEndpoint(r.Context(), serverCfg.Config.LLM, s.probeClient)
+			if probe.OK {
+				checks = append(checks, DoctorCheck{
+					Name:   "ai_agent",
+					Status: "ok",
+					Detail: fmt.Sprintf("endpoint=%s model=%s (%dms)", probe.Endpoint, probe.Model, probe.Latency.Milliseconds()),
+				})
+			} else {
+				checks = append(checks, DoctorCheck{
+					Name:   "ai_agent",
+					Status: "warn",
+					Detail: probe.Message,
+				})
+				warnings = append(warnings, fmt.Sprintf("AI Agent: %s", probe.Message))
+			}
+		}
+
 		// Determine composite status
-		allOK := true
+		hasFail := false
+		hasWarn := false
 		for _, c := range checks {
-			if c.Status != "ok" {
-				allOK = false
-				break
+			if c.Status == "fail" {
+				hasFail = true
+			} else if c.Status == "warn" {
+				hasWarn = true
 			}
 		}
 
 		status := "healthy"
-		if !allOK || storeStatus != "connected" {
+		allOK := true
+		if hasFail || storeStatus != "connected" {
 			status = "unhealthy"
-		} else if len(warnings) > 0 {
+			allOK = false
+		} else if hasWarn || len(warnings) > 0 {
 			status = "degraded"
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":       allOK,
 			"status":   status,
-			"version":  cfg.Version,
+			"version":  serverCfg.Version,
 			"store":    storeStatus,
 			"checks":   checks,
 			"warnings": warnings,
@@ -1403,6 +1432,9 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			return
 		}
 		candidateConfig.Home = home
+		if candidateConfig.Model.Path == "" && candidateConfig.Model.Name != "" {
+			candidateConfig.Model.Path = filepath.Join(home, "models", candidateConfig.Model.Name+".onnx")
+		}
 
 		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 			s.mu.RLock()
@@ -1475,6 +1507,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		}
 
 		s.mu.Lock()
+		if candidateConfig.DBPath == "" && s.cfg.Config.DBPath != "" {
+			candidateConfig.DBPath = s.cfg.Config.DBPath
+		}
+		if candidateConfig.Model.Path == "" && s.cfg.Config.Model.Path != "" {
+			candidateConfig.Model.Path = s.cfg.Config.Model.Path
+		}
 		s.cfg.Config = candidateConfig
 		// Rebuild the agent engine so new LLM config takes effect immediately
 		// without requiring a server restart.
@@ -1787,6 +1825,57 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			})
 			return
 		}
+	})
+
+	// API Endpoints: Config (Test AI agent connectivity probe)
+	mux.HandleFunc("POST /api/config/test-agent", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		var req struct {
+			Backend        *string `json:"backend"`
+			Endpoint       *string `json:"endpoint"`
+			Model          *string `json:"model"`
+			APIKey         *string `json:"api_key"`
+			TimeoutSeconds *int    `json:"timeout_seconds"`
+		}
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+
+		s.mu.RLock()
+		activeLLM := s.cfg.Config.LLM
+		s.mu.RUnlock()
+
+		targetLLM := activeLLM
+		if req.Backend != nil && strings.TrimSpace(*req.Backend) != "" {
+			targetLLM.Backend = strings.TrimSpace(*req.Backend)
+		}
+		if req.Endpoint != nil && strings.TrimSpace(*req.Endpoint) != "" {
+			targetLLM.Endpoint = strings.TrimSpace(*req.Endpoint)
+		}
+		if req.Model != nil && strings.TrimSpace(*req.Model) != "" {
+			targetLLM.Model = strings.TrimSpace(*req.Model)
+		}
+		if req.APIKey != nil {
+			targetLLM.APIKey = strings.TrimSpace(*req.APIKey)
+		}
+		if req.TimeoutSeconds != nil && *req.TimeoutSeconds > 0 {
+			targetLLM.TimeoutSeconds = *req.TimeoutSeconds
+		}
+		if targetLLM.Backend == "disabled" {
+			targetLLM.Backend = "openai_compatible"
+		}
+
+		probe := agent.ProbeEndpoint(r.Context(), targetLLM, s.probeClient)
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":         probe.OK,
+			"status":     probe.Status,
+			"latency_ms": probe.Latency.Milliseconds(),
+			"model":      probe.Model,
+			"endpoint":   probe.Endpoint,
+			"message":    probe.Message,
+		})
 	})
 
 	// Agent: Interactive Q&A Chat with Real-time SSE Streaming

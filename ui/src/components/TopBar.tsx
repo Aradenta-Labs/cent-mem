@@ -528,20 +528,22 @@ export const TopBar: React.FC<TopBarProps> = ({
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         {c.status === 'ok' ? (
                           <CheckCircle2 size={13} color="var(--color-success-icon)" />
+                        ) : c.status === 'warn' ? (
+                          <AlertTriangle size={13} color="var(--color-warning-icon)" />
                         ) : (
                           <XCircle size={13} color="var(--color-error-icon)" />
                         )}
-                        <span style={{ fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
-                          {c.name.replace('_', ' ')}
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)', textTransform: c.name === 'ai_agent' ? 'none' : 'capitalize' }}>
+                          {c.name === 'ai_agent' ? 'AI Agent' : c.name.replace('_', ' ')}
                         </span>
                       </div>
                       {c.detail && (
                         <span
                           style={{
-                            color: 'var(--text-muted)',
+                            color: c.status === 'warn' ? 'var(--color-warning-text)' : 'var(--text-muted)',
                             fontFamily: 'var(--font-mono)',
                             fontSize: '10px',
-                            maxWidth: '140px',
+                            maxWidth: '150px',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -570,7 +572,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                     padding: 'var(--space-2)',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '4px',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -580,7 +582,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                     </span>
                   </div>
                   {health.warnings.map((w, idx) => (
-                    <span key={idx} style={{ fontSize: '10px', color: 'var(--color-warning-text)' }}>
+                    <span key={idx} style={{ fontSize: '10px', color: 'var(--color-warning-text)', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {w}
                     </span>
                   ))}

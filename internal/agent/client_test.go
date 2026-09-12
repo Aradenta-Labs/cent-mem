@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -335,3 +336,161 @@ func TestClient_NonStreamingChatReceivingSSE(t *testing.T) {
 		t.Errorf("expected 'Streamed response!', got %+v", resp.Choices[0].Message)
 	}
 }
+
+func TestProbeEndpoint(t *testing.T) {
+	t.Run("connected", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("expected GET, got %s", r.Method)
+			}
+			if !strings.HasSuffix(r.URL.Path, "/models") {
+				t.Errorf("expected /models path, got %s", r.URL.Path)
+			}
+			if r.Header.Get("Authorization") != "Bearer test-key" {
+				t.Errorf("expected Bearer test-key, got %q", r.Header.Get("Authorization"))
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":[{"id":"test-model"}]}`))
+		}))
+		defer server.Close()
+
+		res := agent.ProbeEndpoint(context.Background(), config.LLMConfig{
+			Endpoint: server.URL,
+			Model:    "test-model",
+			APIKey:   "test-key",
+		}, nil)
+
+		if !res.OK {
+			t.Fatalf("expected OK true, got false, message: %s", res.Message)
+		}
+		if res.Status != "connected" {
+			t.Errorf("expected status connected, got %s", res.Status)
+		}
+		if res.Model != "test-model" {
+			t.Errorf("expected model test-model, got %s", res.Model)
+		}
+		if res.Latency <= 0 {
+			t.Errorf("expected latency > 0, got %v", res.Latency)
+		}
+	})
+
+	t.Run("auth_error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`invalid api key`))
+		}))
+		defer server.Close()
+
+		res := agent.ProbeEndpoint(context.Background(), config.LLMConfig{
+			Endpoint: server.URL,
+			Model:    "test-model",
+			APIKey:   "bad-key",
+		}, nil)
+
+		if res.OK {
+			t.Fatalf("expected OK false, got true")
+		}
+		if res.Status != "auth_error" {
+			t.Errorf("expected status auth_error, got %s", res.Status)
+		}
+	})
+
+	t.Run("unreachable", func(t *testing.T) {
+		res := agent.ProbeEndpoint(context.Background(), config.LLMConfig{
+			Endpoint: "http://127.0.0.1:59999/v1",
+			Model:    "test-model",
+		}, nil)
+
+		if res.OK {
+			t.Fatalf("expected OK false, got true")
+		}
+		if res.Status != "unreachable" {
+			t.Errorf("expected status unreachable, got %s", res.Status)
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		res := agent.ProbeEndpoint(context.Background(), config.LLMConfig{
+			Backend:  "disabled",
+			Endpoint: "http://127.0.0.1:11434/v1",
+			Model:    "test-model",
+		}, nil)
+
+		if res.OK {
+			t.Fatalf("expected OK false, got true")
+		}
+		if res.Status != "disabled" {
+			t.Errorf("expected status disabled, got %s", res.Status)
+		}
+	})
+
+	t.Run("missing_api_key", func(t *testing.T) {
+		res := agent.ProbeEndpoint(context.Background(), config.LLMConfig{
+			Endpoint: "http://127.0.0.1:11434/v1",
+			Model:    "test-model",
+			APIKey:   "$NON_EXISTENT_ENV_KEY_12345",
+		}, nil)
+
+		if res.OK {
+			t.Fatalf("expected OK false, got true")
+		}
+		if res.Status != "missing_api_key" {
+			t.Errorf("expected status missing_api_key, got %s", res.Status)
+		}
+	})
+
+	t.Run("server_error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`model loading failed`))
+		}))
+		defer server.Close()
+
+		res := agent.ProbeEndpoint(context.Background(), config.LLMConfig{
+			Endpoint: server.URL,
+			Model:    "test-model",
+		}, nil)
+
+		if res.OK {
+			t.Fatalf("expected OK false, got true")
+		}
+		if res.Status != "error" {
+			t.Errorf("expected status error, got %s", res.Status)
+		}
+	})
+
+	t.Run("gemini_openai_url", func(t *testing.T) {
+		var requestedPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestedPath = r.URL.Path
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":[{"id":"gemini-1.5-flash"}]}`))
+		}))
+		defer server.Close()
+
+		// Endpoint ending with /openai (like Gemini base URL)
+		res := agent.ProbeEndpoint(context.Background(), config.LLMConfig{
+			Endpoint: server.URL + "/v1beta/openai",
+			Model:    "gemini-1.5-flash",
+		}, nil)
+
+		if !res.OK {
+			t.Fatalf("expected OK true, got false: %s", res.Message)
+		}
+		if requestedPath != "/v1beta/openai/models" {
+			t.Errorf("expected path /v1beta/openai/models, got %q", requestedPath)
+		}
+	})
+
+	t.Run("actionable_advice_on_unreachable", func(t *testing.T) {
+		res := agent.ProbeEndpoint(context.Background(), config.LLMConfig{
+			Endpoint: "http://127.0.0.1:59995/v1",
+			Model:    "test-model",
+		}, nil)
+
+		if !strings.Contains(res.Message, "ensure local model server is running") {
+			t.Errorf("expected local model advice in message, got %q", res.Message)
+		}
+	})
+}
+

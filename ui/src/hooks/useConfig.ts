@@ -4,11 +4,14 @@ import {
   ConfigMeta,
   TestClassifierParams,
   TestClassifierResponse,
+  TestAgentParams,
+  TestAgentResponse,
 } from '../types/config';
 import {
   fetchConfig,
   updateConfig,
   testClassifierEndpoint,
+  testAgentEndpoint,
 } from '../services/api';
 
 export const DEFAULT_CONFIG: ConfigData = {
@@ -175,6 +178,8 @@ export function useConfig() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<TestClassifierResponse | null>(null);
+  const [isTestingAgent, setIsTestingAgent] = useState<boolean>(false);
+  const [agentTestResult, setAgentTestResult] = useState<TestAgentResponse | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -360,6 +365,52 @@ export function useConfig() {
     [draft]
   );
 
+  /**
+   * Probe AI agent LLM endpoint connectivity.
+   */
+  const testAgent = useCallback(
+    async (overrideParams?: Partial<TestAgentParams>): Promise<TestAgentResponse> => {
+      setIsTestingAgent(true);
+      setAgentTestResult(null);
+
+      // Guard against React SyntheticEvent or DOM Event passed if invoked directly from an event handler
+      const isEventOrInvalid =
+        !overrideParams ||
+        typeof overrideParams !== 'object' ||
+        'nativeEvent' in overrideParams ||
+        'target' in overrideParams ||
+        'currentTarget' in overrideParams ||
+        typeof (overrideParams as any).preventDefault === 'function';
+
+      const cleanOverrides: Partial<TestAgentParams> = isEventOrInvalid ? {} : overrideParams;
+
+      const params: TestAgentParams = {
+        backend: cleanOverrides.backend ?? draft?.llm?.backend ?? 'ollama',
+        endpoint: cleanOverrides.endpoint ?? draft?.llm?.endpoint ?? 'http://127.0.0.1:11434/v1',
+        model: cleanOverrides.model ?? draft?.llm?.model ?? 'deepseek-r1:8b',
+        api_key: cleanOverrides.api_key ?? draft?.llm?.api_key,
+        timeout_seconds: cleanOverrides.timeout_seconds ?? draft?.llm?.timeout_seconds ?? 60,
+      };
+
+      try {
+        const res = await testAgentEndpoint(params);
+        setAgentTestResult(res);
+        return res;
+      } catch (err: any) {
+        const fallback: TestAgentResponse = {
+          ok: false,
+          status: 'error',
+          message: err.message || 'Agent connectivity probe failed',
+        };
+        setAgentTestResult(fallback);
+        return fallback;
+      } finally {
+        setIsTestingAgent(false);
+      }
+    },
+    [draft]
+  );
+
   return {
     config,
     meta,
@@ -367,17 +418,20 @@ export function useConfig() {
     isLoading,
     isSaving,
     isTesting,
+    isTestingAgent,
     isDirty,
     dirtyKeys,
     error,
     fieldErrors,
     testResult,
+    agentTestResult,
     updateField,
     updateSection,
     revert,
     resetToDefaults,
     save,
     testClassifier,
+    testAgent,
     reload: load,
   };
 }

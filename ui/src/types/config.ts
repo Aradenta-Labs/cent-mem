@@ -107,6 +107,27 @@ export interface TestClassifierResponse {
   };
 }
 
+export interface TestAgentParams {
+  backend?: string;
+  endpoint?: string;
+  model?: string;
+  api_key?: string;
+  timeout_seconds?: number;
+}
+
+export interface TestAgentResponse {
+  ok: boolean;
+  status: 'connected' | 'unreachable' | 'auth_error' | 'missing_api_key' | 'disabled' | 'error' | string;
+  latency_ms?: number;
+  model?: string;
+  endpoint?: string;
+  message?: string;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
 export type SettingsTabId = 'general' | 'retention' | 'capture' | 'classifier' | 'categories' | 'ai-agent';
 
 export interface TabItem {

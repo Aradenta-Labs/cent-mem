@@ -642,7 +642,7 @@ func TestServer_HealthAPI_DoctorChecks(t *testing.T) {
 		checkNames[c.Name] = c.Status
 	}
 
-	for _, reqCheck := range []string{"integrity", "schema_version", "extensions", "embed_queue", "permissions"} {
+	for _, reqCheck := range []string{"integrity", "schema_version", "extensions", "embed_queue", "permissions", "ai_agent"} {
 		if status, exists := checkNames[reqCheck]; !exists || status != "ok" {
 			t.Errorf("expected check %q to be 'ok', got exists=%v status=%q", reqCheck, exists, status)
 		}
