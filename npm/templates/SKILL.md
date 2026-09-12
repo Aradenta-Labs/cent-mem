@@ -137,7 +137,9 @@ centmem ui --host 0.0.0.0 --port 4231 --token "sec_0123456789abcdef" --no-open
 
 **Stage 3 Interactive Web UI Capabilities:**
 - **Assistant Chat Tab**: Conversational inquiry with real-time SSE streaming (`/api/agent/chat`), multi-turn thread persistence (`/api/agent/conversations`), grounded citations with similarity badges, and automated knowledge gap alerts.
-- **Proposals Review Center**: Human-in-the-loop review inbox featuring visual merge diffs, relationship link previews, and 1-click apply, dismiss, and reopen actions.
+- **Proposals Review Center**: Human-in-the-loop review inbox featuring visual merge diffs, relationship link previews, 1-click apply, dismiss, and reopen actions, and **Bulk Proposal Management** ("Approve All" and "Reject All" buttons with safe warning confirmation dialog via `POST /api/proposals/batch`).
+- **Scope Hierarchy & Subtree Deletion**: Interactive scope tree browser with node metrics, "Delete Scope" action in ScopeOverview, and hover-action trash icons with type-to-confirm modal dialogs (`DELETE /api/scopes?path=<scope>`).
+- **Doctor Diagnostics & Agent Probe**: Real-time diagnostic popover in TopBar and live connection probe in Agent Settings (`POST /api/config/test-agent`).
 - **Embedded REST & SSE Endpoints**:
   - `POST /api/agent/chat`: Real-time SSE streaming completions (`delta`, `citations`, `gaps`, `done`, `error`).
   - `GET /api/agent/conversations`: List persisted conversation threads filtered by scope.
@@ -146,6 +148,9 @@ centmem ui --host 0.0.0.0 --port 4231 --token "sec_0123456789abcdef" --no-open
   - `POST /api/proposals/{id}/apply`: Execute atomic proposal transaction.
   - `POST /api/proposals/{id}/dismiss`: Dismiss proposal.
   - `POST /api/proposals/{id}/reopen`: Reopen dismissed proposal.
+  - `POST /api/proposals/batch`: Batch apply or dismiss multiple proposals (up to 500 IDs).
+  - `DELETE /api/scopes`: Cascade-delete a scope and all its descendant subtrees and memories (`?path=<scope>`).
+  - `POST /api/config/test-agent`: Live test connectivity and latency to configured AI agent LLM endpoint.
 
 ### 9. Memory Relationships: Link Graph (v1.5.2)
 ```bash
@@ -214,6 +219,23 @@ centmem proposals apply 101
 centmem proposals dismiss 102
 ```
 
+### 13. Hierarchical Scope Management & Subtree Deletion
+```bash
+# List complete hierarchical scope tree with memory counts and nesting
+centmem scope list
+
+# Delete a scope and cascade-delete all descendant subtrees, memories, and links
+# (Prompts for confirmation [y/N] in terminal; use --force in automated scripts)
+centmem scope delete "project:old-app" --force
+```
+
+### 14. System Health & AI Agent Diagnostics (Doctor)
+```bash
+# Verify SQLite integrity, schema migrations, vector/FTS5 extensions, ONNX model,
+# embed queue health, permissions, and AI agent LLM connectivity (soft warning on offline LLM)
+centmem doctor
+```
+
 ---
 
 ## Scope Grammar & Hierarchy
@@ -261,7 +283,7 @@ project:<name>/agent:<agent>/session:<id>
 | `forget` | `centmem forget --id N` or `--scope <s> --key <k>` | Delete memory entries |
 | `stats` | `centmem stats` | View memory counts, database size, and status |
 | `compact` | `centmem compact [--scope <s>] [--dry-run]` | Consolidate and archive old memories |
-| `doctor` | `centmem doctor` | Health check (DB integrity, schema, model, FTS5) |
+| `doctor` | `centmem doctor` | Health check (integrity, schema, model, FTS5, embed queue, permissions, ai_agent) |
 | `backup` | `centmem backup --to <path>` | Create snapshot backup of SQLite database |
 | `restore` | `centmem restore --from <path>` | Restore database from backup snapshot |
 | `capture` | `centmem capture <run\|summary\|categories\|convert\|git\|docs\|shell\|comments> [flags]` | Auto-capture engine and developer artifact capture |
@@ -294,8 +316,8 @@ In v2.0.0, centmem introduces a native autonomous reasoning engine, Schema v6, a
 - **Core Agent Engine (`internal/agent`)**: Multi-turn ReAct reasoning loop (`Plan -> Act -> Think`) with tool execution, cycle guards (`agent.max_reasoning_steps`), and offline fallback.
 - **Schema v6 Staging Queue (`agent_proposals`)**: Staged human-in-the-loop proposals for merges, links, and updates, executed via atomic SQLite transactions (`ApplyProposal`).
 - **Conversations & Messages**: `agent_conversations` and `agent_messages` tables tracking interactive chat turns and structured memory citations.
-- **Native v2.0.0 CLI Surface (Stage 2)**: `centmem ask`, `centmem curate`, `centmem summarize`, and `centmem proposals` commands fully operational with offline synthesis and human-in-the-loop lifecycle management.
-- **Web UI Experience & Review Center (Stage 3)**: Assistant Chat tab with real-time SSE streaming, grounded citations, knowledge gap alerts, and Proposals Review Center with visual merge diffs, relationship previews, and 1-click apply/dismiss/reopen actions. Embedded REST/SSE endpoints (`/api/agent/chat`, `/api/agent/conversations`, `/api/proposals`).
+- **Native v2.0.0 CLI Surface (Stage 2)**: `centmem ask`, `centmem curate`, `centmem summarize`, `centmem proposals`, and `centmem scope` commands fully operational with offline synthesis and human-in-the-loop lifecycle management.
+- **Web UI Experience & Review Center (Stage 3)**: Assistant Chat tab with real-time SSE streaming, grounded citations, knowledge gap alerts, Proposals Review Center with visual merge diffs, relationship previews, bulk proposal actions ("Approve All" and "Reject All" via `POST /api/proposals/batch`), hierarchical Scope Subtree Deletion (`DELETE /api/scopes`), and Doctor diagnostics popover with live AI agent connection probing (`POST /api/config/test-agent`). Embedded REST/SSE endpoints (`/api/agent/chat`, `/api/agent/conversations`, `/api/proposals`, `/api/scopes`).
 
 ---
 

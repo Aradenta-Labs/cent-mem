@@ -24,6 +24,8 @@ echo -e "\n=== 5. Listing recent memories ==="
 centmem list --scope "project:$PROJ" --limit 5
 
 echo -e "\n=== 6. Health check ==="
+# Verifies integrity, schema version, vector/FTS5 extensions, ONNX model,
+# embed queue, permissions, and AI agent LLM connectivity (soft warning on offline LLM)
 centmem doctor
 
 echo -e "\n=== 7. Capturing developer artifacts ==="
@@ -92,6 +94,18 @@ centmem curate --scope "project:$PROJ" --type all --dry-run
 # Synthesize architectural pillars and developer briefing
 centmem summarize --scope "project:$PROJ" --focus "Architecture"
 
-# Inspect and manage staged proposals
+# Inspect and manage staged proposals (supports bulk actions in Web UI)
 centmem proposals list --scope "project:$PROJ" --status pending
+# centmem proposals show 101
+# centmem proposals apply 101
+# centmem proposals dismiss 102
+
+echo -e "\n=== 12. Scope management and subtree deletion ==="
+# List full hierarchical scope tree with memory statistics
+centmem scope list
+
+# Cascade-delete an obsolete scope and all descendant subtrees, memories, and links
+# (Prompts for confirmation in terminal; pass --force for automated scripts)
+# centmem scope delete "project:old-project" --force
+
 

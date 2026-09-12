@@ -44,6 +44,25 @@ global
    - Writes always require an explicit `--scope`.
    - A write creates any non-existent ancestor scope records automatically.
 
+### Scope Deletion & Cascading Mechanics
+1. **Cascade Semantics**:
+   - Deleting a scope (via `centmem scope delete <path> [--force]` or `DELETE /api/scopes?path=<path>`) triggers a transactional recursive cascade across SQLite tables.
+   - The operation identifies the root target scope and all descendant sub-scopes (`agent`, `session`), and cascade-deletes:
+     - All descendant `scopes` records.
+     - All associated `memories` records.
+     - Dense vector embeddings in `memories_vec`.
+     - Pending tasks in `embed_queue`.
+     - Graph relationship edges in `memory_links`.
+     - Staged curation items in `agent_proposals`.
+     - Conversation threads and turns in `agent_conversations` and `agent_messages`.
+2. **Safety Guarantees & Root Immutability**:
+   - The root scope `global` is strictly protected and cannot be deleted.
+   - Interactive terminal environments require explicit user confirmation (`[y/N]`) before cascade deletion occurs, displaying exact counts of memories and sub-scopes that will be purged.
+   - Non-interactive scripts and automated subagent workflows must explicitly pass `--force`.
+   - The Web UI provides a type-to-confirm modal dialog requiring typing the exact target scope path.
+3. **Scope Listing & Hierarchy Visualization**:
+   - `centmem scope list` and `GET /api/scopes` traverse the scope hierarchy from root `global` and calculate both direct (`count`) and recursive descendant (`total_count`) statistics.
+
 ---
 
 ## Hybrid Search Engine (Two-Stage Retrieval & Importance Scoring)
@@ -525,12 +544,21 @@ Stage 3 bridges the memory store and cognitive agent engine to a local Web UI br
                           │   pending   │
                           └─────────────┘
   ```
-- **1-Click Actions**:
+- **1-Click & Batch Review Actions**:
   - `POST /api/proposals/{id}/apply`: Commits the proposal changes inside an atomic SQLite transaction and records `applied_at`.
   - `POST /api/proposals/{id}/dismiss`: Sets proposal status to `dismissed`.
   - `POST /api/proposals/{id}/reopen`: Reverts a `dismissed` proposal back to `pending`.
+  - `POST /api/proposals/batch`: Executes bulk approvals or rejections across up to 500 proposals in one request with safe confirmation dialog safeguards in the Web UI.
 
-#### 7.3 Embedded REST & SSE API Endpoint Reference
+#### 7.3 Scope Hierarchy & Subtree Deletion Architecture
+The Web UI provides interactive inspection of the hierarchical scope tree (`GET /api/scopes`), visual node statistics, and direct subtree deletion (`DELETE /api/scopes?path=<scope>`). A type-to-confirm dialog ensures users never accidentally purge a scope tree without intentionally typing the scope path. Root `global` cannot be deleted.
+
+#### 7.4 AI Agent Health Probing & Diagnostics Architecture
+The diagnostic subsystem verifies connectivity to configured LLM backends:
+- **`centmem doctor` & UI Popover**: Runs `agent.ProbeEndpoint` to measure active endpoint reachability and model response latency. Failures emit `status: "warn"` with a warning entry, ensuring offline SQLite and vector search operations are not blocked.
+- **Live Connection Test Endpoint**: `POST /api/config/test-agent` enables real-time verification of LLM credentials and endpoints from the Agent Settings tab before persisting changes to `config.toml`.
+
+#### 7.5 Embedded REST & SSE API Endpoint Reference
 
 | Method | Endpoint | Query / Path / Body | Description |
 |--------|----------|---------------------|-------------|
@@ -541,4 +569,9 @@ Stage 3 bridges the memory store and cognitive agent engine to a local Web UI br
 | `POST` | `/api/proposals/{id}/apply` | Path: `id` (int64) | Atomically executes staged changes (merge note creation, links, archives) |
 | `POST` | `/api/proposals/{id}/dismiss` | Path: `id` (int64) | Updates proposal status to `dismissed` |
 | `POST` | `/api/proposals/{id}/reopen` | Path: `id` (int64) | Restores a dismissed proposal to `pending` status |
+| `POST` | `/api/proposals/batch` | Body: `{"action": "apply"\|"dismiss", "ids": [1, 2]}` | Batch applies or dismisses up to 500 proposals atomically |
+| `GET` | `/api/scopes` | None | Retrieves hierarchical scope tree with direct and recursive memory counts |
+| `POST` | `/api/scopes` | Body: `{"path": "..."}` | Explicitly creates a scope node |
+| `DELETE` | `/api/scopes` | Query: `path=<scope>` or Body: `{"path": "..."}` | Cascade-deletes a scope and all descendant subtrees, memories, and links |
+| `POST` | `/api/config/test-agent` | Body: `{"backend": "...", "endpoint": "...", "model": "...", "api_key": "...", "timeout_seconds": 8}` | Live tests AI agent LLM endpoint connectivity and roundtrip latency |
 

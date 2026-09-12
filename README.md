@@ -140,7 +140,7 @@ centmem unlink <a> <b>                 # delete relationship links
 centmem links <id>                     # view memory relationship graph edges
 centmem compact [--dry-run]            # summarize + archive old memories
 centmem reindex [--all]                # drain embedding queue into vector index
-centmem doctor                         # health checks
+centmem doctor                         # health checks (integrity, schema, model, queue, permissions, AI agent)
 centmem backup   --to <file>           # snapshot the DB
 centmem restore  --from <file>         # restore from snapshot
 centmem capture <git|docs|shell|comments|run> # ingest commits, docs, shell, or transcripts
@@ -148,6 +148,7 @@ centmem ask <q> [--scope <s>] [--top N] # conversational Q&A with citations prov
 centmem curate [--scope <s>] [--type dedup|contradictions|all] # autonomous curation & proposals
 centmem summarize [--scope <s>] [--focus <f>] # high-level architectural & convention briefings
 centmem proposals <list|show|apply|dismiss> # review and apply staged curation actions
+centmem scope <delete|list> [path]     # list scopes or delete hierarchical scope subtrees
 centmem serve [--mcp]                  # native Model Context Protocol (MCP) server
 centmem ui [--port N] [--host H] [--token T] # web UI memory browser dashboard
 centmem config set <k> <v>             # configure settings in config.toml

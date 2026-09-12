@@ -138,6 +138,9 @@ test('injectWorkflowAndCommands creates AGENTS.md if missing', () => {
     assert(content.includes('centmem summarize'));
     assert(content.includes('Review Proposals'));
     assert(content.includes('centmem proposals'));
+    assert(content.includes('Scope Management'));
+    assert(content.includes('centmem scope list'));
+    assert(content.includes('centmem scope delete'));
     assert(content.includes('Visual Dashboard / UI'));
     assert(content.includes('centmem ui'));
   } finally {

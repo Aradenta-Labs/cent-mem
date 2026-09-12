@@ -310,11 +310,29 @@ centmem proposals list --scope "project:backend-api" --status pending
 ```
 It displays the list of staged proposals waiting for human review.
 
+When the user types:
+> `/centmem delete scope project:legacy-v1`
+
+The agent recognizes the **Scope Management Intent** and executes:
+```bash
+centmem scope delete "project:legacy-v1" --force
+```
+It confirms the cascade-deletion of the target scope along with all descendant memories, embeddings, and sub-scopes.
+
+When the user types:
+> `/centmem check system health`
+
+The agent recognizes the **Maintenance / Health Intent** and executes:
+```bash
+centmem doctor
+```
+It verifies SQLite integrity, schema migrations, vector/FTS5 extensions, ONNX model checksums, embed queue, directory/database permissions, and AI agent LLM connectivity.
+
 ---
 
 ## Scenario 5: Built-in AI Agent Reasoning, CLI Suite & Review Center (v2.0.0 Stages 1–3)
 
-In v2.0.0, centmem introduces a native cognitive reasoning engine (`internal/agent`), Schema v6 staging tables (`agent_proposals`, `agent_conversations`, `agent_messages`), Stage 2 CLI commands (`ask`, `curate`, `summarize`, `proposals`), and an embedded Stage 3 Web UI Review Center.
+In v2.0.0, centmem introduces a native cognitive reasoning engine (`internal/agent`), Schema v6 staging tables (`agent_proposals`, `agent_conversations`, `agent_messages`), Stage 2 CLI commands (`ask`, `curate`, `summarize`, `proposals`, `scope`), and an embedded Stage 3 Web UI Review Center.
 
 ### Step 1: Inspecting & Configuring the Unified LLM Backend
 The agent checks the active LLM backend and configures it to point to a local Ollama instance:
@@ -371,8 +389,10 @@ centmem proposals show 101
 centmem proposals apply 101
 ```
 
-### Step 4: Web UI Assistant Chat & Proposals Review Center (Stage 3)
+### Step 4: Web UI Assistant Chat, Proposals Review Center & Scope Management (Stage 3)
 Developers can also interact via the browser UI by launching `centmem ui`:
 - **Assistant Chat Tab**: Natural-language conversational inquiry with real-time SSE streaming (`/api/agent/chat`), interactive citation cards, and automated knowledge gap detection.
-- **Proposals Review Center**: Human-in-the-loop review inbox featuring visual side-by-side merge diffs, relationship link previews, and 1-click apply, dismiss, and reopen actions.
+- **Proposals Review Center**: Human-in-the-loop review inbox featuring visual side-by-side merge diffs, relationship link previews, 1-click apply/dismiss/reopen actions, and **Bulk Proposal Management** ("Approve All" and "Reject All" buttons with safe confirmation modals via `POST /api/proposals/batch`).
+- **Scope Hierarchy & Subtree Deletion**: Interactive scope tree browser with node metrics, "Delete Scope" action in ScopeOverview, and hover-action trash icons with type-to-confirm modal dialogs (`DELETE /api/scopes?path=<scope>`).
+- **Doctor Diagnostics & Agent Connection Test**: Real-time diagnostic badge in TopBar and live "Test Connection" button in Agent Settings (`POST /api/config/test-agent`).
 

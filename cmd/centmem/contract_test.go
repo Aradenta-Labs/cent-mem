@@ -147,6 +147,13 @@ func TestContract_JSONFieldsStable(t *testing.T) {
 			t.Errorf("recall contract field %q missing from docs/cli-contract.md", field)
 		}
 	}
+
+	// Stable output fields for scope and doctor operations.
+	for _, field := range []string{"deleted_scope", "memories_deleted", "scopes_deleted", "checks", "warnings", "scopes"} {
+		if !strings.Contains(recallDoc, `"`+field+`"`) {
+			t.Errorf("contract field %q missing from docs/cli-contract.md", field)
+		}
+	}
 }
 
 // TestRegistry_NamesUnique asserts no duplicate command names are registered.
@@ -164,7 +171,7 @@ func TestRegistry_NamesUnique(t *testing.T) {
 
 // TestContract_SkillMirrorsInSync asserts that skill/SKILL.md and npm/templates/SKILL.md
 // (and .agents/skills/centmem/SKILL.md if present) are byte-for-byte identical,
-// and that their references and examples remain in sync.
+// and that their references, examples, and slash command adapters remain in sync.
 func TestContract_SkillMirrorsInSync(t *testing.T) {
 	root := repoRoot()
 	skillMD := readFile(t, filepath.Join(root, "skill", "SKILL.md"))
@@ -177,6 +184,13 @@ func TestContract_SkillMirrorsInSync(t *testing.T) {
 	if data, err := os.ReadFile(agentsMDPath); err == nil {
 		if string(data) != skillMD {
 			t.Errorf(".agents/skills/centmem/SKILL.md has drifted from skill/SKILL.md")
+		}
+	}
+
+	claudeMDPath := filepath.Join(root, ".claude", "skills", "centmem", "SKILL.md")
+	if data, err := os.ReadFile(claudeMDPath); err == nil {
+		if string(data) != skillMD {
+			t.Errorf(".claude/skills/centmem/SKILL.md has drifted from skill/SKILL.md")
 		}
 	}
 
@@ -197,6 +211,41 @@ func TestContract_SkillMirrorsInSync(t *testing.T) {
 		if data, err := os.ReadFile(aPath); err == nil {
 			if string(data) != sData {
 				t.Errorf(".agents/skills/centmem/%s has drifted from skill/%s", rel, rel)
+			}
+		}
+		cPath := filepath.Join(root, ".claude", "skills", "centmem", rel)
+		if data, err := os.ReadFile(cPath); err == nil {
+			if string(data) != sData {
+				t.Errorf(".claude/skills/centmem/%s has drifted from skill/%s", rel, rel)
+			}
+		}
+	}
+
+	slashAdapters := []string{
+		"antigravity.md",
+		"claude-code.md",
+		"codex.md",
+		"cursor.md",
+		"deepseek.md",
+		"hermes.md",
+		"trae.md",
+	}
+	for _, sa := range slashAdapters {
+		sData := readFile(t, filepath.Join(root, "skill", "adapters", "slash-commands", sa))
+		nData := readFile(t, filepath.Join(root, "npm", "templates", "slash-commands", sa))
+		if sData != nData {
+			t.Errorf("npm/templates/slash-commands/%s has drifted from skill/adapters/slash-commands/%s", sa, sa)
+		}
+		aPath := filepath.Join(root, ".agents", "skills", "centmem", "adapters", "slash-commands", sa)
+		if data, err := os.ReadFile(aPath); err == nil {
+			if string(data) != sData {
+				t.Errorf(".agents/skills/centmem/adapters/slash-commands/%s has drifted", sa)
+			}
+		}
+		cPath := filepath.Join(root, ".claude", "skills", "centmem", "adapters", "slash-commands", sa)
+		if data, err := os.ReadFile(cPath); err == nil {
+			if string(data) != sData {
+				t.Errorf(".claude/skills/centmem/adapters/slash-commands/%s has drifted", sa)
 			}
 		}
 	}

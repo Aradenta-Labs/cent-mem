@@ -171,7 +171,27 @@ centmem stats
 ```
 centmem doctor
 ```
-Integrity check, model check, config check. Exit 0 healthy.
+Inspects system health across all 7 operational subsystems: database integrity (`PRAGMA integrity_check`), schema migration version, native vector/FTS5 extensions, local ONNX embedding model, embed queue, directory/file permissions, and AI agent LLM connectivity.
+- Exit 0 if all checks succeed (`status: "ok"`) or contain warnings only (`status: "warn"`).
+- Soft warning semantics for `ai_agent`: when the configured LLM endpoint is unreachable, offline, or timed out, `ai_agent` reports `status: "warn"` and appends an entry to `warnings` without failing the command (exit code 0).
+- Exit 1 only if a fatal subsystem check fails (`status: "fail"`).
+
+**Output:**
+```json
+{
+  "ok": true,
+  "checks": [
+    {"name": "integrity", "status": "ok", "detail": "PRAGMA integrity_check passed"},
+    {"name": "schema_version", "status": "ok", "detail": "version 6"},
+    {"name": "extensions", "status": "ok", "detail": "vec, fts5 loaded"},
+    {"name": "model", "status": "ok", "detail": "bge-small-en-v1.5 (sha256 verified)"},
+    {"name": "embed_queue", "status": "ok", "detail": "0 pending"},
+    {"name": "permissions", "status": "ok", "detail": "home 0700; db 0600"},
+    {"name": "ai_agent", "status": "ok", "detail": "endpoint=http://127.0.0.1:11434/v1 model=deepseek-r1:8b (42ms)"}
+  ],
+  "warnings": []
+}
+```
 
 ---
 
@@ -538,6 +558,7 @@ centmem proposals dismiss <id>
 - `show <id>`: display full proposal details and payload.
 - `apply <id>`: atomically execute proposal actions (e.g. merge memories or establish relationship link).
 - `dismiss <id>`: dismiss proposal without modifying memories.
+- Bulk actions: The Web UI and REST API support bulk approval and rejection via `POST /api/proposals/batch` ("Approve All" and "Reject All").
 
 **Output (`proposals list`):**
 ```json
@@ -584,6 +605,7 @@ centmem scope list
 - `delete <path>`: Deletes the specified non-global scope (project, agent, or session) and all descendant scopes, memories, vector embeddings, queue jobs, memory links, proposals, and conversations.
 - `--force`: Bypass interactive confirmation prompt.
 - Root scope `global` cannot be deleted.
+- Exit code 0 on success; exit code 2 if target scope does not exist; exit code 1 if deleting `global` or confirmation is unconfirmed/aborted.
 
 **Output (`scope delete <path>`):**
 ```json
@@ -599,7 +621,28 @@ centmem scope list
 ```json
 {
   "ok": true,
-  "scopes": []
+  "scopes": [
+    {
+      "id": 1,
+      "path": "global",
+      "kind": "global",
+      "name": "global",
+      "count": 5,
+      "total_count": 47,
+      "children": [
+        {
+          "id": 2,
+          "path": "project:foo",
+          "parent_path": "global",
+          "kind": "project",
+          "name": "foo",
+          "count": 24,
+          "total_count": 42,
+          "children": []
+        }
+      ]
+    }
+  ]
 }
 ```
 

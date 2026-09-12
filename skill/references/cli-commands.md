@@ -491,7 +491,32 @@ centmem stats [--pretty]
 
 ### Other Operational Commands
 
-- `centmem doctor`: Verifies database integrity (`PRAGMA integrity_check`), ONNX model availability, vector extensions, directory permissions, and embedding queue health.
+- `centmem doctor`: Verifies database integrity (`PRAGMA integrity_check`), migration schema version, vector and FTS5 extensions, ONNX embedding model, embedding queue health, directory/database permissions, and AI agent LLM connectivity.
+  - **Subsystems inspected:**
+    1. `integrity`: SQLite database consistency via `PRAGMA integrity_check`.
+    2. `schema_version`: Database migration status (current: v6).
+    3. `extensions`: Vector (`sqlite-vec`) and full-text search (`fts5`) extension verification.
+    4. `model`: Local ONNX embedding model presence and sha256 checksum validation.
+    5. `embed_queue`: Embedding queue processing status and pending un-embedded memory counts.
+    6. `permissions`: Asserts directory (`~/.centmem/` 0700) and database (`centmem.db` 0600) permissions.
+    7. `ai_agent`: Probes connectivity to configured LLM endpoint (Ollama, OpenAI-compatible, etc.), reporting active endpoint, model name, and roundtrip latency in milliseconds.
+  - **Soft Warning Semantics (`ai_agent`)**: When the configured LLM endpoint is unreachable, offline, or timed out, the `ai_agent` check reports `status: "warn"` and appends a warning to `warnings`. It does **not** fail the doctor command (exit code remains 0), ensuring offline CLI memory operations continue uninterrupted. Only fatal subsystem failures (`status: "fail"`) trigger exit code 1.
+  - **Example Output (`centmem doctor`):**
+    ```json
+    {
+      "ok": true,
+      "checks": [
+        {"name": "integrity", "status": "ok", "detail": "PRAGMA integrity_check passed"},
+        {"name": "schema_version", "status": "ok", "detail": "version 6"},
+        {"name": "extensions", "status": "ok", "detail": "vec, fts5 loaded"},
+        {"name": "model", "status": "ok", "detail": "bge-small-en-v1.5 (sha256 verified)"},
+        {"name": "embed_queue", "status": "ok", "detail": "0 pending"},
+        {"name": "permissions", "status": "ok", "detail": "home 0700; db 0600"},
+        {"name": "ai_agent", "status": "ok", "detail": "endpoint=http://127.0.0.1:11434/v1 model=deepseek-r1:8b (42ms)"}
+      ],
+      "warnings": []
+    }
+    ```
 - `centmem reindex [--all] [--batch N] [--max-time <duration>] [--dry-run]`: Drains the embedding queue and generates dense vector representations in `memories_vec`. Pass `--all` to force complete re-indexing across all active memories.
 - `centmem compact [--scope <s>] [--dry-run]`: Consolidates and archives expired notes and logs past their retention threshold into summary notes.
 - `centmem backup --to <path>`: Atomic snapshot backup of the SQLite database via `VACUUM INTO`.
@@ -870,6 +895,7 @@ centmem proposals dismiss <id>
 - `show <id>`: Inspect detailed proposal metadata, rationale, and JSON payload.
 - `apply <id>`: Atomically execute proposal changes.
 - `dismiss <id>`: Mark proposal as dismissed.
+- Bulk actions: The Web UI and REST API support bulk approval and rejection via `POST /api/proposals/batch` ("Approve All" and "Reject All" with safety confirmation modal dialogs).
 
 **Output (`proposals list`):**
 ```json
@@ -949,17 +975,80 @@ centmem proposals dismiss <id>
 
 ---
 
-## 16. Web UI Experience: Assistant Chat & Proposals Inbox (v2.0.0 Stage 3)
+## 16. `centmem scope` — Hierarchical Scope Management
 
-Stage 3 introduces a full-featured browser workspace embedded directly in `centmem ui`, connecting the agent reasoning loop and proposals inbox to an interactive interface:
+Manage hierarchical memory scopes, inspect scope trees, and cascade-delete scope subtrees across projects, agents, and sessions.
 
-### 16.1 Interactive Assistant Chat (`AssistantTab.tsx`)
+### 16.1 `centmem scope list`
+Traverses the database and returns the full hierarchical scope tree starting from root `global`, including direct and descendant memory counts.
+
+```bash
+centmem scope list
+```
+
+**Output:**
+```json
+{
+  "ok": true,
+  "scopes": [
+    {
+      "id": 1,
+      "path": "global",
+      "kind": "global",
+      "name": "global",
+      "count": 5,
+      "total_count": 47,
+      "children": [
+        {
+          "id": 2,
+          "path": "project:my-app",
+          "parent_path": "global",
+          "kind": "project",
+          "name": "my-app",
+          "count": 24,
+          "total_count": 42,
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 16.2 `centmem scope delete <path> [--force]`
+Deletes the specified non-global scope (project, agent, or session) and **recursively cascade-deletes** all descendant sub-scopes, memories, vector embeddings, queue jobs, memory links, agent proposals, and conversation threads.
+
+```bash
+centmem scope delete <path> [--force]
+```
+- `<path>`: The target scope path to delete (e.g. `project:old-app`, `project:my-app/agent:worker-1`).
+- `--force`: Bypasses the interactive confirmation prompt (`Are you sure you want to delete scope "..." (N memories, M sub-scopes)? [y/N]: `). Required in non-interactive environments (CI, subagents, automated scripts).
+- **Safety Safeguard**: The root scope `global` cannot be deleted; attempting to do so returns exit code 1 with an error.
+- **Exit Codes**: Returns 0 on successful cascade deletion; returns 2 if the target scope is not found; returns 1 if attempting to delete root `global` or if confirmation prompt is unconfirmed/aborted in non-interactive environments.
+
+**Output:**
+```json
+{
+  "ok": true,
+  "deleted_scope": "project:old-app",
+  "memories_deleted": 42,
+  "scopes_deleted": 5
+}
+```
+
+---
+
+## 17. Web UI Experience: Assistant Chat, Proposals Review & Scope Management (v2.0.0 Stage 3)
+
+Stage 3 introduces a full-featured browser workspace embedded directly in `centmem ui`, connecting the agent reasoning loop, proposals inbox, and scope hierarchy to an interactive interface:
+
+### 17.1 Interactive Assistant Chat (`AssistantTab.tsx`)
 - **Server-Sent Events (SSE) Streaming**: Natural-language conversational inquiry streamed in real time via `POST /api/agent/chat`.
 - **Grounded Citations**: Interactive citation cards displaying source memory IDs, scope tags, relevance scores, and direct snippet previews.
 - **Knowledge Gap Detection**: Alerts highlighting missing, ambiguous, or contradictory domain context that agents or users should record.
 - **Thread Management**: Conversation switching, multi-turn history tracking, and scoped conversations managed via `/api/agent/conversations`.
 
-### 16.2 Proposals Review Center (`ProposalsView.tsx`)
+### 17.2 Proposals Review Center (`ProposalsView.tsx`)
 - **Human-in-the-Loop Inbox**: Review queue for proposals generated by `centmem curate`, autonomous background workers, or external agent tools.
 - **Visual Merge Diffs**: Side-by-side diff comparing redundant source memories with synthesized consolidated notes.
 - **Relationship Link Previews**: Direct inspection of proposed graph relationships (`supersedes`, `contradicts`, `refines`, `depends-on`, `supports`) before applying.
@@ -967,8 +1056,20 @@ Stage 3 introduces a full-featured browser workspace embedded directly in `centm
   - Apply: Atomically executes proposal changes and updates status to `applied`.
   - Dismiss: Marks proposal as `dismissed`.
   - Reopen: Restores a dismissed proposal back to `pending`.
+- **Bulk Proposal Management**:
+  - "Approve All" and "Reject All" header buttons for processing all pending proposals in the active filter.
+  - Safe warning popup dialog confirming batch execution before dispatching `POST /api/proposals/batch`.
 
-### 16.3 Embedded REST & SSE API Reference
+### 17.3 Scope Hierarchy & Subtree Deletion (`ScopeTree.tsx`, `ScopeOverview.tsx`)
+- **Interactive Tree Navigation**: Expandable tree structure showing direct and descendant memory counts per scope.
+- **Subtree Deletion**: "Delete Scope" button in `ScopeOverview` and trash can action on hovering tree nodes.
+- **Type-to-Confirm Dialog**: Safe deletion modal requiring the user to type the exact scope path to confirm cascading deletion (`DELETE /api/scopes?path=<scope>`). Root `global` scope deletion is disallowed.
+
+### 17.4 Doctor Diagnostics & Agent Settings (`TopBar.tsx`, `AgentTab.tsx`)
+- **Doctor Diagnostics Popover**: Header badge in TopBar providing instant health check status across all 7 subsystems, including AI agent LLM connectivity.
+- **Live Agent Connection Probe**: Dedicated "Test Connection" button in Agent Settings (`POST /api/config/test-agent`) validating endpoint responsiveness, model availability, and latency without saving changes.
+
+### 17.5 Embedded REST & SSE API Reference
 The embedded HTTP server exposes the following endpoints for UI and programmatic agent integration:
 
 | Method | Endpoint | Request Body / Query Params | Description |
@@ -980,6 +1081,11 @@ The embedded HTTP server exposes the following endpoints for UI and programmatic
 | `POST` | `/api/proposals/{id}/apply` | Path: `id` | Atomically apply proposal to SQLite store |
 | `POST` | `/api/proposals/{id}/dismiss` | Path: `id` | Mark proposal as dismissed |
 | `POST` | `/api/proposals/{id}/reopen` | Path: `id` | Undo dismissal and restore proposal to pending status |
+| `POST` | `/api/proposals/batch` | JSON: `{"action": "apply"\|"dismiss", "ids": [1, 2]}` | Batch apply or dismiss up to 500 proposals atomically |
+| `GET` | `/api/scopes` | None | Retrieve hierarchical scope tree with memory counts |
+| `POST` | `/api/scopes` | JSON: `{"path": "..."}` | Explicitly create a new scope node |
+| `DELETE` | `/api/scopes` | Query: `path=<scope>` or JSON: `{"path": "..."}` | Cascade-delete a scope and all descendant subtrees and memories |
+| `POST` | `/api/config/test-agent` | JSON: `{"backend": "...", "endpoint": "...", "model": "...", "api_key": "...", "timeout_seconds": 8}` | Test live AI agent endpoint connectivity and latency |
 
 #### SSE Event Format (`POST /api/agent/chat`)
 - `event: delta`: Streaming text tokens `{"content": "text", "role": "assistant"}`
@@ -990,6 +1096,6 @@ The embedded HTTP server exposes the following endpoints for UI and programmatic
 
 ---
 
-## 17. Roadmap & Upcoming Milestones (Stage 4+)
-With Stage 1 (Agent Engine & Proposals), Stage 2 (CLI Command Suite), and Stage 3 (Web UI Experience & Proposals Inbox) complete:
+## 18. Roadmap & Upcoming Milestones (Stage 4+)
+With Stage 1 (Agent Engine & Proposals), Stage 2 (CLI Command Suite), and Stage 3 (Web UI Experience, Proposals Inbox & Scope Management) complete:
 - **Stage 4**: Background Autonomous Daemon Curation loop (`centmemd`) with idle memory scanning, periodic conflict resolution, and background proposal staging.
