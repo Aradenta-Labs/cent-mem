@@ -12,6 +12,7 @@ export interface SidebarProps {
   scopes: ScopeNode[];
   selectedScope: string | null;
   onSelectScope: (path: string) => void;
+  onDeleteScope?: (path: string, node: ScopeNode) => void;
   onRefreshScopes: () => void;
   isLoading?: boolean;
   isOpen: boolean;
@@ -25,6 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   scopes,
   selectedScope,
   onSelectScope,
+  onDeleteScope,
   onRefreshScopes,
   isLoading = false,
   isOpen,
@@ -262,6 +264,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onSelectScope(path);
               onClose(); // Close sidebar on mobile upon selection
             }}
+            onDeleteScope={onDeleteScope}
             isLoading={isLoading}
           />
         </div>

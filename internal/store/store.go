@@ -431,6 +431,167 @@ func (s *Store) ListScopeTree(ctx context.Context) ([]*ScopeNode, error) {
 	return roots, nil
 }
 
+// DeleteScopeSummary contains metrics about a deleted scope tree.
+type DeleteScopeSummary struct {
+	ScopePath       string   `json:"scope_path"`
+	ScopesDeleted   int      `json:"scopes_deleted"`
+	MemoriesDeleted int      `json:"memories_deleted"`
+	DeletedPaths    []string `json:"deleted_paths"`
+}
+
+// DeleteScopeTree permanently deletes a scope and all its descendant sub-scopes,
+// cascading the deletion to memories, vector embeddings, embedding queue jobs,
+// memory links, agent proposals, conversations, and messages.
+// Root scope "global" cannot be deleted.
+func (s *Store) DeleteScopeTree(ctx context.Context, scopePath string) (*DeleteScopeSummary, error) {
+	scopePath = strings.TrimSpace(scopePath)
+	if scopePath == "" {
+		return nil, fmt.Errorf("scope path cannot be empty")
+	}
+	if scopePath == "global" {
+		return nil, fmt.Errorf("cannot delete root scope 'global'")
+	}
+
+	sc, err := scope.Parse(scopePath)
+	if err != nil {
+		return nil, err
+	}
+	if sc.Kind == scope.Global {
+		return nil, fmt.Errorf("cannot delete root scope 'global'")
+	}
+
+	// Verify target scope exists.
+	var rootID int64
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM scopes WHERE path = ?`, sc.Path).Scan(&rootID)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("scope %q not found: %w", scopePath, ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lookup scope: %w", err)
+	}
+
+	// Resolve target scope and all descendant scope IDs.
+	scopeIDs, err := s.ResolveScopeIDs(ctx, sc, false, true)
+	if err != nil {
+		return nil, fmt.Errorf("resolve scopes: %w", err)
+	}
+	if len(scopeIDs) == 0 {
+		return nil, fmt.Errorf("scope %q not found: %w", scopePath, ErrNotFound)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin delete tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(scopeIDs)), ",")
+	scopeArgs := make([]any, len(scopeIDs))
+	for i, id := range scopeIDs {
+		scopeArgs[i] = id
+	}
+
+	// 1. Collect all paths being deleted.
+	rows, err := tx.QueryContext(ctx, "SELECT path FROM scopes WHERE id IN ("+placeholders+") ORDER BY path ASC", scopeArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("query scope paths: %w", err)
+	}
+	var deletedPaths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		deletedPaths = append(deletedPaths, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 2. Collect all memory IDs in these scopes.
+	memRows, err := tx.QueryContext(ctx, "SELECT id FROM memories WHERE scope_id IN ("+placeholders+")", scopeArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("query memories: %w", err)
+	}
+	var memIDs []int64
+	for memRows.Next() {
+		var mid int64
+		if err := memRows.Scan(&mid); err != nil {
+			memRows.Close()
+			return nil, err
+		}
+		memIDs = append(memIDs, mid)
+	}
+	memRows.Close()
+	if err := memRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 3. Clean up memory attachments (vec0 virtual table, embeddings, queue, links).
+	for _, mid := range memIDs {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM memories_vec WHERE memory_id = ?", mid); err != nil {
+			return nil, fmt.Errorf("delete memories_vec: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM embeddings WHERE memory_id IN (SELECT id FROM memories WHERE scope_id IN ("+placeholders+"))", scopeArgs...); err != nil {
+		return nil, fmt.Errorf("delete embeddings: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM embed_queue WHERE memory_id IN (SELECT id FROM memories WHERE scope_id IN ("+placeholders+"))", scopeArgs...); err != nil {
+		return nil, fmt.Errorf("delete embed_queue: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM memory_links WHERE from_id IN (SELECT id FROM memories WHERE scope_id IN ("+placeholders+")) OR to_id IN (SELECT id FROM memories WHERE scope_id IN ("+placeholders+"))", append(scopeArgs, scopeArgs...)...); err != nil {
+		return nil, fmt.Errorf("delete memory_links: %w", err)
+	}
+
+	// 4. Clean up agent conversations and messages in these scopes.
+	if _, err := tx.ExecContext(ctx, "DELETE FROM agent_messages WHERE conversation_id IN (SELECT id FROM agent_conversations WHERE scope_id IN ("+placeholders+"))", scopeArgs...); err != nil {
+		return nil, fmt.Errorf("delete agent_messages: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM agent_conversations WHERE scope_id IN ("+placeholders+")", scopeArgs...); err != nil {
+		return nil, fmt.Errorf("delete agent_conversations: %w", err)
+	}
+
+	// 5. Clean up agent proposals in these scopes.
+	if _, err := tx.ExecContext(ctx, "DELETE FROM agent_proposals WHERE scope_id IN ("+placeholders+")", scopeArgs...); err != nil {
+		return nil, fmt.Errorf("delete agent_proposals: %w", err)
+	}
+
+	// 6. Delete memories (triggers clean memories_fts).
+	if _, err := tx.ExecContext(ctx, "DELETE FROM memories WHERE scope_id IN ("+placeholders+")", scopeArgs...); err != nil {
+		return nil, fmt.Errorf("delete memories: %w", err)
+	}
+
+	// 7. Delete scopes rows.
+	if _, err := tx.ExecContext(ctx, "DELETE FROM scopes WHERE id IN ("+placeholders+")", scopeArgs...); err != nil {
+		return nil, fmt.Errorf("delete scopes: %w", err)
+	}
+
+	summary := &DeleteScopeSummary{
+		ScopePath:       sc.Path,
+		ScopesDeleted:   len(deletedPaths),
+		MemoriesDeleted: len(memIDs),
+		DeletedPaths:    deletedPaths,
+	}
+
+	// 8. Audit event record.
+	payload, _ := json.Marshal(summary)
+	now := nowMicro()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO events(memory_id, op, scope_path, payload_json, created_at)
+		VALUES (0, 'delete', ?, ?, ?)`,
+		sc.Path, string(payload), now); err != nil {
+		return nil, fmt.Errorf("insert delete event: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit delete tx: %w", err)
+	}
+
+	return summary, nil
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------

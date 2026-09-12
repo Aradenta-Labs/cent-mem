@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useTransition, useRef } from 'react';
-import { Copy, Check, Sparkles, X, Database, Download } from 'lucide-react';
+import { Copy, Check, Sparkles, X, Database, Download, Trash2 } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { Memory, MemoryFilters } from '../types/memory';
 import { StoreStats } from '../types/stats';
@@ -20,6 +20,8 @@ export interface MemoryBrowserProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   onSelectScope: (scope: string) => void;
+  onDeleteScope?: (scope: string) => void;
+  refreshKey?: number;
 }
 
 export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
@@ -28,6 +30,8 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
   searchQuery,
   onSearchChange,
   onSelectScope,
+  onDeleteScope,
+  refreshKey,
 }) => {
   const [, startTransition] = useTransition();
 
@@ -164,7 +168,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [selectedScope, searchQuery, typeFilter, tagFilter, agentFilter, sinceFilter, childrenFilter, limit, offset]);
+  }, [selectedScope, searchQuery, typeFilter, tagFilter, agentFilter, sinceFilter, childrenFilter, limit, offset, refreshKey]);
 
   useEffect(() => {
     loadMemories();
@@ -181,7 +185,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     } finally {
       setIsLoadingStats(false);
     }
-  }, [selectedScope]);
+  }, [selectedScope, refreshKey]);
 
   useEffect(() => {
     loadStats();
@@ -510,6 +514,18 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
                 </>
               )}
             </div>
+
+            {selectedScope !== 'global' && onDeleteScope && (
+              <Button
+                variant="danger"
+                size="sm"
+                leftIcon={<Trash2 size={13} />}
+                onClick={() => onDeleteScope(selectedScope)}
+                title="Delete this scope and all memories"
+              >
+                Delete Scope
+              </Button>
+            )}
           </div>
         </div>
       </div>

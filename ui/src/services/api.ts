@@ -1,4 +1,4 @@
-import { ScopeNode, ScopesResponse, HealthResponse, CreateScopeResponse } from '../types/scope';
+import { ScopeNode, ScopesResponse, HealthResponse, CreateScopeResponse, DeleteScopeResponse } from '../types/scope';
 import {
   Memory,
   MemoryFilters,
@@ -177,6 +177,19 @@ export async function createScope(path: string): Promise<CreateScopeResponse> {
   const data: CreateScopeResponse = await res.json();
   if (!res.ok || !data.ok) {
     throw new Error(data.error?.message || `Failed to create scope: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function deleteScope(path: string): Promise<DeleteScopeResponse> {
+  const params = new URLSearchParams({ path });
+  const res = await apiFetch(`/api/scopes?${params.toString()}`, {
+    method: 'DELETE',
+  });
+
+  const data: DeleteScopeResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to delete scope: HTTP ${res.status}`);
   }
   return data;
 }

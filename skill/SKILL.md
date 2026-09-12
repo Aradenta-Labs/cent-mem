@@ -276,6 +276,7 @@ project:<name>/agent:<agent>/session:<id>
 | `curate` | `centmem curate [--scope <s>] [--type contradictions\|dedup\|all] [--apply] [--dry-run]` | Autonomous memory curation (conflicts & duplicates) |
 | `summarize` | `centmem summarize [--scope <s>] [--focus <t>] [--format json\|markdown] [--save]` | Synthesize architectural pillars and scope developer briefings |
 | `proposals` | `centmem proposals <list\|show\|apply\|dismiss> [id] [flags]` | Manage human-in-the-loop staged curation actions |
+| `scope` | `centmem scope <delete\|list> [path] [--force]` | Delete or list hierarchical memory scope subtrees |
 
 ### Background Daemon (`centmemd`)
 

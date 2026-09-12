@@ -155,8 +155,12 @@ func Ancestors(s Scope) []string {
 	return out
 }
 
-// DescendantPrefix returns a LIKE prefix matching this scope and all its
-// descendants (agents/sessions under it). Used for children queries.
+// DescendantPrefix returns a LIKE prefix matching all descendants under this scope.
+// Non-global scope descendants always begin with '<path>/' (e.g. 'project:foo/%'),
+// preventing collision with sibling scopes that share a string prefix (e.g. 'project:foo-bar').
 func DescendantPrefix(s Scope) string {
-	return s.Path + "%"
+	if s.Kind == Global {
+		return "%"
+	}
+	return s.Path + "/%"
 }

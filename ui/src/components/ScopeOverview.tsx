@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Terminal, Database, Clock } from 'lucide-react';
+import { Copy, Check, Terminal, Database, Clock, Trash2 } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { Badge } from './Badge';
 import { Button } from './Button';
@@ -7,9 +7,10 @@ import { Button } from './Button';
 export interface ScopeOverviewProps {
   node: ScopeNode | null;
   selectedScope: string;
+  onDeleteScope?: (path: string) => void;
 }
 
-export const ScopeOverview: React.FC<ScopeOverviewProps> = ({ node, selectedScope }) => {
+export const ScopeOverview: React.FC<ScopeOverviewProps> = ({ node, selectedScope, onDeleteScope }) => {
   const [copied, setCopied] = useState(false);
   const [cmdCopied, setCmdCopied] = useState(false);
 
@@ -127,6 +128,18 @@ export const ScopeOverview: React.FC<ScopeOverviewProps> = ({ node, selectedScop
                 {totalCount}
               </span>
             </div>
+
+            {selectedScope !== 'global' && onDeleteScope && (
+              <Button
+                variant="danger"
+                size="sm"
+                leftIcon={<Trash2 size={13} />}
+                onClick={() => onDeleteScope(selectedScope)}
+                title="Delete this scope and all memories"
+              >
+                Delete Scope
+              </Button>
+            )}
           </div>
         </div>
       </div>

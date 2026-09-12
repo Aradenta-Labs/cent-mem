@@ -51,6 +51,7 @@ var commands = map[string]commandEntry{
 	"curate":    {cmdCurate, "curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]", []string{"--scope", "--type", "--apply", "--dry-run"}},
 	"summarize": {cmdSummarize, "summarize [--scope <scope>] [--focus <topic>] [--format markdown|json] [--save]", []string{"--scope", "--focus", "--format", "--save"}},
 	"proposals": {cmdProposals, "proposals <list|show|apply|dismiss> [id] [--scope <scope>] [--status <s>] [--limit N] [--offset N]", []string{"--scope", "--status", "--limit", "--offset"}},
+	"scope":     {cmdScope, "scope <delete|list> [path] [--force]", []string{"--force"}},
 }
 
 // buildRegistry returns a *cli.Registry populated with every registered command

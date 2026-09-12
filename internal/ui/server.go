@@ -468,6 +468,113 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// API Endpoints: Scopes (Delete scope tree and cascade memories)
+	mux.HandleFunc("DELETE /api/scopes", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		scopePath := strings.TrimSpace(r.URL.Query().Get("path"))
+		if scopePath == "" && r.Body != nil {
+			var bodyReq struct {
+				Path string `json:"path"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&bodyReq); err == nil {
+				scopePath = strings.TrimSpace(bodyReq.Path)
+			}
+		}
+
+		if scopePath == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_scope",
+					"message": "scope path parameter is required (e.g. ?path=project:foo)",
+				},
+			})
+			return
+		}
+
+		if scopePath == "global" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "forbidden",
+					"message": "cannot delete root scope 'global'",
+				},
+			})
+			return
+		}
+
+		sc, err := scope.Parse(scopePath)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_scope",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		if sc.Kind == scope.Global {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "forbidden",
+					"message": "cannot delete root scope 'global'",
+				},
+			})
+			return
+		}
+
+		summary, err := cfg.Store.DeleteScopeTree(r.Context(), sc.Path)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "not_found",
+						"message": fmt.Sprintf("scope %q not found", scopePath),
+					},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":               true,
+			"deleted_scope":    summary.ScopePath,
+			"memories_deleted": summary.MemoriesDeleted,
+			"scopes_deleted":   summary.ScopesDeleted,
+		})
+	})
+
 	// API Endpoints: Memories (List, filter, and hybrid recall)
 	mux.HandleFunc("GET /api/memories", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

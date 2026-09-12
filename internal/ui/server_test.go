@@ -220,6 +220,127 @@ func TestServer_ScopesAPI(t *testing.T) {
 	}
 }
 
+func TestServer_DeleteScope(t *testing.T) {
+	dir := t.TempDir()
+	stCfg := config.Config{DBPath: dir + "/centmem.db"}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	_, _, err = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:to-delete",
+		Type:    "note",
+		Content: "Root memory to delete",
+	})
+	if err != nil {
+		t.Fatalf("put memory: %v", err)
+	}
+	_, _, err = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:to-delete/agent:worker",
+		Type:    "note",
+		Content: "Child agent memory to delete",
+	})
+	if err != nil {
+		t.Fatalf("put child memory: %v", err)
+	}
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. DELETE global should fail (400)
+	reqGlobal, _ := http.NewRequest(http.MethodDelete, srv.URL()+"/api/scopes?path=global", nil)
+	respGlobal, err := client.Do(reqGlobal)
+	if err != nil {
+		t.Fatalf("DELETE global error: %v", err)
+	}
+	respGlobal.Body.Close()
+	if respGlobal.StatusCode != http.StatusBadRequest {
+		t.Errorf("DELETE global status = %d, want 400", respGlobal.StatusCode)
+	}
+
+	// 2. DELETE nonexistent should fail (404)
+	reqMissing, _ := http.NewRequest(http.MethodDelete, srv.URL()+"/api/scopes?path=project:nonexistent", nil)
+	respMissing, err := client.Do(reqMissing)
+	if err != nil {
+		t.Fatalf("DELETE missing error: %v", err)
+	}
+	respMissing.Body.Close()
+	if respMissing.StatusCode != http.StatusNotFound {
+		t.Errorf("DELETE missing status = %d, want 404", respMissing.StatusCode)
+	}
+
+	// 3. DELETE project:to-delete should succeed (200)
+	reqDel, _ := http.NewRequest(http.MethodDelete, srv.URL()+"/api/scopes?path=project:to-delete", nil)
+	respDel, err := client.Do(reqDel)
+	if err != nil {
+		t.Fatalf("DELETE scope error: %v", err)
+	}
+	defer respDel.Body.Close()
+
+	if respDel.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE scope status = %d, want 200", respDel.StatusCode)
+	}
+
+	var delData map[string]any
+	if err := json.NewDecoder(respDel.Body).Decode(&delData); err != nil {
+		t.Fatalf("decode delete response: %v", err)
+	}
+	if delData["ok"] != true || delData["deleted_scope"] != "project:to-delete" {
+		t.Errorf("unexpected delete payload: %+v", delData)
+	}
+	if memDeleted, ok := delData["memories_deleted"].(float64); !ok || memDeleted != 2 {
+		t.Errorf("expected 2 memories deleted, got %v", delData["memories_deleted"])
+	}
+	if scopesDeleted, ok := delData["scopes_deleted"].(float64); !ok || scopesDeleted != 2 {
+		t.Errorf("expected 2 scopes deleted, got %v", delData["scopes_deleted"])
+	}
+
+	// 4. Verify scope is no longer returned in GET /api/scopes
+	getResp, err := client.Get(srv.URL() + "/api/scopes")
+	if err != nil {
+		t.Fatalf("GET /api/scopes error: %v", err)
+	}
+	defer getResp.Body.Close()
+
+	var scopesData struct {
+		Ok     bool               `json:"ok"`
+		Scopes []*store.ScopeNode `json:"scopes"`
+	}
+	if err := json.NewDecoder(getResp.Body).Decode(&scopesData); err != nil {
+		t.Fatalf("decode scopes: %v", err)
+	}
+
+	for _, sc := range scopesData.Scopes {
+		if strings.HasPrefix(sc.Path, "project:to-delete") {
+			t.Errorf("found deleted scope path %q in scopes list", sc.Path)
+		}
+	}
+}
+
 func TestServer_Memories(t *testing.T) {
 	dir := t.TempDir()
 	stCfg := config.Config{DBPath: dir + "/centmem.db"}

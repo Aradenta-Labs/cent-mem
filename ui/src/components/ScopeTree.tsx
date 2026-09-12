@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRight, Globe, Folder, Terminal, MessageSquare } from 'lucide-react';
+import { ChevronRight, Globe, Folder, Terminal, MessageSquare, Trash2 } from 'lucide-react';
 import { ScopeNode, ScopeKind } from '../types/scope';
 import { Skeleton } from './Skeleton';
 
@@ -7,6 +7,7 @@ export interface ScopeTreeProps {
   scopes: ScopeNode[];
   selectedScope: string | null;
   onSelectScope: (path: string) => void;
+  onDeleteScope?: (path: string, node: ScopeNode) => void;
   isLoading?: boolean;
 }
 
@@ -28,6 +29,7 @@ interface TreeNodeItemProps {
   level: number;
   selectedScope: string | null;
   onSelectScope: (path: string) => void;
+  onDeleteScope?: (path: string, node: ScopeNode) => void;
   expandedMap: Record<string, boolean>;
   onToggleExpand: (path: string) => void;
 }
@@ -37,9 +39,11 @@ const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
   level,
   selectedScope,
   onSelectScope,
+  onDeleteScope,
   expandedMap,
   onToggleExpand,
 }) => {
+  const [isHovered, setIsHovered] = useState(false);
   const hasChildren = node.children && node.children.length > 0;
   // Default to expanded for global and first level
   const isExpanded = expandedMap[node.path] ?? true;
@@ -89,11 +93,13 @@ const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
           transition: 'background-color var(--transition-fast), color var(--transition-fast)',
         }}
         onMouseEnter={(e) => {
+          setIsHovered(true);
           if (!isSelected) {
             e.currentTarget.style.backgroundColor = 'var(--surface-hover)';
           }
         }}
         onMouseLeave={(e) => {
+          setIsHovered(false);
           if (!isSelected) {
             e.currentTarget.style.backgroundColor = 'transparent';
           }
@@ -150,7 +156,7 @@ const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
           </span>
         </div>
 
-        {/* Memory count badge */}
+        {/* Memory count badge and trash delete action */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {node.count > 0 && (
             <span
@@ -168,6 +174,41 @@ const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
               {node.count}
             </span>
           )}
+
+          {node.path !== 'global' && onDeleteScope && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteScope(node.path, node);
+              }}
+              aria-label={`Delete scope ${node.path}`}
+              title={`Delete scope ${node.path}`}
+              style={{
+                display: isHovered ? 'flex' : 'none',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 'var(--radius-xs)',
+                cursor: 'pointer',
+                padding: '2px',
+                color: 'var(--color-error-text)',
+                opacity: 0.8,
+                transition: 'opacity var(--transition-fast)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.backgroundColor = 'var(--color-error-bg)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.8';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -181,6 +222,7 @@ const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
               level={level + 1}
               selectedScope={selectedScope}
               onSelectScope={onSelectScope}
+              onDeleteScope={onDeleteScope}
               expandedMap={expandedMap}
               onToggleExpand={onToggleExpand}
             />
@@ -195,6 +237,7 @@ export const ScopeTree: React.FC<ScopeTreeProps> = ({
   scopes,
   selectedScope,
   onSelectScope,
+  onDeleteScope,
   isLoading = false,
 }) => {
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({
@@ -243,6 +286,7 @@ export const ScopeTree: React.FC<ScopeTreeProps> = ({
           level={0}
           selectedScope={selectedScope}
           onSelectScope={onSelectScope}
+          onDeleteScope={onDeleteScope}
           expandedMap={expandedMap}
           onToggleExpand={handleToggleExpand}
         />

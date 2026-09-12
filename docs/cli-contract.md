@@ -574,6 +574,37 @@ centmem proposals dismiss <id>
 
 ---
 
+### 3.26 `scope` — hierarchical scope management
+Manage hierarchical memory scopes and cascade-delete scope subtrees.
+
+```
+centmem scope delete <path> [--force]
+centmem scope list
+```
+- `delete <path>`: Deletes the specified non-global scope (project, agent, or session) and all descendant scopes, memories, vector embeddings, queue jobs, memory links, proposals, and conversations.
+- `--force`: Bypass interactive confirmation prompt.
+- Root scope `global` cannot be deleted.
+
+**Output (`scope delete <path>`):**
+```json
+{
+  "ok": true,
+  "deleted_scope": "project:foo",
+  "memories_deleted": 12,
+  "scopes_deleted": 3
+}
+```
+
+**Output (`scope list`):**
+```json
+{
+  "ok": true,
+  "scopes": []
+}
+```
+
+---
+
 ## 4. Scope Grammar
 
 ```

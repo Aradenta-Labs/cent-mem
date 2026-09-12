@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { fetchScopes, fetchHealth, fetchPendingProposalsCount, fetchMemoryDetail } from '../services/api';
+import { fetchScopes, fetchHealth, fetchPendingProposalsCount, fetchMemoryDetail, deleteScope } from '../services/api';
 import { ScopeNode, HealthResponse } from '../types/scope';
 import { Memory } from '../types/memory';
 import { TopBar } from '../components/TopBar';
@@ -11,6 +11,7 @@ import { ProposalsView } from '../components/ProposalsView';
 import { MemoryDetailDrawer } from '../components/MemoryDetailDrawer';
 import { KeyboardShortcutsModal } from '../components/KeyboardShortcutsModal';
 import { SettingsModal } from '../components/settings/SettingsModal';
+import { DeleteScopeConfirmDialog } from '../components/DeleteScopeConfirmDialog';
 import { Toast } from '../components/Toast';
 
 export interface DashboardProps {
@@ -30,6 +31,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [scopeToDelete, setScopeToDelete] = useState<{ path: string; node: ScopeNode | null } | null>(null);
+  const [dataVersion, setDataVersion] = useState<number>(0);
   const [toast, setToast] = useState<{
     title: string;
     variant: 'success' | 'error' | 'info';
@@ -152,6 +155,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
 
   const activeNode = findNode(scopes, selectedScope);
 
+  const handleOpenDeleteScope = (path: string, node?: ScopeNode | null) => {
+    if (path === 'global') return;
+    const targetNode = node || findNode(scopes, path);
+    setScopeToDelete({ path, node: targetNode });
+  };
+
+  const handleConfirmDeleteScope = async (path: string) => {
+    const res = await deleteScope(path);
+    setSelectedScope('global');
+    updateUrlParams('global', searchQuery, activeTab);
+    setDataVersion((v) => v + 1);
+    await loadData();
+    refreshPendingCount();
+    const mems = res.memories_deleted ?? 0;
+    const scopesCount = res.scopes_deleted ?? 1;
+    showToast(
+      `Deleted scope "${path}" (${mems} ${mems === 1 ? 'memory' : 'memories'}, ${scopesCount} ${scopesCount === 1 ? 'scope' : 'scopes'} removed)`,
+      'success'
+    );
+  };
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
       <TopBar
@@ -177,6 +201,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
           scopes={scopes}
           selectedScope={selectedScope}
           onSelectScope={handleSelectScope}
+          onDeleteScope={handleOpenDeleteScope}
           onRefreshScopes={loadData}
           isLoading={isLoadingScopes}
           isOpen={isSidebarOpen}
@@ -223,6 +248,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
                 searchQuery={searchQuery}
                 onSearchChange={handleSearchChange}
                 onSelectScope={handleSelectScope}
+                onDeleteScope={handleOpenDeleteScope}
+                refreshKey={dataVersion}
               />
             )}
             {activeTab === 'proposals' && (
@@ -264,6 +291,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onToast={showToast}
+      />
+
+      <DeleteScopeConfirmDialog
+        isOpen={Boolean(scopeToDelete)}
+        onClose={() => setScopeToDelete(null)}
+        onConfirm={handleConfirmDeleteScope}
+        scopePath={scopeToDelete?.path || ''}
+        node={scopeToDelete?.node || null}
       />
 
       {toast && (

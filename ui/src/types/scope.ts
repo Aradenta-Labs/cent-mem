@@ -45,3 +45,14 @@ export interface CreateScopeResponse {
     message: string;
   };
 }
+
+export interface DeleteScopeResponse {
+  ok: boolean;
+  deleted_scope?: string;
+  memories_deleted?: number;
+  scopes_deleted?: number;
+  error?: {
+    code: string;
+    message: string;
+  };
+}

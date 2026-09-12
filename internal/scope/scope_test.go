@@ -103,7 +103,12 @@ func TestScopeAncestors(t *testing.T) {
 
 func TestDescendantPrefix(t *testing.T) {
 	s, _ := scope.Parse("project:cent-mem")
-	if got := scope.DescendantPrefix(s); got != "project:cent-mem%" {
-		t.Errorf("DescendantPrefix = %q, want %q", got, "project:cent-mem%")
+	if got := scope.DescendantPrefix(s); got != "project:cent-mem/%" {
+		t.Errorf("DescendantPrefix = %q, want %q", got, "project:cent-mem/%")
+	}
+
+	g, _ := scope.Parse("global")
+	if got := scope.DescendantPrefix(g); got != "%" {
+		t.Errorf("global DescendantPrefix = %q, want %q", got, "%")
 	}
 }
