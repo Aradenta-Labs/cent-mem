@@ -6,6 +6,7 @@ import { TopBar } from '../components/TopBar';
 import { Sidebar } from '../components/Sidebar';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { MemoryBrowser } from '../components/MemoryBrowser';
+import { TimelineView } from '../components/TimelineView';
 import { AssistantTab } from '../components/AssistantTab';
 import { ProposalsView } from '../components/ProposalsView';
 import { MemoryDetailDrawer } from '../components/MemoryDetailDrawer';
@@ -23,7 +24,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
   const [scopes, setScopes] = useState<ScopeNode[]>([]);
   const [selectedScope, setSelectedScope] = useState<string>('global');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'memories' | 'proposals' | 'assistant'>('memories');
+  const [activeTab, setActiveTab] = useState<'memories' | 'timeline' | 'proposals' | 'assistant'>('memories');
   const [pendingProposalsCount, setPendingProposalsCount] = useState<number>(0);
   const [drawerMemory, setDrawerMemory] = useState<Memory | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -61,7 +62,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
     if (qParam) {
       setSearchQuery(qParam);
     }
-    if (tabParam === 'proposals' || tabParam === 'assistant' || tabParam === 'memories') {
+    if (window.location.pathname.includes('/timeline')) {
+      setActiveTab('timeline');
+    }
+    if (tabParam === 'proposals' || tabParam === 'assistant' || tabParam === 'memories' || tabParam === 'timeline') {
       setActiveTab(tabParam);
     }
   }, []);
@@ -100,7 +104,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
     updateUrlParams(selectedScope, q, activeTab);
   };
 
-  const handleTabChange = (tab: 'memories' | 'proposals' | 'assistant') => {
+  const handleTabChange = (tab: 'memories' | 'timeline' | 'proposals' | 'assistant') => {
     setActiveTab(tab);
     updateUrlParams(selectedScope, searchQuery, tab);
   };
@@ -249,6 +253,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
                 onSearchChange={handleSearchChange}
                 onSelectScope={handleSelectScope}
                 onDeleteScope={handleOpenDeleteScope}
+                refreshKey={dataVersion}
+              />
+            )}
+            {activeTab === 'timeline' && (
+              <TimelineView
+                selectedScope={selectedScope}
+                onSelectMemory={handleOpenMemoryById}
+                onSelectScope={handleSelectScope}
                 refreshKey={dataVersion}
               />
             )}

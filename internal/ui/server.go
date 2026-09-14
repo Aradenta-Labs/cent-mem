@@ -817,6 +817,247 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// API Endpoints: Timeline (Chronological memory feed)
+	mux.HandleFunc("GET /api/timeline", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil || cfg.Searcher == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence or searcher is not configured",
+				},
+			})
+			return
+		}
+
+		queryVals := r.URL.Query()
+		scopePath := strings.TrimSpace(queryVals.Get("scope"))
+		if scopePath == "" {
+			scopePath = "global"
+		}
+		sc, err := scope.Parse(scopePath)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_scope",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		limit := 50
+		if lVal := strings.TrimSpace(queryVals.Get("limit")); lVal != "" {
+			l, err := strconv.Atoi(lVal)
+			if err != nil || l <= 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_param",
+						"message": "limit must be a positive integer",
+					},
+				})
+				return
+			}
+			limit = l
+		}
+		if limit > 200 {
+			limit = 200
+		}
+
+		offset := 0
+		if oVal := strings.TrimSpace(queryVals.Get("offset")); oVal != "" {
+			o, err := strconv.Atoi(oVal)
+			if err != nil || o < 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_param",
+						"message": "offset must be a non-negative integer",
+					},
+				})
+				return
+			}
+			offset = o
+		}
+
+		typ := strings.ToLower(strings.TrimSpace(queryVals.Get("type")))
+		if typ == "all" {
+			typ = ""
+		}
+
+		now := time.Now()
+		sinceStr := strings.TrimSpace(queryVals.Get("since"))
+		if sinceStr == "" {
+			sinceStr = "24h"
+		} else if sinceStr == "all" {
+			sinceStr = ""
+		}
+
+		var sinceTime time.Time
+		if sinceStr != "" {
+			st, err := parseTimeOrDuration(sinceStr, now)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_param",
+						"message": fmt.Sprintf("invalid since: %v", err),
+					},
+				})
+				return
+			}
+			sinceTime = st
+		}
+
+		var untilTime time.Time
+		if untilStr := strings.TrimSpace(queryVals.Get("until")); untilStr != "" && untilStr != "all" {
+			ut, err := parseTimeOrDuration(untilStr, now)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_param",
+						"message": fmt.Sprintf("invalid until: %v", err),
+					},
+				})
+				return
+			}
+			untilTime = ut
+		}
+
+		if !sinceTime.IsZero() && !untilTime.IsZero() && sinceTime.After(untilTime) {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_param",
+					"message": "since cannot be after until",
+				},
+			})
+			return
+		}
+
+		// Resolve scope with inherit=true, children=true
+		scopeIDs, err := cfg.Store.ResolveScopeIDs(r.Context(), sc, true, true)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		type timelineEntryResponse struct {
+			ID        int64    `json:"id"`
+			Content   string   `json:"content"`
+			CreatedAt int64    `json:"created_at"`
+			Scope     string   `json:"scope"`
+			Type      string   `json:"type"`
+			Tags      []string `json:"tags"`
+		}
+
+		if len(scopeIDs) == 0 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":       true,
+				"entries":  []timelineEntryResponse{},
+				"total":    0,
+				"limit":    limit,
+				"offset":   offset,
+				"has_more": false,
+			})
+			return
+		}
+
+		lq := store.ListQuery{
+			ScopeIDs: scopeIDs,
+			Type:     typ,
+			Since:    sinceTime,
+			Until:    untilTime,
+			Status:   "active",
+		}
+		total, err := cfg.Store.Count(r.Context(), lq)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		sq := search.Query{
+			Scope:    scopePath,
+			Inherit:  true,
+			Children: true,
+			Top:      limit + 1,
+			Offset:   offset,
+			Type:     typ,
+			Since:    sinceTime,
+			Until:    untilTime,
+		}
+		ranked, err := cfg.Searcher.Timeline(r.Context(), sq, limit+1)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "search_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		hasMore := len(ranked) > limit
+		if hasMore {
+			ranked = ranked[:limit]
+		}
+		if (int64(offset) + int64(len(ranked))) < total {
+			hasMore = true
+		}
+
+		entries := make([]timelineEntryResponse, 0, len(ranked))
+		for _, r := range ranked {
+			tags := r.Tags
+			if tags == nil {
+				tags = []string{}
+			}
+			entries = append(entries, timelineEntryResponse{
+				ID:        r.ID,
+				Content:   r.Content,
+				CreatedAt: r.CreatedAt.Unix(),
+				Scope:     r.Scope,
+				Type:      r.Type,
+				Tags:      tags,
+			})
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       true,
+			"entries":  entries,
+			"total":    total,
+			"limit":    limit,
+			"offset":   offset,
+			"has_more": hasMore,
+		})
+	})
+
 	// API Endpoints: Memories (Get single memory detail by ID)
 	mux.HandleFunc("GET /api/memories/{id}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

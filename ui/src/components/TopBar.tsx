@@ -11,8 +11,8 @@ export interface TopBarProps {
   isSidebarOpen: boolean;
   activeView: 'dashboard' | 'design-system';
   onViewChange: (view: 'dashboard' | 'design-system') => void;
-  activeTab?: 'memories' | 'proposals' | 'assistant';
-  onTabChange?: (tab: 'memories' | 'proposals' | 'assistant') => void;
+  activeTab?: 'memories' | 'timeline' | 'proposals' | 'assistant';
+  onTabChange?: (tab: 'memories' | 'timeline' | 'proposals' | 'assistant') => void;
   onRefreshHealth?: () => void;
   onOpenShortcuts?: () => void;
   onOpenSettings?: () => void;

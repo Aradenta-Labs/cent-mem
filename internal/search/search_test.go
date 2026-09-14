@@ -93,6 +93,79 @@ func TestTimelineOrder(t *testing.T) {
 	}
 }
 
+func TestTimelineFiltersAndOffset(t *testing.T) {
+	se, s := testSearcher(t)
+	seed(t, s, "global", "note", "memory 1 note", nil)
+	time.Sleep(10 * time.Millisecond)
+	seed(t, s, "global", "fact", "memory 2 fact", nil)
+	time.Sleep(10 * time.Millisecond)
+	seed(t, s, "global", "note", "memory 3 note", nil)
+
+	ctx := context.Background()
+
+	// 1. Type filter
+	notes, err := se.Timeline(ctx, search.Query{Scope: "global", Inherit: true, Type: "note"}, 10)
+	if err != nil {
+		t.Fatalf("Timeline type filter error: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("expected 2 notes, got %d", len(notes))
+	}
+	for _, n := range notes {
+		if n.Type != "note" {
+			t.Errorf("expected type note, got %q", n.Type)
+		}
+	}
+
+	// 2. Offset pagination
+	all, err := se.Timeline(ctx, search.Query{Scope: "global", Inherit: true}, 10)
+	if err != nil {
+		t.Fatalf("Timeline all error: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(all))
+	}
+
+	page2, err := se.Timeline(ctx, search.Query{Scope: "global", Inherit: true, Offset: 1}, 10)
+	if err != nil {
+		t.Fatalf("Timeline offset error: %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("expected 2 items with offset=1, got %d", len(page2))
+	}
+	if page2[0].ID != all[1].ID || page2[1].ID != all[2].ID {
+		t.Errorf("offset did not return expected slice")
+	}
+
+	// 3. Since and Until time window filtering
+	// all[0] is newest (memory 3), all[1] is memory 2, all[2] is oldest (memory 1)
+	midTime := all[1].CreatedAt
+	sinceMid, err := se.Timeline(ctx, search.Query{Scope: "global", Inherit: true, Since: midTime}, 10)
+	if err != nil {
+		t.Fatalf("Timeline since error: %v", err)
+	}
+	if len(sinceMid) != 2 {
+		t.Fatalf("expected 2 items since midTime, got %d", len(sinceMid))
+	}
+
+	untilMid, err := se.Timeline(ctx, search.Query{Scope: "global", Inherit: true, Until: midTime}, 10)
+	if err != nil {
+		t.Fatalf("Timeline until error: %v", err)
+	}
+	if len(untilMid) != 2 {
+		t.Fatalf("expected 2 items until midTime, got %d", len(untilMid))
+	}
+
+	// 4. top <= 0 falls back to q.Top
+	qTop, err := se.Timeline(ctx, search.Query{Scope: "global", Inherit: true, Top: 1}, 0)
+	if err != nil {
+		t.Fatalf("Timeline qTop error: %v", err)
+	}
+	if len(qTop) != 1 {
+		t.Fatalf("expected 1 item with fallback to q.Top, got %d", len(qTop))
+	}
+}
+
 func TestRecall_Dedup(t *testing.T) {
 	se, s := testSearcher(t)
 	seed(t, s, "global", "note", "we deploy via github actions to fly", nil)

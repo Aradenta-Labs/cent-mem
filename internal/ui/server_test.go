@@ -95,6 +95,21 @@ func TestServer_HealthAndStaticServing(t *testing.T) {
 		t.Errorf("GET /ui/design-system expected index.html fallback with root div: %s", string(bodySPA))
 	}
 
+	// Test SPA fallback for /timeline
+	timelineURL := srv.URL() + "/timeline"
+	respTimeline, err := client.Get(timelineURL)
+	if err != nil {
+		t.Fatalf("GET /timeline error: %v", err)
+	}
+	defer respTimeline.Body.Close()
+	if respTimeline.StatusCode != http.StatusOK {
+		t.Errorf("GET /timeline status = %d, want 200", respTimeline.StatusCode)
+	}
+	bodyTimeline, _ := io.ReadAll(respTimeline.Body)
+	if !strings.Contains(string(bodyTimeline), "<div id=\"root\">") {
+		t.Errorf("GET /timeline expected index.html fallback with root div: %s", string(bodyTimeline))
+	}
+
 	// 4. Test missing API route returns 404
 	missingAPIURL := srv.URL() + "/api/nonexistent"
 	respMissing, err := client.Get(missingAPIURL)
@@ -1664,4 +1679,451 @@ func TestServer_DefaultConfigVersion(t *testing.T) {
 		t.Errorf("expected NewServer fallback version 2.0.3, got %q", srv.cfg.Version)
 	}
 }
+
+func setupTimelineTestServer(t *testing.T) (*Server, *store.Store, *http.Client) {
+	t.Helper()
+	dbPath := fmt.Sprintf("%s/centmem_timeline_%d.db", t.TempDir(), time.Now().UnixNano())
+	st, err := store.Open(config.Config{DBPath: dbPath})
+	if err != nil {
+		t.Fatalf("store.Open failed: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	t.Cleanup(func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	})
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	return srv, st, client
+}
+
+func TestTimelineEndpointBasic(t *testing.T) {
+	srv, st, client := setupTimelineTestServer(t)
+	ctx := context.Background()
+
+	_, _, err := st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "global",
+		Type:    "note",
+		Content: "Global architecture note",
+		Tags:    []string{"arch", "design"},
+	})
+	if err != nil {
+		t.Fatalf("seed memory 1: %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	_, _, err = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:webapp",
+		Type:    "fact",
+		Content: "Webapp framework react",
+		Tags:    []string{"frontend"},
+	})
+	if err != nil {
+		t.Fatalf("seed memory 2: %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	_, _, err = st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:webapp",
+		Type:    "log",
+		Content: "Webapp build completed",
+		Tags:    []string{"ci"},
+	})
+	if err != nil {
+		t.Fatalf("seed memory 3: %v", err)
+	}
+
+	resp, err := client.Get(srv.URL() + "/api/timeline?scope=global&since=7d&limit=2")
+	if err != nil {
+		t.Fatalf("GET /api/timeline error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var data struct {
+		OK      bool `json:"ok"`
+		Total   int  `json:"total"`
+		Limit   int  `json:"limit"`
+		Offset  int  `json:"offset"`
+		HasMore bool `json:"has_more"`
+		Entries []struct {
+			ID        int64    `json:"id"`
+			Content   string   `json:"content"`
+			CreatedAt int64    `json:"created_at"`
+			Scope     string   `json:"scope"`
+			Type      string   `json:"type"`
+			Tags      []string `json:"tags"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		t.Fatalf("decode timeline json: %v", err)
+	}
+
+	if !data.OK {
+		t.Errorf("expected ok=true")
+	}
+	if len(data.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(data.Entries))
+	}
+	if data.Total != 3 {
+		t.Errorf("expected total=3, got %d", data.Total)
+	}
+	if !data.HasMore {
+		t.Errorf("expected has_more=true")
+	}
+	if data.Limit != 2 {
+		t.Errorf("expected limit=2, got %d", data.Limit)
+	}
+	if data.Offset != 0 {
+		t.Errorf("expected offset=0, got %d", data.Offset)
+	}
+
+	for _, e := range data.Entries {
+		if e.ID <= 0 {
+			t.Errorf("expected valid ID > 0, got %d", e.ID)
+		}
+		if e.Content == "" {
+			t.Errorf("expected non-empty content")
+		}
+		if e.CreatedAt <= 0 {
+			t.Errorf("expected valid created_at > 0, got %d", e.CreatedAt)
+		}
+		if e.Scope == "" {
+			t.Errorf("expected non-empty scope")
+		}
+		if e.Type == "" {
+			t.Errorf("expected non-empty type")
+		}
+		if e.Tags == nil {
+			t.Errorf("expected non-nil tags")
+		}
+	}
+}
+
+func TestTimelineEndpointPagination(t *testing.T) {
+	srv, st, client := setupTimelineTestServer(t)
+	ctx := context.Background()
+
+	for i := 1; i <= 3; i++ {
+		_, _, err := st.PutMemory(ctx, store.MemoryInput{
+			Scope:   "global",
+			Type:    "note",
+			Content: fmt.Sprintf("Memory item %d", i),
+		})
+		if err != nil {
+			t.Fatalf("seed memory %d: %v", i, err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Page 1: limit=2, offset=0 -> has_more=true, 2 items
+	resp1, err := client.Get(srv.URL() + "/api/timeline?scope=global&since=7d&limit=2&offset=0")
+	if err != nil {
+		t.Fatalf("GET page 1 error: %v", err)
+	}
+	defer resp1.Body.Close()
+
+	var p1 struct {
+		OK      bool `json:"ok"`
+		Total   int  `json:"total"`
+		HasMore bool `json:"has_more"`
+		Entries []struct {
+			ID int64 `json:"id"`
+		} `json:"entries"`
+	}
+	_ = json.NewDecoder(resp1.Body).Decode(&p1)
+	if !p1.OK || len(p1.Entries) != 2 || !p1.HasMore {
+		t.Fatalf("p1 expected 2 items with has_more=true, got %d items has_more=%v", len(p1.Entries), p1.HasMore)
+	}
+
+	// Page 2: limit=2, offset=2 -> has_more=false, 1 item
+	resp2, err := client.Get(srv.URL() + "/api/timeline?scope=global&since=7d&limit=2&offset=2")
+	if err != nil {
+		t.Fatalf("GET page 2 error: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	var p2 struct {
+		OK      bool `json:"ok"`
+		Total   int  `json:"total"`
+		HasMore bool `json:"has_more"`
+		Entries []struct {
+			ID int64 `json:"id"`
+		} `json:"entries"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&p2)
+	if !p2.OK || len(p2.Entries) != 1 || p2.HasMore {
+		t.Fatalf("p2 expected 1 item with has_more=false, got %d items has_more=%v", len(p2.Entries), p2.HasMore)
+	}
+
+	if p1.Entries[0].ID == p2.Entries[0].ID || p1.Entries[1].ID == p2.Entries[0].ID {
+		t.Errorf("p2 returned duplicate item from p1")
+	}
+
+	// Invalid param checks
+	badLimit, _ := client.Get(srv.URL() + "/api/timeline?limit=invalid")
+	if badLimit.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for bad limit, got %d", badLimit.StatusCode)
+	}
+	badLimit.Body.Close()
+
+	badOffset, _ := client.Get(srv.URL() + "/api/timeline?offset=-5")
+	if badOffset.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for negative offset, got %d", badOffset.StatusCode)
+	}
+	badOffset.Body.Close()
+}
+
+func TestTimelineEndpointTypeFilter(t *testing.T) {
+	srv, st, client := setupTimelineTestServer(t)
+	ctx := context.Background()
+
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "Note 1"})
+	time.Sleep(5 * time.Millisecond)
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "log", Content: "Log 1"})
+	time.Sleep(5 * time.Millisecond)
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "Note 2"})
+
+	resp, err := client.Get(srv.URL() + "/api/timeline?scope=global&since=7d&type=note")
+	if err != nil {
+		t.Fatalf("GET /api/timeline type filter error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		OK      bool `json:"ok"`
+		Total   int  `json:"total"`
+		Entries []struct {
+			Type string `json:"type"`
+		} `json:"entries"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&data)
+
+	if !data.OK {
+		t.Fatalf("expected ok=true")
+	}
+	if len(data.Entries) != 2 || data.Total != 2 {
+		t.Fatalf("expected 2 note entries, got %d (total %d)", len(data.Entries), data.Total)
+	}
+	for _, e := range data.Entries {
+		if e.Type != "note" {
+			t.Errorf("expected type 'note', got %q", e.Type)
+		}
+	}
+
+	// type=all returns all 3 entries
+	respAll, err := client.Get(srv.URL() + "/api/timeline?scope=global&since=7d&type=all")
+	if err != nil {
+		t.Fatalf("GET /api/timeline type=all error: %v", err)
+	}
+	defer respAll.Body.Close()
+	var dataAll struct {
+		OK      bool `json:"ok"`
+		Total   int  `json:"total"`
+		Entries []any `json:"entries"`
+	}
+	_ = json.NewDecoder(respAll.Body).Decode(&dataAll)
+	if !dataAll.OK || len(dataAll.Entries) != 3 || dataAll.Total != 3 {
+		t.Errorf("expected type=all to return 3 entries, got %d (total %d)", len(dataAll.Entries), dataAll.Total)
+	}
+
+	// uppercase type=NOTE is normalized to lowercase
+	respUpper, err := client.Get(srv.URL() + "/api/timeline?scope=global&since=7d&type=NOTE")
+	if err != nil {
+		t.Fatalf("GET /api/timeline type=NOTE error: %v", err)
+	}
+	defer respUpper.Body.Close()
+	var dataUpper struct {
+		OK      bool `json:"ok"`
+		Total   int  `json:"total"`
+		Entries []any `json:"entries"`
+	}
+	_ = json.NewDecoder(respUpper.Body).Decode(&dataUpper)
+	if !dataUpper.OK || len(dataUpper.Entries) != 2 || dataUpper.Total != 2 {
+		t.Errorf("expected type=NOTE to return 2 entries, got %d", len(dataUpper.Entries))
+	}
+}
+
+func TestTimelineEndpointScopeFilter(t *testing.T) {
+	srv, st, client := setupTimelineTestServer(t)
+	ctx := context.Background()
+
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "Global root"})
+	time.Sleep(5 * time.Millisecond)
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{Scope: "project:webapp", Type: "note", Content: "Webapp note"})
+	time.Sleep(5 * time.Millisecond)
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{Scope: "project:api", Type: "note", Content: "API note"})
+
+	// From global: with inherit=true, children=true, should see all 3
+	respAll, _ := client.Get(srv.URL() + "/api/timeline?scope=global&since=7d")
+	var dataAll struct {
+		Total int `json:"total"`
+	}
+	_ = json.NewDecoder(respAll.Body).Decode(&dataAll)
+	respAll.Body.Close()
+	if dataAll.Total != 3 {
+		t.Errorf("expected global to include all 3 memories, got %d", dataAll.Total)
+	}
+
+	// From project:webapp: includes global (parent) and webapp, but excludes project:api
+	respWeb, _ := client.Get(srv.URL() + "/api/timeline?scope=project:webapp&since=7d")
+	var dataWeb struct {
+		Total   int `json:"total"`
+		Entries []struct {
+			Scope string `json:"scope"`
+		} `json:"entries"`
+	}
+	_ = json.NewDecoder(respWeb.Body).Decode(&dataWeb)
+	respWeb.Body.Close()
+	if dataWeb.Total != 2 {
+		t.Fatalf("expected project:webapp to match 2 memories, got %d", dataWeb.Total)
+	}
+	for _, e := range dataWeb.Entries {
+		if e.Scope == "project:api" {
+			t.Errorf("unexpected project:api memory in project:webapp timeline")
+		}
+	}
+
+	// Bad scope returns 400
+	badScope, _ := client.Get(srv.URL() + "/api/timeline?scope=:::bad:::")
+	if badScope.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for bad scope, got %d", badScope.StatusCode)
+	}
+	badScope.Body.Close()
+}
+
+func TestTimelineEndpointSince(t *testing.T) {
+	srv, st, client := setupTimelineTestServer(t)
+	ctx := context.Background()
+
+	_, _, _ = st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "Recent note"})
+
+	// Valid since duration
+	resp, err := client.Get(srv.URL() + "/api/timeline?scope=global&since=24h")
+	if err != nil {
+		t.Fatalf("GET /api/timeline valid since: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Bad since duration returns 400
+	respBadSince, _ := client.Get(srv.URL() + "/api/timeline?scope=global&since=invalid-dur")
+	if respBadSince.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid since, got %d", respBadSince.StatusCode)
+	}
+	respBadSince.Body.Close()
+
+	// Bad until duration returns 400
+	respBadUntil, _ := client.Get(srv.URL() + "/api/timeline?scope=global&until=invalid-dur")
+	if respBadUntil.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid until, got %d", respBadUntil.StatusCode)
+	}
+	respBadUntil.Body.Close()
+
+	// since=all returns all memories without lower time bound
+	respSinceAll, err := client.Get(srv.URL() + "/api/timeline?scope=global&since=all")
+	if err != nil {
+		t.Fatalf("GET /api/timeline since=all error: %v", err)
+	}
+	defer respSinceAll.Body.Close()
+	if respSinceAll.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for since=all, got %d", respSinceAll.StatusCode)
+	}
+
+	// since after until returns 400 invalid_param
+	nowStr := time.Now().Format(time.RFC3339)
+	pastStr := time.Now().Add(-48 * time.Hour).Format(time.RFC3339)
+	respInverted, _ := client.Get(srv.URL() + "/api/timeline?scope=global&since=" + nowStr + "&until=" + pastStr)
+	if respInverted.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 when since > until, got %d", respInverted.StatusCode)
+	}
+	var invertedErr map[string]any
+	_ = json.NewDecoder(respInverted.Body).Decode(&invertedErr)
+	respInverted.Body.Close()
+	if errObj, ok := invertedErr["error"].(map[string]any); !ok || errObj["code"] != "invalid_param" {
+		t.Errorf("expected code=invalid_param, got %+v", invertedErr)
+	}
+
+	// offset beyond total returns ok=true, entries: [], has_more: false
+	respBigOffset, err := client.Get(srv.URL() + "/api/timeline?scope=global&offset=1000")
+	if err != nil {
+		t.Fatalf("GET /api/timeline big offset: %v", err)
+	}
+	defer respBigOffset.Body.Close()
+	var bigOffData struct {
+		OK      bool  `json:"ok"`
+		Total   int64 `json:"total"`
+		HasMore bool  `json:"has_more"`
+		Entries []any `json:"entries"`
+	}
+	_ = json.NewDecoder(respBigOffset.Body).Decode(&bigOffData)
+	if !bigOffData.OK || len(bigOffData.Entries) != 0 || bigOffData.HasMore {
+		t.Errorf("expected empty entries with has_more=false for large offset, got %+v", bigOffData)
+	}
+}
+
+func TestTimelineEndpointStoreNil(t *testing.T) {
+	srv, err := NewServer(ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   nil, // explicitly nil store
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(srv.URL() + "/api/timeline")
+	if err != nil {
+		t.Fatalf("GET /api/timeline store nil error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 Service Unavailable, got %d", resp.StatusCode)
+	}
+
+	var errResp map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errResp)
+	if errResp["ok"] != false {
+		t.Errorf("expected ok=false")
+	}
+	errObj, ok := errResp["error"].(map[string]any)
+	if !ok || errObj["code"] != "store_unavailable" {
+		t.Errorf("expected error.code=store_unavailable, got %+v", errResp)
+	}
+}
+
 

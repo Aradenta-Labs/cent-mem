@@ -37,6 +37,7 @@ import {
   StreamDoneEvent,
   Citation,
 } from '../types/agent';
+import { TimelineFilters, TimelineResponse } from '../types/timeline';
 
 /**
  * API service for communicating with embedded centmem server.
@@ -216,6 +217,27 @@ export async function fetchMemories(filters: MemoryFilters = {}): Promise<Memori
   const data: MemoriesResponse = await res.json();
   if (!data.ok) {
     throw new Error(data.error?.message || 'Failed to load memories');
+  }
+  return data;
+}
+
+export async function fetchTimeline(filters: TimelineFilters): Promise<TimelineResponse> {
+  const params = new URLSearchParams();
+  if (filters.scope) params.set('scope', filters.scope);
+  if (filters.since) params.set('since', filters.since);
+  if (filters.until) params.set('until', filters.until);
+  if (filters.type && filters.type !== 'all') params.set('type', filters.type);
+  if (filters.limit !== undefined) params.set('limit', String(filters.limit));
+  if (filters.offset !== undefined) params.set('offset', String(filters.offset));
+
+  const query = params.toString();
+  const res = await apiFetch(`/api/timeline${query ? `?${query}` : ''}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load timeline: HTTP ${res.status}`);
+  }
+  const data: TimelineResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load timeline');
   }
   return data;
 }

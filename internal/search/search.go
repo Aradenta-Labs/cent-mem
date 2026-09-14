@@ -24,15 +24,16 @@ const rrfK = 60
 // Query captures a full search request. It is reused by both M1 (non-semantic)
 // and M2 (semantic) rankers.
 type Query struct {
-	Text        string
-	Scope       string
-	Inherit     bool
-	Children    bool
-	Top         int
-	Type        string
-	Tags        []string
-	Since       time.Time
-	Until       time.Time
+	Text                  string
+	Scope                 string
+	Inherit               bool
+	Children              bool
+	Top                   int
+	Offset                int
+	Type                  string
+	Tags                  []string
+	Since                 time.Time
+	Until                 time.Time
 	Agent                 string
 	CallerAgent           string
 	IncludeLinks          bool
@@ -259,9 +260,38 @@ func (s *Searcher) Facts(ctx context.Context, q Query, top int) ([]Ranked, error
 
 // Timeline orders memories by created_at desc within the scope/time window.
 func (s *Searcher) Timeline(ctx context.Context, q Query, top int) ([]Ranked, error) {
+	if top <= 0 {
+		top = q.Top
+	}
+	if top <= 0 {
+		top = 50
+	}
+
 	scopeConds, scopeArgs, err := s.scopeFilter(ctx, q)
 	if err != nil {
 		return nil, err
+	}
+
+	typeCond := ""
+	timeCond := ""
+	args := make([]any, 0, len(scopeArgs)+4)
+	args = append(args, scopeArgs...)
+	if q.Type != "" {
+		typeCond = " AND m.type = ?"
+		args = append(args, q.Type)
+	}
+	if !q.Since.IsZero() {
+		timeCond += " AND m.created_at >= ?"
+		args = append(args, q.Since.UnixMicro())
+	}
+	if !q.Until.IsZero() {
+		timeCond += " AND m.created_at <= ?"
+		args = append(args, q.Until.UnixMicro())
+	}
+
+	offsetCond := ""
+	if q.Offset > 0 {
+		offsetCond = " OFFSET ?"
 	}
 
 	sqlText := `
@@ -271,35 +301,19 @@ func (s *Searcher) Timeline(ctx context.Context, q Query, top int) ([]Ranked, er
 		JOIN scopes sc ON sc.id = m.scope_id
 		WHERE m.status = 'active'` +
 		scopeConds +
-		` ORDER BY m.created_at DESC LIMIT ?`
-	args := []any(scopeArgs)
+		typeCond +
+		timeCond +
+		` ORDER BY m.created_at DESC, m.id DESC LIMIT ?` + offsetCond
 	args = append(args, top)
+	if q.Offset > 0 {
+		args = append(args, q.Offset)
+	}
 
 	results, err := s.queryRanked(ctx, sqlText, args, "timeline")
 	if err != nil {
 		return nil, err
 	}
-	// Apply since/until filters (these must not change ordering semantics of
-	// the SQL above; applying here is simplest and correct for M1).
-	return filterRanked(results, q), nil
-}
-
-// filterRanked applies since/until filters to a raw timeline result list.
-func filterRanked(rs []Ranked, q Query) []Ranked {
-	if q.Since.IsZero() && q.Until.IsZero() {
-		return rs
-	}
-	out := make([]Ranked, 0, len(rs))
-	for _, r := range rs {
-		if !q.Since.IsZero() && r.CreatedAt.Before(q.Since) {
-			continue
-		}
-		if !q.Until.IsZero() && r.CreatedAt.After(q.Until) {
-			continue
-		}
-		out = append(out, r)
-	}
-	return out
+	return results, nil
 }
 
 // Recall fuses keyword + facts + timeline + semantic via RRF, applies

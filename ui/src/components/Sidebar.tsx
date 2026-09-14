@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { Plus, RefreshCw, BookOpen, Layers, GitMerge, Sparkles } from 'lucide-react';
+import { Plus, RefreshCw, BookOpen, Layers, GitMerge, Sparkles, Clock } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { ScopeTree } from './ScopeTree';
 import { Button } from './Button';
 import { CreateScopeModal } from './CreateScopeModal';
 
 export interface SidebarProps {
-  activeTab: 'memories' | 'proposals' | 'assistant';
-  onTabChange: (tab: 'memories' | 'proposals' | 'assistant') => void;
+  activeTab: 'memories' | 'timeline' | 'proposals' | 'assistant';
+  onTabChange: (tab: 'memories' | 'timeline' | 'proposals' | 'assistant') => void;
   pendingProposalsCount?: number;
   scopes: ScopeNode[];
   selectedScope: string | null;
@@ -115,6 +115,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <Layers size={14} />
               <span>Memories</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onTabChange('timeline');
+              onClose();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: 'var(--space-2) var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: activeTab === 'timeline' ? 'var(--surface-primary)' : 'transparent',
+              border: activeTab === 'timeline' ? '1px solid var(--border-subtle)' : '1px solid transparent',
+              color: activeTab === 'timeline' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              fontWeight: activeTab === 'timeline' ? 600 : 500,
+              fontSize: 'var(--text-xs)',
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <Clock size={14} />
+              <span>Timeline</span>
             </div>
           </button>
 
