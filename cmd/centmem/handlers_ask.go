@@ -18,7 +18,8 @@ import (
 
 // cmdAsk handles conversational Q&A synthesized from stored memories.
 // Syntax:
-//   centmem ask "<question>" [--scope <scope>] [--top N] [--interactive]
+//
+//	centmem ask "<question>" [--scope <scope>] [--top N] [--interactive]
 func cmdAsk(args []string) int {
 	fs := newFlagSet("ask")
 	fs.String("scope", "", "scope path filter")

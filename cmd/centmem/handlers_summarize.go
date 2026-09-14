@@ -15,7 +15,8 @@ import (
 
 // cmdSummarize synthesizes scope briefings, conventions, and architectural pillars.
 // Syntax:
-//   centmem summarize [--scope <scope>] [--focus <topic>] [--format markdown|json] [--save]
+//
+//	centmem summarize [--scope <scope>] [--focus <topic>] [--format markdown|json] [--save]
 func cmdSummarize(args []string) int {
 	fs := newFlagSet("summarize")
 	fs.String("scope", "", "scope path filter")

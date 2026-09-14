@@ -13,7 +13,8 @@ import (
 
 // cmdCurate handles autonomous curation (deduplication, contradiction & evolution detection).
 // Syntax:
-//   centmem curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]
+//
+//	centmem curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]
 func cmdCurate(args []string) int {
 	fs := newFlagSet("curate")
 	fs.String("scope", "", "scope path filter")

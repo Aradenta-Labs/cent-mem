@@ -49,9 +49,10 @@ func reorderFlags(args []string, fs *flag.FlagSet) []string {
 
 // cmdLink handles manual link creation and confirmation/dismissal of suggestions.
 // Syntax:
-//   centmem link <from_id> <to_id> --relation <rel>
-//   centmem link confirm <link_id>
-//   centmem link dismiss <link_id>
+//
+//	centmem link <from_id> <to_id> --relation <rel>
+//	centmem link confirm <link_id>
+//	centmem link dismiss <link_id>
 func cmdLink(args []string) int {
 	fs := newFlagSet("link")
 	fs.String("relation", "", "relationship type (supports, refines, contradicts, depends-on, supersedes)")
@@ -206,8 +207,9 @@ func cmdLink(args []string) int {
 
 // cmdUnlink handles link deletion.
 // Syntax:
-//   centmem unlink <from_id> <to_id> [--relation <rel>]
-//   centmem unlink --id <link_id>
+//
+//	centmem unlink <from_id> <to_id> [--relation <rel>]
+//	centmem unlink --id <link_id>
 func cmdUnlink(args []string) int {
 	fs := newFlagSet("unlink")
 	fs.Int64("id", 0, "link id to delete")
@@ -303,7 +305,8 @@ func cmdUnlink(args []string) int {
 
 // cmdLinks lists relationships for a specified memory.
 // Syntax:
-//   centmem links <memory_id> [--all] [--include-suggested]
+//
+//	centmem links <memory_id> [--all] [--include-suggested]
 func cmdLinks(args []string) int {
 	fs := newFlagSet("links")
 	fs.Bool("all", false, "include auto-suggested links pending confirmation")

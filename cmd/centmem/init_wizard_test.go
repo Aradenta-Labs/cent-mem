@@ -96,14 +96,14 @@ func TestInit_Wizard_Backend_LocalLLM(t *testing.T) {
 	home := newHome(t)
 
 	var in bytes.Buffer
-	in.WriteString("trae\n")                               // harness
-	in.WriteString("all\n")                                // triggers
-	in.WriteString("project:local\n")                      // scope
-	in.WriteString("\n")                                   // categories (defaults)
-	in.WriteString("local-llm\n")                          // backend
-	in.WriteString("http://192.168.1.50:11434/v1\n")       // endpoint
-	in.WriteString("mistral-small\n")                      // model
-	in.WriteString("0.75\n")                               // confidence
+	in.WriteString("trae\n")                         // harness
+	in.WriteString("all\n")                          // triggers
+	in.WriteString("project:local\n")                // scope
+	in.WriteString("\n")                             // categories (defaults)
+	in.WriteString("local-llm\n")                    // backend
+	in.WriteString("http://192.168.1.50:11434/v1\n") // endpoint
+	in.WriteString("mistral-small\n")                // model
+	in.WriteString("0.75\n")                         // confidence
 
 	_, _, code := runCLIWithStdin(t, home, in.String(), "init", "--wizard")
 	if code != 0 {
@@ -131,15 +131,15 @@ func TestInit_Wizard_Backend_OpenAICompatible(t *testing.T) {
 	home := newHome(t)
 
 	var in bytes.Buffer
-	in.WriteString("cursor\n")                          // harness
-	in.WriteString("session-end\n")                     // triggers
-	in.WriteString("project:cloud\n")                   // scope
-	in.WriteString("\n")                                // categories
-	in.WriteString("openai-compatible\n")               // backend
-	in.WriteString("https://openrouter.ai/api/v1\n")    // api url
-	in.WriteString("OPENROUTER_API_KEY\n")              // key env
-	in.WriteString("anthropic/claude-3.5-sonnet\n")     // model
-	in.WriteString("0.8\n")                             // confidence
+	in.WriteString("cursor\n")                       // harness
+	in.WriteString("session-end\n")                  // triggers
+	in.WriteString("project:cloud\n")                // scope
+	in.WriteString("\n")                             // categories
+	in.WriteString("openai-compatible\n")            // backend
+	in.WriteString("https://openrouter.ai/api/v1\n") // api url
+	in.WriteString("OPENROUTER_API_KEY\n")           // key env
+	in.WriteString("anthropic/claude-3.5-sonnet\n")  // model
+	in.WriteString("0.8\n")                          // confidence
 
 	_, _, code := runCLIWithStdin(t, home, in.String(), "init", "--wizard")
 	if code != 0 {

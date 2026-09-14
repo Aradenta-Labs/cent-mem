@@ -992,4 +992,3 @@ func TestAgentCLI_Curate_UnreachableEndpoint_Fallback(t *testing.T) {
 		t.Fatalf("proposals apply code = %d, want 0", code)
 	}
 }
-

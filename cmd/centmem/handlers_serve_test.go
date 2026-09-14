@@ -70,4 +70,3 @@ func TestCmdServe_InvalidFlag(t *testing.T) {
 		t.Errorf("expected flag parse error in stderr, got: %s", stderr)
 	}
 }
-

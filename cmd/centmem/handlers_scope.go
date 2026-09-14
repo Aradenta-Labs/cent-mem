@@ -19,8 +19,9 @@ import (
 
 // cmdScope handles hierarchical scope operations (delete, list).
 // Syntax:
-//   centmem scope delete <path> [--force]
-//   centmem scope list
+//
+//	centmem scope delete <path> [--force]
+//	centmem scope list
 func cmdScope(args []string) int {
 	fs := newFlagSet("scope")
 	fs.Bool("force", false, "bypass confirmation prompt when deleting a scope")

@@ -636,5 +636,3 @@ func TestCLI_Golden_ProposalsApply(t *testing.T) {
 		t.Errorf("proposals apply golden mismatch:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
 	}
 }
-
-

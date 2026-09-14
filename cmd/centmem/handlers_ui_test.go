@@ -67,4 +67,3 @@ func TestCmdUI_ShortToken(t *testing.T) {
 		t.Errorf("cmdUI with short token exited %d, want ExitError (%d)", code, cli.ExitError)
 	}
 }
-

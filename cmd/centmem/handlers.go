@@ -25,6 +25,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
+	"github.com/mattn/go-isatty"
 )
 
 // ---------------------------------------------------------------------------
@@ -372,7 +373,21 @@ func cmdRecall(args []string) int {
 	fs.Bool("children", false, "include descendant scopes")
 	fs.Bool("include-links", false, "include 1-hop connected memory links")
 	fs.Bool("include-suggested", false, "include pending suggested links in link expansion")
+	fs.Bool("interactive", false, "launch interactive TUI browser")
 	return runCommandQuery(args, fs, func(cfg config.Config, fs *flag.FlagSet, query string) error {
+		if fs.Lookup("interactive").Value.String() == "true" {
+			if query == "" && len(fs.Args()) > 0 {
+				query = strings.Join(fs.Args(), " ")
+			}
+			isStdoutTerm := isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+			isStdinTerm := isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
+			if isStdoutTerm && isStdinTerm {
+				return runInteractiveTUI(cfg, fs, query)
+			}
+			// Fallback: run normal non-interactive recall with the query
+			// (proceed with the existing recall path below)
+		}
+
 		callerAgent := fs.Lookup("caller-agent").Value.String()
 		if callerAgent == "" {
 			callerAgent = os.Getenv("CENTMEM_AGENT")
@@ -815,12 +830,12 @@ func cmdStats(args []string) int {
 			var impDist any
 			if resp.ImportanceDistribution != nil {
 				impDist = map[string]any{
-					"zero_access":        resp.ImportanceDistribution.ZeroAccess,
-					"low_access_1_5":     resp.ImportanceDistribution.LowAccess_1_5,
-					"medium_access_6_20": resp.ImportanceDistribution.MediumAccess_6_20,
+					"zero_access":         resp.ImportanceDistribution.ZeroAccess,
+					"low_access_1_5":      resp.ImportanceDistribution.LowAccess_1_5,
+					"medium_access_6_20":  resp.ImportanceDistribution.MediumAccess_6_20,
 					"high_access_21_plus": resp.ImportanceDistribution.HighAccess_21Plus,
-					"max_access_count":   resp.ImportanceDistribution.MaxAccessCount,
-					"avg_access_count":   resp.ImportanceDistribution.AvgAccessCount,
+					"max_access_count":    resp.ImportanceDistribution.MaxAccessCount,
+					"avg_access_count":    resp.ImportanceDistribution.AvgAccessCount,
 				}
 			}
 			return prettyPrint(fs, map[string]any{

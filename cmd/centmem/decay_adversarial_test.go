@@ -23,7 +23,7 @@ func TestAdversarial_CLI_DecayConfigAndRecall(t *testing.T) {
 			t.Fatalf("config get failed (exit %d): %s", code, stderr)
 		}
 		var res struct {
-			OK    bool `json:"ok"`
+			OK    bool   `json:"ok"`
 			Key   string `json:"key"`
 			Value int    `json:"value"`
 		}
@@ -42,7 +42,7 @@ func TestAdversarial_CLI_DecayConfigAndRecall(t *testing.T) {
 			t.Fatalf("config set failed (exit %d): %s", code, stderr)
 		}
 		var res struct {
-			OK    bool `json:"ok"`
+			OK    bool   `json:"ok"`
 			Key   string `json:"key"`
 			Value int    `json:"value"`
 		}
@@ -93,7 +93,9 @@ func TestAdversarial_CLI_DecayConfigAndRecall(t *testing.T) {
 		if code1 != 0 {
 			t.Fatalf("put old failed")
 		}
-		var r1 struct{ ID int64 `json:"id"` }
+		var r1 struct {
+			ID int64 `json:"id"`
+		}
 		_ = json.Unmarshal([]byte(stdout1), &r1)
 
 		// Backdate memory 1 by 30 days
@@ -108,7 +110,9 @@ func TestAdversarial_CLI_DecayConfigAndRecall(t *testing.T) {
 		if code2 != 0 {
 			t.Fatalf("put new failed")
 		}
-		var r2 struct{ ID int64 `json:"id"` }
+		var r2 struct {
+			ID int64 `json:"id"`
+		}
 		_ = json.Unmarshal([]byte(stdout2), &r2)
 
 		// Reset config file to 0 days (disabled)

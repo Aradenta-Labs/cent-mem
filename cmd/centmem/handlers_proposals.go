@@ -15,10 +15,11 @@ import (
 
 // cmdProposals manages human-in-the-loop agent proposals (list, show, apply, dismiss).
 // Syntax:
-//   centmem proposals list [--scope <scope>] [--status pending|applied|dismissed] [--limit N] [--offset N]
-//   centmem proposals show <id>
-//   centmem proposals apply <id>
-//   centmem proposals dismiss <id>
+//
+//	centmem proposals list [--scope <scope>] [--status pending|applied|dismissed] [--limit N] [--offset N]
+//	centmem proposals show <id>
+//	centmem proposals apply <id>
+//	centmem proposals dismiss <id>
 func cmdProposals(args []string) int {
 	fs := newFlagSet("proposals")
 	fs.String("scope", "", "scope path filter")

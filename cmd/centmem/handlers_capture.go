@@ -171,12 +171,12 @@ func cmdCaptureRun(args []string) int {
 			}
 
 			watcher, err := capture.NewWatcher(capture.WatcherConfig{
-				TranscriptPath:   targetTranscript,
-				Harness:          captureCfg.Harness,
-				PollInterval:     pollInterval,
-				StateFilePath:    stateFileFlag,
-				Home:             cfg.Home,
-				Categories:       captureCfg.Categories,
+				TranscriptPath:      targetTranscript,
+				Harness:             captureCfg.Harness,
+				PollInterval:        pollInterval,
+				StateFilePath:       stateFileFlag,
+				Home:                cfg.Home,
+				Categories:          captureCfg.Categories,
 				ConfidenceThreshold: captureCfg.ConfidenceThreshold,
 			}, processChunk)
 			if err != nil {

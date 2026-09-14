@@ -93,7 +93,7 @@ Not found → exit 2.
 
 ### 3.5 `recall` — hybrid search (THE main read command)
 ```
-centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags a,b] [--since 7d] [--until 1d] [--agent claude] [--inherit] [--children] [--caller-agent a] [--reranker r] [--include-links] [--include-suggested]
+centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags a,b] [--since 7d] [--until 1d] [--agent claude] [--inherit] [--children] [--caller-agent a] [--reranker r] [--include-links] [--include-suggested] [--interactive]
 ```
 
 - `--inherit` (default true): include ancestor scopes (global).
@@ -103,6 +103,7 @@ centmem recall <query> --scope <scope> [--top 5] [--type note|fact|log] [--tags 
 - `--reranker <strategy>`: re-ranker strategy override (`composite`, `none`, `cross_encoder`, `llm`). Defaults to `composite`.
 - `--include-links`: enrich results with 1-hop connected memory relationships (`links`). Returns confirmed links by default.
 - `--include-suggested`: include auto-suggested links pending confirmation in `links` expansion.
+- `--interactive`: launch interactive split-pane TUI browser when attached to a TTY (falls back to JSON if stdout is redirected).
 
 **Output:**
 ```json
