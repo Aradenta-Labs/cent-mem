@@ -10,23 +10,27 @@ This document captures feature ideas that are not blockers for the current miles
 
 ## 🟢 Low Effort — Quick Wins
 
-### 1. Web UI Timeline View
+### 1. Web UI Timeline View ✅ *(Implemented in v2.1.0)*
 
-**What:** A chronological memory feed inside the Web UI, filterable by scope, type, and agent — the visual equivalent of `centmem timeline`.
+**Plan & Implementation:** [docs/plans/plan-v2.1.0.md](plans/plan-v2.1.0.md)
+
+**What:** A chronological memory feed inside the Web UI, filterable by scope, type, and date range (`24h`, `7d`, `30d`, `custom`) — the visual equivalent of `centmem timeline`.
 
 **Why:** Users have no way to visually audit memory accumulation. The CLI command already exists; the Web UI just needs a view wired to `/api/timeline`.
 
-**Signals:** Immediately useful for debugging; low code surface; no new backend work required.
+**Signals:** Immediately useful for debugging; low code surface; shipped in v2.1.0.
 
 ---
 
-### 2. `centmem search` Interactive TUI
+### 2. `centmem recall --interactive` Interactive TUI ✅ *(Implemented in v2.1.1)*
 
-**What:** A `fzf`-style fuzzy browser for the terminal — `centmem search --interactive` — that lets developers navigate, preview, and open memories without leaving the shell.
+**Plan & Implementation:** [docs/plans/plan-v2.1.1.md](plans/plan-v2.1.1.md)
+
+**What:** A `fzf`-style fuzzy browser for the terminal — `centmem recall --interactive` — that lets developers navigate, preview, and open memories without leaving the shell.
 
 **Why:** Power users spend most of their time in the terminal. An interactive recall browser lowers the friction of the read loop significantly during local development.
 
-**Signals:** No backend changes; Go has mature TUI libraries (`bubbletea`, `tview`).
+**Signals:** Shipped in v2.1.1; built on Charmbracelet `bubbletea`/`lipgloss` with debounced hybrid search and viewport scrolling.
 
 ---
 

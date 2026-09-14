@@ -2,7 +2,7 @@
 
 **Version:** 2.1.1 (target)  
 **Owner:** Aradenta Labs  
-**Status:** Grilling complete — Design locked, ready for phased implementation  
+**Status:** Completed / Implemented (Phases 1–6 verified with race detector)  
 **Depends on:** v2.0.0 (hybrid search engine, `searcher.Recall()`, daemon client)  
 **Source:** [docs/v2-nice-to-have.md](../v2-nice-to-have.md) — Quick Win #2
 
@@ -544,21 +544,21 @@ go get github.com/charmbracelet/bubbles@latest
 ## 10. Acceptance Criteria (Done Definition)
 
 Phase 1–3 done when:
-- [ ] `go build -tags fts5 ./...` passes with new dependencies.
-- [ ] `centmem recall "query" --interactive` launches a TUI with a live-updating result list.
-- [ ] `centmem recall "query" --interactive | cat` (non-TTY) produces standard JSON output.
+- [x] `go build -tags fts5 ./...` passes with new dependencies.
+- [x] `centmem recall "query" --interactive` launches a TUI with a live-updating result list.
+- [x] `centmem recall "query" --interactive | cat` (non-TTY) produces standard JSON output.
 
 Phase 4–5 done when:
-- [ ] Right pane shows full memory content when navigating the list.
-- [ ] Enter exits TUI and prints the selected memory as JSON to stdout.
-- [ ] `c` copies content to clipboard (or shows a clear error on unsupported systems).
-- [ ] `d` + `y` deletes the memory and removes it from the list.
+- [x] Right pane shows full memory content when navigating the list.
+- [x] Enter exits TUI and prints the selected memory as JSON to stdout.
+- [x] `c` copies content to clipboard (or shows a clear error on unsupported systems).
+- [x] `d` + `y` deletes the memory and removes it from the list.
 
 Phase 6 done when:
-- [ ] All unit tests pass: `go test -tags fts5 ./internal/tui/... -race`.
-- [ ] Full test suite passes: `go test -tags fts5 ./... -race`.
-- [ ] Contract test passes: `go test -tags fts5 ./cmd/centmem/ -run TestContract -race`.
-- [ ] `docs/cli-contract.md` updated with `--interactive` flag.
+- [x] All unit tests pass: `go test -tags fts5 ./internal/tui/... -race`.
+- [x] Full test suite passes: `go test -tags fts5 ./... -race`.
+- [x] Contract test passes: `go test -tags fts5 ./cmd/centmem/ -run TestContract -race`.
+- [x] `docs/cli-contract.md` updated with `--interactive` flag.
 
 ---
 
@@ -578,3 +578,4 @@ Phase 6 done when:
 | Date | Change |
 |------|--------|
 | 2026-09-14 | Initial plan created via `/grill-me` session. Design locked. |
+| 2026-09-14 | Implemented Phases 1–6: `internal/tui` package, CLI `--interactive` flag wiring with TTY fallback, race-hardened preview viewport with scrolling, 18 unit tests, CLI integration tests, cli-contract.md and skill docs updated. |

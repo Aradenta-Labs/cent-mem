@@ -79,7 +79,8 @@ cent-mem/
 │   ├── daemon/           # gRPC service, IPC transport, sync stream
 │   ├── agent/            # built-in AI memory agent: ReAct loop, LLM client, tools
 │   ├── mcp/              # native Model Context Protocol (MCP) server
-│   └── ui/               # embedded Web UI Memory Browser server
+│   ├── ui/               # embedded Web UI Memory Browser server
+│   └── tui/              # interactive terminal memory browser (bubbletea/lipgloss)
 ├── skill/                # SKILL.md + references + harness adapters
 ├── editors/vscode/       # official VS Code memory extension
 ├── npm/                  # @aradenta.labs/centmem-skills package & templates

@@ -117,7 +117,8 @@ centmem recall "<query>" \
   [--inherit] \
   [--children] \
   [--include-links] \
-  [--include-suggested]
+  [--include-suggested] \
+  [--interactive]
 ```
 - `--top`: Maximum items to return (default: `5`, max: `20`).
 - `--inherit`: Search ancestor scopes (default: `true`).
@@ -126,6 +127,7 @@ centmem recall "<query>" \
 - `--reranker`: Re-ranker strategy override (`composite`, `none`, `cross_encoder`, `llm`; defaults to `composite`).
 - `--include-links`: Enrich results with 1-hop connected memory relationships (`links`). Returns confirmed links by default.
 - `--include-suggested`: Include auto-suggested links pending confirmation in `links` expansion.
+- `--interactive`: Launch interactive split-pane TUI browser when attached to a TTY (falls back to standard JSON recall when non-interactive or redirected).
 
 **Stdout JSON:**
 ```json
@@ -537,7 +539,7 @@ centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]
 
 **Stdout JSON:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.0.3", "auth": false}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.1", "auth": false}
 ```
 
 ---

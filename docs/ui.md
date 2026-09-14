@@ -15,7 +15,7 @@ centmem ui
 ```
 
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.0.3"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.1"}
 ```
 
 The browser will open automatically to `http://127.0.0.1:4231`. To stop the server, press `Ctrl+C` in your terminal.
@@ -152,6 +152,14 @@ Human-in-the-loop review for autonomous memory agent suggestions (`merge`, `link
 - **Knowledge Gap Detection**: Surfaces detected project blind spots with 1-click shortcuts to store missing knowledge.
 - **Offline Fallback Notice**: If the LLM backend is unconfigured or unreachable, displays a calm notice and provides hybrid search results with a direct shortcut to Agent Settings.
 
+### 4.10 Timeline View (Chronological Memory Feed)
+- **Chronological Audit**: Dedicated "Timeline" sidebar tab surfacing chronological memory creation and updates across scopes.
+- **Preset & Custom Range Pickers**: Sticky filter bar with quick presets (`Last 24h`, `Last 7d`, `Last 30d`, `Custom` datetime-local pickers).
+- **Type Filtering**: Filter entries across all types or narrow to specific memory types (`note`, `log`, `fact`, `capture`, `link`).
+- **Date Grouping & Timestamps**: Grouped under sticky date headers ("Today", "Yesterday", relative/formatted dates) with relative timestamps and absolute hover tooltips.
+- **Paginated Feed**: "Load more" button with ID deduplication and skeleton loading cards.
+- **Detail Drawer Integration**: Clicking any timeline entry card opens the full `MemoryDetailDrawer` (`/api/memories/:id`).
+
 ---
 
 ## 5. Keyboard Shortcuts
@@ -181,6 +189,7 @@ The dashboard communicates with `centmem` via a local-only REST API:
 | `/api/scopes` | `POST` | Create a new scope (`{"path": "..."}`) |
 | `/api/scopes` | `DELETE` | Cascade-delete a non-global scope subtree (`?path=<scope>`) |
 | `/api/memories` | `GET` | List/filter memories (`scope`, `type`, `tags`, `agent`, `session`, `since`, `until`, `q`, `page`, `page_size`) |
+| `/api/timeline` | `GET` | Paginated chronological memory feed (`scope`, `since`, `until`, `type`, `limit`, `offset`) |
 | `/api/memories/:id` | `GET` | Retrieve full memory details by integer ID |
 | `/api/memories/:id/forget` | `POST` | Delete memory by ID |
 | `/api/memories` | `POST` | Restore or insert memory (used by Undo) |

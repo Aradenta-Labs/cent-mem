@@ -5,6 +5,42 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-09-14
+
+Interactive Terminal User Interface (TUI) for Memory Recall & Search.
+
+### Added
+
+- **Interactive Terminal Browser (`centmem recall --interactive`)**:
+  - Added an interactive fuzzy terminal browser built with Charmbracelet's `bubbletea` and `lipgloss` (`internal/tui`).
+  - Split-pane layout: query bar with debounced hybrid search (200ms) and spinner feedback, scrollable memory result list (40% width), and full-content preview viewport (60% width).
+  - Preview scrolling: standard half-page (`Ctrl+D`, `Ctrl+U`, `PageDown`, `PageUp`) and line-by-line (`J`, `K`) scrolling in both navigation and query input modes.
+  - Asynchronous race protection: verifies incoming loaded memories match the active selection ID before updating viewport content.
+  - Dynamic focus switching: `Tab` cycles focus between query text input and memory results list.
+  - Actions & shortcuts: `Enter`/`o` to exit and print memory JSON to stdout, `c` to copy memory content to system clipboard (auto-detects `pbcopy`, `wl-copy`, `xclip`, `xsel`, and `clip.exe`/`clip`), `d` with inline `[y/N]` confirmation to delete via `store.Forget()`, and `?` full key map help overlay.
+  - Dual TTY detection: inspects both `os.Stdout` and `os.Stdin`; falls back automatically to standard JSON recall output if input or output is redirected or executed in automated scripts/CI.
+  - Registered `--interactive` flag in `cmdRecall` and updated `docs/cli-contract.md`.
+- **Skill & Harness Synchronizations**:
+  - Updated `skill/references/cli-commands.md` and all 4 mirrors (`.agents/skills/centmem/`, `.claude/skills/centmem/`, `npm/templates/`) with `--interactive` flag details and non-TTY fallback documentation.
+
+## [2.1.0] - 2026-09-14
+
+Web UI Timeline View & Chronological Memory Feed.
+
+### Added
+
+- **Web UI Timeline View (`TimelineView.tsx`)**:
+  - Chronological memory feed displaying memory updates and creation across scopes.
+  - Sticky filter bar with preset date ranges (`Last 24h`, `Last 7d`, `Last 30d`) and custom datetime pickers.
+  - Type filter buttons (`all`, `note`, `log`, `fact`, `capture`, `link`).
+  - Sticky date-grouped headers ("Today", "Yesterday", and formatted dates) with relative timestamps and absolute hover tooltips.
+  - Paginated feed with "Load more" button and skeleton loading states.
+  - Integration with `MemoryDetailDrawer` on entry card click.
+  - Dedicated "Timeline" navigation item in Sidebar and TopBar.
+- **Timeline Backend API (`GET /api/timeline`)**:
+  - Added `/api/timeline` endpoint supporting pagination (`limit`, `offset`), scope filtering, type filtering, and date boundaries (`since`, `until`).
+  - Supported `search.Query.Type` and `search.Query.Offset` in `search.Searcher`.
+
 ## [2.0.3] - 2026-09-12
 
 Hierarchical Scope Deletion, AI Agent Diagnostics & Connectivity Testing, and Web UI Bulk Proposal Management.
@@ -453,6 +489,8 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.1.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.1
+[2.1.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.0
 [2.0.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.3
 [2.0.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.2
 [2.0.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.0

@@ -116,7 +116,11 @@
 
 ### 3.12 `internal/ui` — Web UI Memory Browser server
 - Embedded HTTP REST API and React single-page application (`centmem ui`) with token authentication and live statistics.
-- Key capabilities: interactive memory exploration, hybrid search, hierarchical scope pruning (`DELETE /api/scopes`), Proposals Review Center with bulk approve/reject (`POST /api/proposals/batch`), doctor diagnostics with AI Agent probe, live settings hot-reloading with connection testing (`POST /api/config/test-agent`), and streaming assistant chat (`POST /api/agent/chat`).
+- Key capabilities: interactive memory exploration, chronological timeline feed (`GET /api/timeline`), hybrid search, hierarchical scope pruning (`DELETE /api/scopes`), Proposals Review Center with bulk approve/reject (`POST /api/proposals/batch`), doctor diagnostics with AI Agent probe, live settings hot-reloading with connection testing (`POST /api/config/test-agent`), and streaming assistant chat (`POST /api/agent/chat`).
+
+### 3.13 `internal/tui` — Interactive TUI memory browser (v2.1.1)
+- Self-contained Bubbletea event loop and Lipgloss terminal user interface (`centmem recall --interactive`).
+- Key capabilities: split-pane navigation, debounced hybrid search (200ms), 40% scrollable result list, 60% viewport memory detail preview with half-page (`Ctrl+D`/`Ctrl+U`/`PgDn`/`PgUp`) and line (`J`/`K`) scrolling, cyclic `Tab` focus switching, inline deletion with confirmation (`d` + `y`), cross-platform clipboard copy (`c`), and dual-stream TTY detection falling back to standard JSON recall when piped or non-interactive.
 
 ## 4. Data Flow
 

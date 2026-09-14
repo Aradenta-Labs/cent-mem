@@ -2,7 +2,7 @@
 
 **Version:** 2.1.0 (target)  
 **Owner:** Aradenta Labs  
-**Status:** Grilling complete — Design locked, ready for phased implementation  
+**Status:** Completed / Implemented (Phases 1 & 2 verified with race detector)  
 **Depends on:** v2.0.0 (AI Memory Agent, Web UI Proposals Inbox, `/api/memories` endpoint)  
 **Source:** [docs/v2-nice-to-have.md](../v2-nice-to-have.md) — Quick Win #1
 
@@ -364,15 +364,15 @@ This means no new detail view is needed for Timeline — reuse is zero-cost.
 ## 8. Acceptance Criteria (Done Definition)
 
 Phase 1 is done when:
-- [ ] `GET /api/timeline` returns valid JSON with `ok`, `entries`, `has_more`, `limit`, `offset` fields.
-- [ ] All 6 backend tests pass (`go test -tags fts5 ./internal/ui/... -race`).
-- [ ] `type` filter, `since`/`until` filters, and `scope` resolution all work correctly.
-- [ ] Full test suite passes with no regressions: `go test -tags fts5 ./... -race`.
+- [x] `GET /api/timeline` returns valid JSON with `ok`, `entries`, `has_more`, `limit`, `offset` fields.
+- [x] All 6 backend tests pass (`go test -tags fts5 ./internal/ui/... -race`).
+- [x] `type` filter, `since`/`until` filters, and `scope` resolution all work correctly.
+- [x] Full test suite passes with no regressions: `go test -tags fts5 ./... -race`.
 
 Phase 2 is done when:
-- [ ] All 15 items in the manual acceptance checklist pass.
-- [ ] `go build -tags fts5 ./...` succeeds with the new `dist/` bundle.
-- [ ] No existing UI views (Memory Browser, Proposals, Agent Chat) are broken.
+- [x] All 15 items in the manual acceptance checklist pass.
+- [x] `go build -tags fts5 ./...` succeeds with the new `dist/` bundle.
+- [x] No existing UI views (Memory Browser, Proposals, Agent Chat) are broken.
 
 ---
 
@@ -391,3 +391,4 @@ Phase 2 is done when:
 | Date | Change |
 |------|--------|
 | 2026-09-14 | Initial plan created via `/grill-me` session. Design locked. |
+| 2026-09-14 | Implemented Phases 1 & 2: Backend `GET /api/timeline`, React `TimelineView`, navigation tabs, and dist bundle. |

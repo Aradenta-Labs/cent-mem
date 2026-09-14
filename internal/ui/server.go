@@ -68,7 +68,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "2.0.3",
+		Version:  "2.1.1",
 		Store:    nil,
 		Searcher: nil,
 	}
@@ -94,7 +94,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "2.0.3"
+		cfg.Version = "2.1.1"
 	}
 
 	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
