@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +18,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
-const testVersion = "2.1.1"
+const testVersion = "2.1.2"
 
 func TestServer_HealthAndStaticServing(t *testing.T) {
 	cfg := ServerConfig{
@@ -1044,6 +1045,227 @@ func TestServer_ExportAPI_JSON_and_CSV(t *testing.T) {
 	}
 }
 
+func TestServer_ImportAPI(t *testing.T) {
+	dir := t.TempDir()
+	stCfg := config.Config{DBPath: dir + "/centmem.db"}
+	st, err := store.Open(stCfg)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	defer st.Close()
+
+	cfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	validJSON := `{
+  "format": "centmem-export",
+  "format_version": 1,
+  "exported_at": "2026-09-14T10:00:00Z",
+  "scope": "project:import-ui",
+  "total": 2,
+  "memories": [
+    {
+      "scope": "project:import-ui",
+      "type": "note",
+      "content": "Imported via UI JSON 1"
+    },
+    {
+      "scope": "project:import-ui",
+      "type": "note",
+      "content": "Imported via UI JSON 2"
+    }
+  ]
+}`
+
+	// 1. Test POST JSON body
+	resp1, err := client.Post(srv.URL()+"/api/import", "application/json", strings.NewReader(validJSON))
+	if err != nil {
+		t.Fatalf("POST /api/import json error: %v", err)
+	}
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp1.Body)
+		t.Fatalf("expected 200 OK, got %d: %s", resp1.StatusCode, string(body))
+	}
+	var rep1 struct {
+		Ok       bool `json:"ok"`
+		Total    int  `json:"total"`
+		Imported int  `json:"imported"`
+		Skipped  int  `json:"skipped"`
+		Failed   int  `json:"failed"`
+	}
+	if err := json.NewDecoder(resp1.Body).Decode(&rep1); err != nil {
+		t.Fatalf("decode resp1: %v", err)
+	}
+	if !rep1.Ok || rep1.Total != 2 || rep1.Imported != 2 || rep1.Skipped != 0 {
+		t.Fatalf("unexpected resp1: %+v", rep1)
+	}
+
+	// 2. Test Idempotent: POST same JSON again
+	resp2, err := client.Post(srv.URL()+"/api/import", "application/json", strings.NewReader(validJSON))
+	if err != nil {
+		t.Fatalf("POST /api/import json repeat error: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp2.StatusCode)
+	}
+	var rep2 struct {
+		Ok       bool `json:"ok"`
+		Total    int  `json:"total"`
+		Imported int  `json:"imported"`
+		Skipped  int  `json:"skipped"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&rep2)
+	if !rep2.Ok || rep2.Imported != 0 || rep2.Skipped != 2 {
+		t.Fatalf("expected 0 imported, 2 skipped; got %+v", rep2)
+	}
+
+	// 3. Test Multipart file upload
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+	part, err := w.CreateFormFile("file", "export.json")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	multipartJSON := `{
+  "format": "centmem-export",
+  "format_version": 1,
+  "exported_at": "2026-09-14T10:00:00Z",
+  "scope": "project:import-ui",
+  "total": 1,
+  "memories": [
+    {
+      "scope": "project:import-ui",
+      "type": "note",
+      "content": "Imported via multipart"
+    }
+  ]
+}`
+	_, _ = part.Write([]byte(multipartJSON))
+	_ = w.Close()
+
+	reqMulti, _ := http.NewRequest("POST", srv.URL()+"/api/import", &b)
+	reqMulti.Header.Set("Content-Type", w.FormDataContentType())
+	respMulti, err := client.Do(reqMulti)
+	if err != nil {
+		t.Fatalf("POST /api/import multipart error: %v", err)
+	}
+	defer respMulti.Body.Close()
+	if respMulti.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(respMulti.Body)
+		t.Fatalf("expected 200 OK for multipart, got %d: %s", respMulti.StatusCode, string(body))
+	}
+	var repMulti struct {
+		Ok       bool `json:"ok"`
+		Imported int  `json:"imported"`
+	}
+	_ = json.NewDecoder(respMulti.Body).Decode(&repMulti)
+	if !repMulti.Ok || repMulti.Imported != 1 {
+		t.Fatalf("unexpected multipart report: %+v", repMulti)
+	}
+
+	// 4. Test Bad Envelope -> 422
+	badJSON := `{"format": "wrong", "format_version": 99}`
+	respBad, err := client.Post(srv.URL()+"/api/import", "application/json", strings.NewReader(badJSON))
+	if err != nil {
+		t.Fatalf("POST bad envelope error: %v", err)
+	}
+	defer respBad.Body.Close()
+	if respBad.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for bad envelope, got %d", respBad.StatusCode)
+	}
+
+	// 5. Test Store Nil -> 503
+	nilStoreCfg := ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   nil,
+	}
+	nilSrv, err := NewServer(nilStoreCfg)
+	if err != nil {
+		t.Fatalf("NewServer nil store: %v", err)
+	}
+	_ = nilSrv.Start()
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = nilSrv.Shutdown(shutCtx)
+	}()
+
+	respNil, err := client.Post(nilSrv.URL()+"/api/import", "application/json", strings.NewReader(validJSON))
+	if err != nil {
+		t.Fatalf("POST nil store error: %v", err)
+	}
+	defer respNil.Body.Close()
+	if respNil.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for nil store, got %d", respNil.StatusCode)
+	}
+
+	// 6. Test Partial Failure -> 422 with structured report
+	partialJSON := `{
+  "format": "centmem-export",
+  "format_version": 1,
+  "exported_at": "2026-09-14T10:00:00Z",
+  "scope": "project:import-partial-ui",
+  "total": 2,
+  "memories": [
+    {
+      "scope": "project:import-partial-ui",
+      "type": "note",
+      "content": "Valid note"
+    },
+    {
+      "scope": "bad ::: scope",
+      "type": "note",
+      "content": "Invalid scope note"
+    }
+  ]
+}`
+	respPart, err := client.Post(srv.URL()+"/api/import", "application/json", strings.NewReader(partialJSON))
+	if err != nil {
+		t.Fatalf("POST partial failure error: %v", err)
+	}
+	defer respPart.Body.Close()
+	if respPart.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for partial failure, got %d", respPart.StatusCode)
+	}
+	var repPart struct {
+		Ok       bool     `json:"ok"`
+		Total    int      `json:"total"`
+		Imported int      `json:"imported"`
+		Failed   int      `json:"failed"`
+		Errors   []string `json:"errors"`
+	}
+	if err := json.NewDecoder(respPart.Body).Decode(&repPart); err != nil {
+		t.Fatalf("decode partial failure response: %v", err)
+	}
+	if repPart.Ok || repPart.Total != 2 || repPart.Imported != 1 || repPart.Failed != 1 || len(repPart.Errors) != 1 {
+		t.Fatalf("unexpected partial failure response: %+v", repPart)
+	}
+}
+
 func TestServer_ConfigAPI_Get(t *testing.T) {
 	home := t.TempDir()
 	cfg := ServerConfig{
@@ -1663,8 +1885,8 @@ func TestServer_LinkEndpoints(t *testing.T) {
 
 func TestServer_DefaultConfigVersion(t *testing.T) {
 	defCfg := DefaultServerConfig()
-	if defCfg.Version != "2.1.1" {
-		t.Errorf("expected DefaultServerConfig().Version to be 2.1.1, got %q", defCfg.Version)
+	if defCfg.Version != "2.1.2" {
+		t.Errorf("expected DefaultServerConfig().Version to be 2.1.2, got %q", defCfg.Version)
 	}
 
 	srv, err := NewServer(ServerConfig{
@@ -1675,8 +1897,8 @@ func TestServer_DefaultConfigVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer error: %v", err)
 	}
-	if srv.cfg.Version != "2.1.1" {
-		t.Errorf("expected NewServer fallback version 2.1.1, got %q", srv.cfg.Version)
+	if srv.cfg.Version != "2.1.2" {
+		t.Errorf("expected NewServer fallback version 2.1.2, got %q", srv.cfg.Version)
 	}
 }
 

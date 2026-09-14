@@ -44,6 +44,7 @@ When the user types \`/centmem <input>\`, act as the Memory Manager. Analyze the
 - **Configuration / Agent Engine**: If asking to configure LLM backend, agent reasoning limits, or inspect settings, run \`centmem config get llm\`, \`centmem config get agent\`, or \`centmem config set <key> <value>\`.
 - **Maintenance / Health**: If requesting maintenance, health checks, or statistics, run \`centmem doctor\`, \`centmem stats\`, or \`centmem compact\`.
 - **Visual Dashboard / UI**: If asking to view, browse, inspect, or manage memories in a browser interface, run \`centmem ui\`.
+- **Export / Import**: If asking to export or import memories for portable backups, file transfer, or cross-instance sharing, run \`centmem export --scope "project:$CENTMEM_PROJ" --output <file.json>\` or \`centmem import <file.json>\` (optionally \`--dry-run\`).
 
 Always verify execution results from stdout JSON and report them clearly to the user.
 <!-- centmem-command:end -->`;

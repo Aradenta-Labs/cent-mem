@@ -34,13 +34,15 @@ This document captures feature ideas that are not blockers for the current miles
 
 ---
 
-### 3. Memory Export / Import
+### 3. Memory Export / Import ✅ *(Implemented in v2.1.2)*
+
+**Plan & Implementation:** [docs/plans/plan-v2.1.2.md](plans/plan-v2.1.2.md)
 
 **What:** `centmem export --scope project:X --format json` dumps memories to a portable JSON file. `centmem import <file>` ingests them into any centmem instance.
 
 **Why:** Users have no backup mechanism today. Also unlocks team onboarding — share a memory snapshot with a new contributor.
 
-**Signals:** High user value for a low-code-complexity feature; no schema changes needed.
+**Signals:** Shipped in v2.1.2; complete with `internal/export` streaming codec, CLI `export` and `import` commands, `POST /api/import` Web UI upload, and browser Import toolbar button.
 
 ---
 

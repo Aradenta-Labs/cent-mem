@@ -52,6 +52,8 @@ var commands = map[string]commandEntry{
 	"summarize": {cmdSummarize, "summarize [--scope <scope>] [--focus <topic>] [--format markdown|json] [--save]", []string{"--scope", "--focus", "--format", "--save"}},
 	"proposals": {cmdProposals, "proposals <list|show|apply|dismiss> [id] [--scope <scope>] [--status <s>] [--limit N] [--offset N]", []string{"--scope", "--status", "--limit", "--offset"}},
 	"scope":     {cmdScope, "scope <delete|list> [path] [--force]", []string{"--force"}},
+	"export":    {cmdExport, "export --scope <scope> [--format json|csv] [--type t] [--tags a,b] [--since d] [--until d] [--agent a] [--output <path>]", []string{"--scope", "--format", "--type", "--tags", "--since", "--until", "--agent", "--output"}},
+	"import":    {cmdImport, "import <file> [--dry-run]", []string{"--dry-run"}},
 }
 
 // buildRegistry returns a *cli.Registry populated with every registered command

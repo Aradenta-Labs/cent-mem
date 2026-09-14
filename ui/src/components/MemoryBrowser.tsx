@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useTransition, useRef } from 'react';
-import { Copy, Check, Sparkles, X, Database, Download, Trash2 } from 'lucide-react';
+import { Copy, Check, Sparkles, X, Database, Download, Upload, Trash2 } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { Memory, MemoryFilters } from '../types/memory';
 import { StoreStats } from '../types/stats';
-import { fetchMemories, fetchMemoryDetail, fetchStats, forgetMemory, restoreMemory, getExportUrl, apiFetch } from '../services/api';
+import { fetchMemories, fetchMemoryDetail, fetchStats, forgetMemory, restoreMemory, getExportUrl, importMemories, apiFetch } from '../services/api';
 import { Badge } from './Badge';
 import { Button } from './Button';
 import { FiltersPanel } from './FiltersPanel';
@@ -277,6 +277,46 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     }
   };
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    try {
+      const rep = await importMemories(file);
+      if (rep.total > 0 && rep.imported === 0 && rep.skipped === 0 && rep.failed > 0) {
+        showToast({
+          variant: 'error',
+          title: 'Import Failed',
+          message: `All ${rep.failed} memories failed to import${rep.errors && rep.errors.length > 0 ? ': ' + rep.errors[0] : ''}`,
+        });
+      } else {
+        showToast({
+          variant: rep.failed > 0 ? 'warning' : 'success',
+          title: 'Memory Import',
+          message: `Imported ${rep.imported} · skipped ${rep.skipped} · failed ${rep.failed}`,
+        });
+      }
+      if (rep.imported > 0) {
+        loadMemories();
+        loadStats();
+      }
+    } catch (err) {
+      showToast({
+        variant: 'error',
+        title: 'Import Failed',
+        message: err instanceof Error ? err.message : 'Failed to import memories',
+      });
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   // Keyboard shortcut: Backspace or Delete to forget selected memory
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -514,6 +554,25 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
                 </>
               )}
             </div>
+
+            {/* Import Button */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={handleImportFile}
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<Upload size={13} />}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              title="Import memories from a JSON export file (keeps original scopes)"
+            >
+              {isImporting ? 'Importing...' : 'Import'}
+            </Button>
 
             {selectedScope !== 'global' && onDeleteScope && (
               <Button

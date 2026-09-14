@@ -296,6 +296,36 @@ export function getExportUrl(filters: ExportFilters = {}): string {
   return `/api/export${query ? `?${query}` : ''}`;
 }
 
+export interface ImportResponse {
+  ok: boolean;
+  total: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+  errors?: string[];
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export async function importMemories(file: File): Promise<ImportResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetch('/api/import', {
+    method: 'POST',
+    body: formData,
+  });
+  const data: ImportResponse = await res.json();
+  if (data.error) {
+    throw new Error(data.error.message || `Import failed: HTTP ${res.status}`);
+  }
+  if (!res.ok && data.total === undefined) {
+    throw new Error(`Import failed: HTTP ${res.status}`);
+  }
+  return data;
+}
+
 export async function fetchConfig(): Promise<ConfigResponse> {
   const res = await apiFetch('/api/config');
   const data: ConfigResponse = await res.json();

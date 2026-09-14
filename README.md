@@ -6,7 +6,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#)
-[![Version](https://img.shields.io/badge/version-v2.1.1-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v2.1.2-success.svg)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#installation)
 [![Offline](https://img.shields.io/badge/offline-100%25-brightgreen)](#privacy)
 [![No API key](https://img.shields.io/badge/api%20key-not%20required-brightgreen)](#privacy)
@@ -45,6 +45,7 @@ Works with **Claude Code**, **Codex**, **Cursor**, **Continue**, **Windsurf**, *
 | 🤖 | **AI Memory Agent (v2.0)** — Built-in ReAct reasoning engine for inquiry, autonomous curation, and merge proposals |
 | 🎣 | **Richer capture** — extracts from transcripts, Git commits, Markdown docs, shell history, and code annotations |
 | 🖥️ | **Web UI dashboard** — high-density local browser interface with live health monitoring, AI assistant chat, bulk proposals, and settings |
+| 💾 | **Export & Import (v2.1.2)** — portable JSON/CSV export and idempotent ingest via CLI (`export`/`import`) and Web UI |
 | 🧹 | **Auto-summarize** — old memories consolidate; the store stays lean forever |
 | 🩺 | **Self-checks** — `doctor` (integrity, schema, model, queue, permissions, AI agent probe), `backup`, `restore` for ops |
 | 🔒 | **Privacy** — data never leaves your machine |
@@ -149,6 +150,8 @@ centmem curate [--scope <s>] [--type dedup|contradictions|all] # autonomous cura
 centmem summarize [--scope <s>] [--focus <f>] # high-level architectural & convention briefings
 centmem proposals <list|show|apply|dismiss> # review and apply staged curation actions
 centmem scope <delete|list> [path]     # list scopes or delete hierarchical scope subtrees
+centmem export --scope <s> [--output <file>] # export memories to portable JSON or CSV
+centmem import <file> [--dry-run]      # idempotently ingest memories from export file
 centmem serve [--mcp]                  # native Model Context Protocol (MCP) server
 centmem ui [--port N] [--host H] [--token T] # web UI memory browser dashboard
 centmem config set <k> <v>             # configure settings in config.toml

@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 2.1.1
+**Version:** 2.1.2
 **Binary:** `centmem`, `centmemd`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
@@ -336,7 +336,7 @@ centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]
 
 **Output:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.1", "auth": false}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.2", "auth": false}
 ```
 
 ---
@@ -644,6 +644,52 @@ centmem scope list
       ]
     }
   ]
+}
+```
+
+### 3.27 `export` — portable memory export
+Dumps memories matching filters to a canonical JSON or CSV file. Streams in pages without row limits.
+
+```
+centmem export --scope <scope> [--format json|csv] [--type t] [--tags a,b]
+               [--since d] [--until d] [--agent a] [--output <path>]
+```
+- `--scope`: Scope path (default `global`).
+- `--format`: `json` (canonical import format, default) or `csv`.
+- `--output`: File path to write to. When specified, writes the file and outputs status envelope to stdout. When omitted, writes export data to stdout and status envelope to stderr.
+- `--type`, `--tags`, `--since`, `--until`, `--agent`: Optional filters.
+
+**Output (with `--output <path>`):**
+```json
+{
+  "ok": true,
+  "file": "dump.json",
+  "total": 312,
+  "size_bytes": 12345
+}
+```
+
+### 3.28 `import` — portable memory import
+Ingests memories from a canonical `centmem-export` JSON file into the store idempotently.
+
+```
+centmem import <file> [--dry-run]
+```
+- `<file>`: Path to a `centmem-export` v1 JSON file, or `-` for stdin.
+- `--dry-run`: Parse, validate, and compute import/skip counts without writing changes to the store.
+- Re-creates scope hierarchies automatically via `EnsureScope`.
+- Idempotently skips records with matching `content_hash` in the target scope.
+- Rejects non-centmem JSON and CSV files with exit code 1.
+
+**Output:**
+```json
+{
+  "ok": true,
+  "file": "dump.json",
+  "total": 312,
+  "imported": 290,
+  "skipped": 22,
+  "failed": 0
 }
 ```
 

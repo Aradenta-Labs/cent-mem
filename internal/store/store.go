@@ -915,7 +915,7 @@ func (s *Store) List(ctx context.Context, q ListQuery) ([]Memory, error) {
 		m.access_count, m.last_accessed_at, m.created_at, m.updated_at
 		FROM memories m JOIN scopes s ON s.id = m.scope_id
 		WHERE ` + strings.Join(where, " AND ") +
-		` ORDER BY m.created_at DESC LIMIT ? OFFSET ?`
+		` ORDER BY m.created_at DESC, m.id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, q.Offset)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -1188,14 +1188,25 @@ func (s *Store) UpdateMemoryContent(ctx context.Context, id int64, content strin
 	return tx.Commit()
 }
 
+// ContentHash computes the canonical content hash for deduplication.
+func ContentHash(scopePath, typ, key, content string) string {
+	return hashContent(scopePath, typ, key, content)
+}
+
 // HasActiveMemory checks whether an active memory with the given scope, type, and content exists.
 // Uses content_hash indexed lookup.
 func (s *Store) HasActiveMemory(ctx context.Context, scopePath, memType, content string) (bool, error) {
+	return s.HasActiveMemoryExact(ctx, scopePath, memType, "", content)
+}
+
+// HasActiveMemoryExact checks whether an active memory with the given scope, type, key, and content exists.
+// Uses content_hash indexed lookup.
+func (s *Store) HasActiveMemoryExact(ctx context.Context, scopePath, memType, key, content string) (bool, error) {
 	sc, err := scope.Parse(scopePath)
 	if err != nil {
 		return false, err
 	}
-	contentHash := hashContent(sc.Path, memType, "", content)
+	contentHash := hashContent(sc.Path, memType, key, content)
 	var id int64
 	err = s.db.QueryRowContext(ctx, `
 		SELECT m.id FROM memories m

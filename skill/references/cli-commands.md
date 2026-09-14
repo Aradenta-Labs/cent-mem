@@ -539,7 +539,7 @@ centmem ui [--port <port>] [--host <host>] [--no-open] [--token <secret>]
 
 **Stdout JSON:**
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.1", "auth": false}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.2", "auth": false}
 ```
 
 ---
@@ -1087,6 +1087,8 @@ The embedded HTTP server exposes the following endpoints for UI and programmatic
 | `GET` | `/api/scopes` | None | Retrieve hierarchical scope tree with memory counts |
 | `POST` | `/api/scopes` | JSON: `{"path": "..."}` | Explicitly create a new scope node |
 | `DELETE` | `/api/scopes` | Query: `path=<scope>` or JSON: `{"path": "..."}` | Cascade-delete a scope and all descendant subtrees and memories |
+| `GET` | `/api/export` | Query: `scope`, `format`, `type`, `tags`, `agent`, `since`, `until` | Download memories in canonical JSON or CSV format |
+| `POST` | `/api/import` | Multipart file upload (`file`) or JSON body | Idempotently import memories from JSON export envelope |
 | `POST` | `/api/config/test-agent` | JSON: `{"backend": "...", "endpoint": "...", "model": "...", "api_key": "...", "timeout_seconds": 8}` | Test live AI agent endpoint connectivity and latency |
 
 #### SSE Event Format (`POST /api/agent/chat`)
@@ -1098,6 +1100,55 @@ The embedded HTTP server exposes the following endpoints for UI and programmatic
 
 ---
 
-## 18. Roadmap & Upcoming Milestones (Stage 4+)
+## 18. Memory Export & Import (`export`, `import`) (v2.1.2)
+
+### 18.1 `centmem export`
+Dumps memories matching filters to a canonical JSON or CSV file. Streams in pages without row limits.
+
+```bash
+centmem export --scope <scope> [--format json|csv] [--type t] [--tags a,b] [--since d] [--until d] [--agent a] [--output <path>]
+```
+- `--scope`: Scope path (default `global`).
+- `--format`: `json` (canonical import format, default) or `csv`.
+- `--output`: File path to write to. When specified, writes the file and outputs status envelope to stdout. When omitted, writes export data to stdout and status envelope to stderr.
+- `--type`, `--tags`, `--since`, `--until`, `--agent`: Optional filters.
+
+**Output (with `--output <path>`):**
+```json
+{
+  "ok": true,
+  "file": "dump.json",
+  "total": 312,
+  "size_bytes": 12345
+}
+```
+
+### 18.2 `centmem import`
+Idempotently ingests memories from a canonical `centmem-export` JSON file into the store.
+
+```bash
+centmem import <file> [--dry-run]
+```
+- `<file>`: Path to a `centmem-export` v1 JSON file, or `-` for stdin.
+- `--dry-run`: Parse, validate, and compute import/skip counts without writing changes to the store.
+- Re-creates scope hierarchies automatically via `EnsureScope`.
+- Idempotently skips records with matching `content_hash` in the target scope.
+- Rejects non-centmem JSON and CSV files with exit code 1.
+
+**Output:**
+```json
+{
+  "ok": true,
+  "file": "dump.json",
+  "total": 312,
+  "imported": 290,
+  "skipped": 22,
+  "failed": 0
+}
+```
+
+---
+
+## 19. Roadmap & Upcoming Milestones (Stage 4+)
 With Stage 1 (Agent Engine & Proposals), Stage 2 (CLI Command Suite), and Stage 3 (Web UI Experience, Proposals Inbox & Scope Management) complete:
 - **Stage 4**: Background Autonomous Daemon Curation loop (`centmemd`) with idle memory scanning, periodic conflict resolution, and background proposal staging.

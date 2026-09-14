@@ -25,6 +25,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/agent"
 	"github.com/aradenta-labs/cent-mem/internal/config"
 	"github.com/aradenta-labs/cent-mem/internal/embed"
+	"github.com/aradenta-labs/cent-mem/internal/export"
 	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
@@ -68,7 +69,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "2.1.1",
+		Version:  "2.1.2",
 		Store:    nil,
 		Searcher: nil,
 	}
@@ -94,7 +95,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "2.1.1"
+		cfg.Version = "2.1.2"
 	}
 
 	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
@@ -1658,11 +1659,88 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(map[string]any{
-			"ok":          true,
-			"scope":       scopePath,
-			"total":       len(out),
-			"exported_at": now.UTC().Format(time.RFC3339),
-			"memories":    out,
+			"ok":             true,
+			"format":         "centmem-export",
+			"format_version": 1,
+			"scope":          scopePath,
+			"total":          len(out),
+			"exported_at":    now.UTC().Format(time.RFC3339),
+			"memories":       out,
+		})
+	})
+
+	// API Endpoints: Import (Upload JSON file or payload)
+	mux.HandleFunc("POST /api/import", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		var reader io.Reader
+		ct := r.Header.Get("Content-Type")
+		if strings.HasPrefix(ct, "multipart/form-data") {
+			if err := r.ParseMultipartForm(32 << 20); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_payload",
+						"message": fmt.Sprintf("parse multipart form: %v", err),
+					},
+				})
+				return
+			}
+			fh, _, err := r.FormFile("file")
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_payload",
+						"message": "missing 'file' field in multipart form",
+					},
+				})
+				return
+			}
+			defer fh.Close()
+			reader = fh
+		} else {
+			reader = io.LimitReader(r.Body, 64<<20)
+		}
+
+		report, err := export.Import(r.Context(), cfg.Store, reader)
+		if err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_export",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		status := http.StatusOK
+		if report.Failed > 0 {
+			status = http.StatusUnprocessableEntity
+		}
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       report.Failed == 0,
+			"total":    report.Total,
+			"imported": report.Imported,
+			"skipped":  report.Skipped,
+			"failed":   report.Failed,
+			"errors":   report.Errors,
 		})
 	})
 

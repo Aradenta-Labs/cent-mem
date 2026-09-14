@@ -1,7 +1,7 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` CLI to recall prior context, store decisions, save facts, and inspect timeline so every agent shares one persistent brain. Use whenever you need to remember or retrieve project context, architecture decisions, user preferences, API conventions, or session checkpoints.
-version: 2.1.1
+version: 2.1.2
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 allowed-tools:
@@ -299,6 +299,8 @@ project:<name>/agent:<agent>/session:<id>
 | `summarize` | `centmem summarize [--scope <s>] [--focus <t>] [--format json\|markdown] [--save]` | Synthesize architectural pillars and scope developer briefings |
 | `proposals` | `centmem proposals <list\|show\|apply\|dismiss> [id] [flags]` | Manage human-in-the-loop staged curation actions |
 | `scope` | `centmem scope <delete\|list> [path] [--force]` | Delete or list hierarchical memory scope subtrees |
+| `export` | `centmem export --scope <scope> [--format json\|csv] [--output <path>]` | Export memories to canonical JSON or CSV |
+| `import` | `centmem import <file> [--dry-run]` | Idempotently import memories from JSON export file |
 
 ### Background Daemon (`centmemd`)
 

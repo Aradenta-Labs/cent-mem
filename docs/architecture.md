@@ -122,6 +122,11 @@
 - Self-contained Bubbletea event loop and Lipgloss terminal user interface (`centmem recall --interactive`).
 - Key capabilities: split-pane navigation, debounced hybrid search (200ms), 40% scrollable result list, 60% viewport memory detail preview with half-page (`Ctrl+D`/`Ctrl+U`/`PgDn`/`PgUp`) and line (`J`/`K`) scrolling, cyclic `Tab` focus switching, inline deletion with confirmation (`d` + `y`), cross-platform clipboard copy (`c`), and dual-stream TTY detection falling back to standard JSON recall when piped or non-interactive.
 
+### 3.14 `internal/export` — Portable memory export & import (v2.1.2)
+- Self-contained streaming codec for portable memory backup and transfer (`centmem export`, `centmem import`, `POST /api/import`).
+- Canonical envelope (`centmem-export` v1) and read-only CSV export.
+- Key capabilities: paginated streaming memory export without hard limits, idempotent import deduplicating via `content_hash` against target store, automated hierarchical scope reconstruction (`EnsureScope`), `--dry-run` simulation mode, stdin piping support (`centmem export | centmem import -`), and Web UI upload parity with multipart and JSON bodies.
+
 ## 4. Data Flow
 
 ### 4.1 Write (e.g. `put`)

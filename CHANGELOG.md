@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-09-14
+
+Portable Memory Export & Import across CLI and Web UI.
+
+### Added
+
+- **Portable Memory Export & Import Engine (`internal/export`)**:
+  - Added new `internal/export` package providing a unified codec for canonical `centmem-export` v1 JSON envelopes and read-only CSV tables.
+  - Paginated streaming memory extraction (`Export`) without row limits (500-item page chunks).
+  - Idempotent ingestion (`Import`) verifying `content_hash` against target store scopes to cleanly skip duplicates while preserving scope hierarchies via `store.EnsureScope`.
+  - Exported `store.ContentHash` and added `store.HasActiveMemoryExact` in `internal/store/store.go` for accurate content hash lookups on fact and note memories.
+  - Comprehensive unit test suite covering envelope roundtrips, pagination across 1,250 memories, idempotency, scope preservation, bad format/CSV rejections, and `--dry-run` non-persistence.
+- **New CLI Commands (`export`, `import`)**:
+  - Added `centmem export --scope <scope> [--format json|csv] [--type t] [--tags a,b] [--since d] [--until d] [--agent a] [--output <path>]`. Writes status envelope to stdout and exported file to `--output <path>`, or streams export directly to stdout and status envelope to stderr.
+  - Added `centmem import <file> [--dry-run]`. Ingests memories from canonical JSON file or standard input (`-`), reporting `{total, imported, skipped, failed}` counts with exit code 0, or exit code 1 on malformed/CSV inputs.
+  - Seamless Unix pipeline support: `centmem export --scope project:foo | centmem import -`.
+  - Registered `export` and `import` in `cmd/centmem/commands.go` and verified CLI integration tests in `cmd/centmem/export_import_test.go`.
+- **Web UI Import Parity (`POST /api/import` & MemoryBrowser Button)**:
+  - Added `POST /api/import` endpoint to `internal/ui/server.go` accepting both `multipart/form-data` file uploads and direct `application/json` request bodies.
+  - Updated `GET /api/export` to include canonical `"format": "centmem-export"` and `"format_version": 1` fields.
+  - Added "Import" toolbar button and file picker in `ui/src/components/MemoryBrowser.tsx`, displaying completion toast counts and auto-refreshing active memory and statistic feeds.
+- **Documentation & Skill Synchronizations**:
+  - Updated `docs/cli-contract.md` with sections `3.27 export` and `3.28 import`.
+  - Synchronized `skill/SKILL.md` and `skill/references/cli-commands.md` across all 3 mirrors (`npm/templates/`, `.agents/skills/centmem/`, `.claude/skills/centmem/`).
+  - Marked Quick Win #3 in `docs/v2-nice-to-have.md` and `docs/plans/plan-v2.1.2.md` as complete.
+
 ## [2.1.1] - 2026-09-14
 
 Interactive Terminal User Interface (TUI) for Memory Recall & Search.
@@ -489,6 +515,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.1.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.2
 [2.1.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.1
 [2.1.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.0
 [2.0.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.0.3

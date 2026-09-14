@@ -143,6 +143,8 @@ test('injectWorkflowAndCommands creates AGENTS.md if missing', () => {
     assert(content.includes('centmem scope delete'));
     assert(content.includes('Visual Dashboard / UI'));
     assert(content.includes('centmem ui'));
+    assert(content.includes('Export / Import'));
+    assert(content.includes('centmem export'));
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

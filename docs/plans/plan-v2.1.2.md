@@ -1,8 +1,8 @@
 # v2.1.2 — Memory Export / Import
 
-**Version:** 2.1.2 (target)  
+**Version:** 2.1.2  
 **Owner:** Aradenta Labs  
-**Status:** Grilling complete — Design locked, ready for phased implementation  
+**Status:** Complete — Fully implemented and verified across all phases  
 **Depends on:** v2.0.0 (store, `PutMemory`, `List`, Web UI `/api/export`)  
 **Source:** [docs/v2-nice-to-have.md](../v2-nice-to-have.md) — Quick Win #3
 
@@ -414,16 +414,16 @@ mux.HandleFunc("POST /api/import", func(w http.ResponseWriter, r *http.Request) 
 
 ## 9. Acceptance Criteria (Done Definition)
 
-- [ ] `centmem export --scope project:x --output dump.json` produces a valid `centmem-export` v1 JSON file with all memories (no 10k cap).
-- [ ] `centmem import dump.json` imports with correct `{imported, skipped, failed}` counts.
-- [ ] Running import twice is idempotent (second run: all skipped).
-- [ ] `centmem import dump.json --dry-run` reports without writing.
-- [ ] `centmem export ... | centmem import -` works via stdin.
-- [ ] Importing a CSV file fails with a clear error message.
-- [ ] `POST /api/import` works via multipart and raw JSON, returns correct counts, 422 on bad envelope, 503 when store is nil.
-- [ ] Web UI has an Import button that uploads a file and shows a result toast.
-- [ ] `go test -tags fts5 ./... -race` passes.
-- [ ] `docs/cli-contract.md` includes `export` and `import`.
+- [x] `centmem export --scope project:x --output dump.json` produces a valid `centmem-export` v1 JSON file with all memories (no 10k cap).
+- [x] `centmem import dump.json` imports with correct `{imported, skipped, failed}` counts.
+- [x] Running import twice is idempotent (second run: all skipped).
+- [x] `centmem import dump.json --dry-run` reports without writing.
+- [x] `centmem export ... | centmem import -` works via stdin.
+- [x] Importing a CSV file fails with a clear error message.
+- [x] `POST /api/import` works via multipart and raw JSON, returns correct counts, 422 on bad envelope, 503 when store is nil.
+- [x] Web UI has an Import button that uploads a file and shows a result toast.
+- [x] `go test -tags fts5 ./... -race` passes.
+- [x] `docs/cli-contract.md` includes `export` and `import`.
 
 ---
 
@@ -441,4 +441,5 @@ mux.HandleFunc("POST /api/import", func(w http.ResponseWriter, r *http.Request) 
 
 | Date | Change |
 |------|--------|
+| 2026-09-14 | Completed implementation across Phases 1–4. All acceptance criteria met. |
 | 2026-09-14 | Initial plan created via `/grill-me` session. Design locked. |
