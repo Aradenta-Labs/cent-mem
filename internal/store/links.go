@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/aradenta-labs/cent-mem/internal/scope"
 )
 
 // CreateLink creates or updates a relationship link between two memories.
@@ -321,4 +323,111 @@ WHERE (l.from_id IN (%s) OR l.to_id IN (%s))`, inClause, inClause)
 	}
 
 	return out, nil
+}
+
+// ListSuggestedLinks returns pending auto-suggested links (suggested = 1) matching
+// the optional scope subtree and relation filters, along with the total matching count.
+func (s *Store) ListSuggestedLinks(ctx context.Context, q SuggestedLinkListQuery) ([]LinkWithContent, int, error) {
+	where := []string{"l.suggested = 1"}
+	var args []any
+
+	if rel := strings.TrimSpace(q.Relation); rel != "" {
+		if !IsValidLinkRelation(rel) {
+			return nil, 0, fmt.Errorf("store: invalid link relation %q; must be one of: %s",
+				rel, strings.Join(ValidLinkRelations, ", "))
+		}
+		where = append(where, "l.relation = ?")
+		args = append(args, rel)
+	}
+
+	if scopePath := strings.TrimSpace(q.ScopePath); scopePath != "" && scopePath != "global" {
+		sc, err := scope.Parse(scopePath)
+		if err != nil {
+			return nil, 0, fmt.Errorf("store: parse scope %q: %w", scopePath, err)
+		}
+		scopeIDs, err := s.ResolveScopeIDs(ctx, sc, false, true)
+		if err != nil {
+			return nil, 0, fmt.Errorf("store: resolve scope %q: %w", scopePath, err)
+		}
+		if len(scopeIDs) == 0 {
+			return []LinkWithContent{}, 0, nil
+		}
+		placeholders := make([]string, len(scopeIDs))
+		for i, id := range scopeIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		for _, id := range scopeIDs {
+			args = append(args, id)
+		}
+		inClause := strings.Join(placeholders, ", ")
+		where = append(where, fmt.Sprintf("(mf.scope_id IN (%s) OR mt.scope_id IN (%s))", inClause, inClause))
+	}
+
+	whereSQL := strings.Join(where, " AND ")
+
+	countQuery := fmt.Sprintf(`
+SELECT COUNT(*)
+FROM memory_links l
+JOIN memories mf ON l.from_id = mf.id
+JOIN memories mt ON l.to_id = mt.id
+WHERE %s`, whereSQL)
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("store: count suggested links: %w", err)
+	}
+
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	offset := q.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	listQuery := fmt.Sprintf(`
+SELECT l.id, l.from_id, l.to_id, l.relation, l.suggested, l.created_at,
+       mf.content, mt.content,
+       mf.type, mt.type,
+       sf.path, st.path
+FROM memory_links l
+JOIN memories mf ON l.from_id = mf.id
+JOIN memories mt ON l.to_id = mt.id
+JOIN scopes sf ON mf.scope_id = sf.id
+JOIN scopes st ON mt.scope_id = st.id
+WHERE %s
+ORDER BY l.created_at DESC, l.id DESC
+LIMIT ? OFFSET ?`, whereSQL)
+
+	listArgs := append(append([]any(nil), args...), limit, offset)
+	rows, err := s.db.QueryContext(ctx, listQuery, listArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("store: list suggested links: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]LinkWithContent, 0)
+	for rows.Next() {
+		var item LinkWithContent
+		var createdAt int64
+		var suggestedInt int
+		if err := rows.Scan(
+			&item.ID, &item.FromID, &item.ToID, &item.Relation, &suggestedInt, &createdAt,
+			&item.SourceContent, &item.TargetContent,
+			&item.SourceType, &item.TargetType,
+			&item.SourceScope, &item.TargetScope,
+		); err != nil {
+			return nil, 0, fmt.Errorf("store: scan suggested link: %w", err)
+		}
+		item.Suggested = (suggestedInt != 0)
+		item.CreatedAt = time.UnixMicro(createdAt)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("store: iterate suggested links: %w", err)
+	}
+
+	return items, total, nil
 }

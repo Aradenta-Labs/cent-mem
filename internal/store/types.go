@@ -160,6 +160,14 @@ type MemoryLinksResult struct {
 	Incoming []LinkWithContent `json:"incoming"`
 }
 
+// SuggestedLinkListQuery parameterizes ListSuggestedLinks().
+type SuggestedLinkListQuery struct {
+	ScopePath string `json:"scope_path"`
+	Relation  string `json:"relation"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+}
+
 // ValidProposalTypes defines the allowed values for proposal_type in agent_proposals.
 var ValidProposalTypes = []string{"link", "merge", "update", "archive"}
 

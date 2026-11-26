@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   GitMerge,
   ArrowRight,
@@ -6,33 +6,52 @@ import {
   XCircle,
   RefreshCw,
   Archive,
+  Sparkles,
 } from 'lucide-react';
 import {
   Proposal,
-  ProposalType,
+  ProposalFilterType,
   ProposalStatus,
   LinkProposalPayload,
   MergeProposalPayload,
   UpdateProposalPayload,
   ArchiveProposalPayload,
 } from '../types/agent';
+import { MemoryLinkWithContent, RelationType } from '../types/memory';
 import {
   fetchProposals,
   applyProposal,
   dismissProposal,
   reopenProposal,
   batchProposals,
+  fetchSuggestedLinks,
+  confirmLink,
+  dismissLink,
+  batchSuggestedLinks,
 } from '../services/api';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { SegmentedControl } from './SegmentedControl';
 import { BatchProposalConfirmDialog } from './BatchProposalConfirmDialog';
 
+const RELATION_COLORS: Record<RelationType, { bg: string; text: string; border: string }> = {
+  contradicts: { bg: 'rgba(239, 68, 68, 0.1)', text: '#ef4444', border: 'rgba(239, 68, 68, 0.3)' },
+  supersedes: { bg: 'rgba(249, 115, 22, 0.1)', text: '#f97316', border: 'rgba(249, 115, 22, 0.3)' },
+  refines: { bg: 'rgba(59, 130, 246, 0.1)', text: '#3b82f6', border: 'rgba(59, 130, 246, 0.3)' },
+  supports: { bg: 'rgba(16, 185, 129, 0.1)', text: '#10b981', border: 'rgba(16, 185, 129, 0.3)' },
+  'depends-on': { bg: 'rgba(139, 92, 246, 0.1)', text: '#8b5cf6', border: 'rgba(139, 92, 246, 0.3)' },
+};
+
+type ReviewItem =
+  | { kind: 'proposal'; sortMs: number; proposal: Proposal }
+  | { kind: 'suggestion'; sortMs: number; link: MemoryLinkWithContent };
+
 export interface ProposalsViewProps {
   selectedScope: string;
   onSelectMemory: (id: number) => void;
   onToast?: (message: string, type: 'success' | 'error' | 'info', action?: { label: string; onClick: () => void }) => void;
   onProposalApplied?: () => void;
+  refreshKey?: number;
 }
 
 export const ProposalsView: React.FC<ProposalsViewProps> = ({
@@ -40,12 +59,15 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
   onSelectMemory,
   onToast,
   onProposalApplied,
+  refreshKey,
 }) => {
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [suggestedLinks, setSuggestedLinks] = useState<MemoryLinkWithContent[]>([]);
+  const [suggestedTotal, setSuggestedTotal] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [activeStatus, setActiveStatus] = useState<ProposalStatus>('pending');
-  const [typeFilter, setTypeFilter] = useState<ProposalType | 'all'>('all');
-  const [actionInProgress, setActionInProgress] = useState<number | null>(null);
+  const [typeFilter, setTypeFilter] = useState<ProposalFilterType>('all');
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
   // Live status counts for all tabs
   const [counts, setCounts] = useState<{ pending: number; applied: number; dismissed: number }>({
@@ -61,13 +83,15 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
   const loadProposals = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [statusList, pendingList, appliedList, dismissedList] = await Promise.all([
-        fetchProposals({
-          scope: selectedScope,
-          status: activeStatus,
-          type: typeFilter === 'all' ? undefined : typeFilter,
-          limit: 200,
-        }),
+      const [statusList, pendingList, appliedList, dismissedList, suggestedRes] = await Promise.all([
+        typeFilter === 'auto-suggestion'
+          ? Promise.resolve([] as Proposal[])
+          : fetchProposals({
+              scope: selectedScope,
+              status: activeStatus,
+              type: typeFilter === 'all' ? undefined : typeFilter,
+              limit: 200,
+            }),
         fetchProposals({
           scope: selectedScope,
           status: 'pending',
@@ -83,8 +107,14 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
           status: 'dismissed',
           limit: 200,
         }),
+        fetchSuggestedLinks({
+          scope: selectedScope,
+          limit: 200,
+        }),
       ]);
       setProposals(statusList);
+      setSuggestedLinks(suggestedRes.links);
+      setSuggestedTotal(suggestedRes.total);
       setCounts({
         pending: pendingList.length,
         applied: appliedList.length,
@@ -99,10 +129,48 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
 
   useEffect(() => {
     loadProposals();
-  }, [loadProposals]);
+  }, [loadProposals, refreshKey]);
+
+  const visibleProposals = useMemo(
+    () => (typeFilter === 'auto-suggestion' ? [] : proposals),
+    [typeFilter, proposals]
+  );
+
+  const visibleSuggestedLinks = useMemo(
+    () =>
+      activeStatus === 'pending' && (typeFilter === 'all' || typeFilter === 'auto-suggestion')
+        ? suggestedLinks
+        : [],
+    [activeStatus, typeFilter, suggestedLinks]
+  );
+
+  const displayItems = useMemo<ReviewItem[]>(() => {
+    const items: ReviewItem[] = [];
+    for (const proposal of visibleProposals) {
+      const ms = new Date(proposal.created_at).getTime();
+      items.push({
+        kind: 'proposal',
+        sortMs: Number.isFinite(ms) ? ms : 0,
+        proposal,
+      });
+    }
+    for (const link of visibleSuggestedLinks) {
+      const ms =
+        typeof link.created_at === 'number'
+          ? link.created_at * 1000
+          : new Date(link.created_at).getTime();
+      items.push({
+        kind: 'suggestion',
+        sortMs: Number.isFinite(ms) ? ms : 0,
+        link,
+      });
+    }
+    items.sort((a, b) => b.sortMs - a.sortMs);
+    return items;
+  }, [visibleProposals, visibleSuggestedLinks]);
 
   const handleApply = async (id: number) => {
-    setActionInProgress(id);
+    setActionInProgress(`proposal-${id}`);
     try {
       const res = await applyProposal(id);
       if (res.ok) {
@@ -128,7 +196,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
   };
 
   const handleDismiss = async (id: number) => {
-    setActionInProgress(id);
+    setActionInProgress(`proposal-${id}`);
     try {
       const res = await dismissProposal(id);
       if (res.ok) {
@@ -156,7 +224,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
   };
 
   const handleReopen = async (id: number) => {
-    setActionInProgress(id);
+    setActionInProgress(`proposal-${id}`);
     try {
       const res = await reopenProposal(id);
       if (res.ok) {
@@ -180,34 +248,91 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
     }
   };
 
-  const handleBatchConfirm = async () => {
-    if (!batchDialogAction || proposals.length === 0) return;
-    setIsBatchProcessing(true);
-    const action = batchDialogAction;
-    const targetIds = proposals.map((p) => p.id);
+  const handleConfirmSuggestion = async (id: number) => {
+    setActionInProgress(`link-${id}`);
     try {
-      const res = await batchProposals(action, targetIds);
+      const res = await confirmLink(id);
       if (res.ok) {
-        const successCount = res.succeeded.length;
-        const failCount = res.failed.length;
-        if (failCount === 0) {
-          if (action === 'apply') {
-            onToast?.(`Successfully applied ${successCount} proposal${successCount === 1 ? '' : 's'}`, 'success');
-          } else {
-            onToast?.(`Dismissed ${successCount} proposal${successCount === 1 ? '' : 's'}. Review or restore under the Dismissed tab.`, 'info');
-          }
-        } else {
-          onToast?.(
-            `${action === 'apply' ? 'Applied' : 'Dismissed'} ${successCount} proposal${successCount === 1 ? '' : 's'} (${failCount} failed)`,
-            failCount > 0 && successCount === 0 ? 'error' : 'info'
-          );
-        }
+        onToast?.('Auto-suggested link confirmed', 'success');
+        setSuggestedLinks((prev) => prev.filter((l) => l.id !== id));
+        setSuggestedTotal((t) => Math.max(0, t - 1));
         onProposalApplied?.();
-        setBatchDialogAction(null);
-        await loadProposals();
       }
     } catch (err: any) {
-      onToast?.(err.message || `Failed to ${action} proposals in batch`, 'error');
+      onToast?.(err.message || 'Failed to confirm auto-suggested link', 'error');
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const handleDismissSuggestion = async (id: number) => {
+    setActionInProgress(`link-${id}`);
+    try {
+      const res = await dismissLink(id);
+      if (res.ok) {
+        onToast?.('Auto-suggested link dismissed', 'info');
+        setSuggestedLinks((prev) => prev.filter((l) => l.id !== id));
+        setSuggestedTotal((t) => Math.max(0, t - 1));
+        onProposalApplied?.();
+      }
+    } catch (err: any) {
+      onToast?.(err.message || 'Failed to dismiss auto-suggested link', 'error');
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const handleBatchConfirm = async () => {
+    if (!batchDialogAction || (visibleProposals.length === 0 && visibleSuggestedLinks.length === 0)) {
+      return;
+    }
+    setIsBatchProcessing(true);
+    const action = batchDialogAction;
+    const proposalIds = visibleProposals.map((p) => p.id);
+    const linkIds = visibleSuggestedLinks.map((l) => l.id);
+
+    try {
+      let successCount = 0;
+      let failCount = 0;
+
+      if (proposalIds.length > 0) {
+        const res = await batchProposals(action, proposalIds);
+        if (res.ok) {
+          successCount += res.succeeded.length;
+          failCount += res.failed.length;
+        }
+      }
+
+      if (linkIds.length > 0) {
+        const linkAction = action === 'apply' ? 'confirm' : 'dismiss';
+        const linkRes = await batchSuggestedLinks(linkAction, linkIds);
+        if (linkRes.ok) {
+          successCount += linkRes.succeeded.length;
+          failCount += linkRes.failed.length;
+        }
+      }
+
+      if (failCount === 0) {
+        if (action === 'apply') {
+          onToast?.(`Successfully approved ${successCount} item${successCount === 1 ? '' : 's'}`, 'success');
+        } else {
+          if (proposalIds.length > 0 && linkIds.length === 0) {
+            onToast?.(`Dismissed ${successCount} proposal${successCount === 1 ? '' : 's'}. Review or restore under the Dismissed tab.`, 'info');
+          } else {
+            onToast?.(`Dismissed ${successCount} item${successCount === 1 ? '' : 's'}`, 'info');
+          }
+        }
+      } else {
+        onToast?.(
+          `${action === 'apply' ? 'Approved' : 'Dismissed'} ${successCount} item${successCount === 1 ? '' : 's'} (${failCount} failed)`,
+          failCount > 0 && successCount === 0 ? 'error' : 'info'
+        );
+      }
+      onProposalApplied?.();
+      setBatchDialogAction(null);
+      await loadProposals();
+    } catch (err: any) {
+      onToast?.(err.message || `Failed to ${action} items in batch`, 'error');
     } finally {
       setIsBatchProcessing(false);
     }
@@ -534,6 +659,225 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
     }
   };
 
+  const renderSuggestedLinkCard = (link: MemoryLinkWithContent) => {
+    const relStyle = RELATION_COLORS[link.relation] || {
+      bg: 'var(--accent-lightest)',
+      text: 'var(--accent-primary)',
+      border: 'var(--accent-border)',
+    };
+    const scopeLabel =
+      link.source_scope && link.target_scope && link.source_scope !== link.target_scope
+        ? `${link.source_scope} → ${link.target_scope}`
+        : link.source_scope || link.target_scope || 'global';
+    const detectedDate =
+      typeof link.created_at === 'number'
+        ? new Date(link.created_at * 1000).toLocaleString()
+        : new Date(link.created_at).toLocaleString();
+
+    return (
+      <div
+        key={`suggestion-${link.id}`}
+        style={{
+          backgroundColor: 'var(--surface-primary)',
+          border: '1px solid rgba(245, 158, 11, 0.35)',
+          borderRadius: 'var(--radius-lg)',
+          padding: 'var(--space-4)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-3)',
+          boxShadow: 'var(--shadow-sm)',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                Link #{link.id}
+              </span>
+              <h4 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Auto-suggested relationship
+              </h4>
+              <Badge variant="warning" size="sm">
+                <Sparkles size={11} />
+                <span>AUTO-SUGGESTED</span>
+              </Badge>
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Scope: {scopeLabel} · Detected {detectedDate}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleDismissSuggestion(link.id)}
+              disabled={actionInProgress !== null || isBatchProcessing}
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <XCircle size={14} style={{ marginRight: '4px' }} />
+              <span>Dismiss</span>
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => handleConfirmSuggestion(link.id)}
+              disabled={actionInProgress !== null || isBatchProcessing}
+            >
+              <CheckCircle2 size={14} style={{ marginRight: '4px' }} />
+              <span>Confirm Link</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* 3-part Connection Card */}
+        <div
+          style={{
+            padding: 'var(--space-4)',
+            backgroundColor: 'var(--surface-secondary)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-subtle)',
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+            alignItems: 'center',
+            gap: 'var(--space-3)',
+          }}
+        >
+          {/* Source Node */}
+          <div
+            style={{
+              backgroundColor: 'var(--surface-primary)',
+              border: '1px solid var(--border-default)',
+              borderRadius: 'var(--radius-sm)',
+              padding: 'var(--space-3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              minWidth: 0,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={() => onSelectMemory(link.from_id)}
+                title={`View source memory #${link.from_id}`}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--accent-primary)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                Memory #{link.from_id}
+              </button>
+              {link.source_type && (
+                <Badge variant="neutral" size="sm">
+                  {link.source_type}
+                </Badge>
+              )}
+            </div>
+            <div
+              title={link.source_content || ''}
+              style={{
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-secondary)',
+                lineHeight: 1.45,
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                wordBreak: 'break-word',
+              }}
+            >
+              {link.source_content || 'Memory content unavailable'}
+            </div>
+          </div>
+
+          {/* Center Relation Pill */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              backgroundColor: relStyle.bg,
+              border: `1px solid ${relStyle.border}`,
+              borderRadius: 'var(--radius-pill)',
+              color: relStyle.text,
+              fontSize: '11px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>{link.relation}</span>
+            <ArrowRight size={13} />
+          </div>
+
+          {/* Target Node */}
+          <div
+            style={{
+              backgroundColor: 'var(--surface-primary)',
+              border: '1px solid var(--border-default)',
+              borderRadius: 'var(--radius-sm)',
+              padding: 'var(--space-3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              minWidth: 0,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={() => onSelectMemory(link.to_id)}
+                title={`View target memory #${link.to_id}`}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--accent-primary)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                Memory #{link.to_id}
+              </button>
+              {link.target_type && (
+                <Badge variant="neutral" size="sm">
+                  {link.target_type}
+                </Badge>
+              )}
+            </div>
+            <div
+              title={link.target_content || ''}
+              style={{
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-secondary)',
+                lineHeight: 1.45,
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                wordBreak: 'break-word',
+              }}
+            >
+              {link.target_content || 'Memory content unavailable'}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       style={{
@@ -580,7 +924,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
           {/* Status Tabs Segmented Control */}
           <SegmentedControl
             options={[
-              { value: 'pending', label: 'Pending', badge: String(counts.pending) },
+              { value: 'pending', label: 'Pending', badge: String(counts.pending + suggestedTotal) },
               { value: 'applied', label: 'Applied', badge: String(counts.applied) },
               { value: 'dismissed', label: 'Dismissed', badge: String(counts.dismissed) },
             ]}
@@ -591,7 +935,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
           {/* Type Filter */}
           <select
             value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as ProposalType | 'all')}
+            onChange={(e) => setTypeFilter(e.target.value as ProposalFilterType)}
             style={{
               height: '32px',
               padding: '0 var(--space-2)',
@@ -604,8 +948,11 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
             }}
           >
             <option value="all">All Types</option>
+            <option value="auto-suggestion">
+              {suggestedTotal > 0 ? `Auto-Suggestions (${suggestedTotal})` : 'Auto-Suggestions'}
+            </option>
             <option value="merge">Merge</option>
-            <option value="link">Link</option>
+            <option value="link">Agent Link</option>
             <option value="update">Update</option>
             <option value="archive">Archive</option>
           </select>
@@ -623,7 +970,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
       </div>
 
       {/* Batch Actions Toolbar */}
-      {activeStatus === 'pending' && proposals.length > 0 && !isLoading && (
+      {activeStatus === 'pending' && displayItems.length > 0 && !isLoading && (
         <div
           style={{
             display: 'flex',
@@ -648,7 +995,12 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
             }}
           >
             <span>
-              Showing <strong style={{ color: 'var(--text-primary)' }}>{proposals.length}</strong> pending proposal{proposals.length === 1 ? '' : 's'}
+              Showing <strong style={{ color: 'var(--text-primary)' }}>{displayItems.length}</strong> pending item{displayItems.length === 1 ? '' : 's'}
+              {visibleProposals.length > 0 && visibleSuggestedLinks.length > 0 && (
+                <span>
+                  {' '}({visibleProposals.length} proposal{visibleProposals.length === 1 ? '' : 's'}, {visibleSuggestedLinks.length} auto-suggestion{visibleSuggestedLinks.length === 1 ? '' : 's'})
+                </span>
+              )}
               {typeFilter !== 'all' && (
                 <span>
                   {' '}(filtered by <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-primary)' }}>{typeFilter}</code>)
@@ -685,7 +1037,7 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
         <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--text-muted)' }}>
           Loading proposals inbox...
         </div>
-      ) : proposals.length === 0 ? (
+      ) : displayItems.length === 0 ? (
         <div
           style={{
             padding: 'var(--space-12)',
@@ -715,109 +1067,119 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
           </div>
           <div>
             <h4 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {activeStatus === 'pending'
-                ? 'No Pending Proposals'
+              {typeFilter === 'auto-suggestion' && activeStatus !== 'pending'
+                ? 'Auto-Suggestions Only Appear Under Pending'
+                : activeStatus === 'pending'
+                ? 'No Pending Proposals or Auto-Suggestions'
                 : `No ${activeStatus} Proposals`}
             </h4>
             <p style={{ margin: 'var(--space-1) 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-              {activeStatus === 'pending'
-                ? 'Autonomous curation is up to date. Run "centmem curate" to discover new merges or links.'
+              {typeFilter === 'auto-suggestion' && activeStatus !== 'pending'
+                ? 'Confirmed auto-suggestions become permanent links on their memories; dismissed ones are removed.'
+                : activeStatus === 'pending'
+                ? 'Autonomous curation and node auto-suggestions are up to date. Run "centmem curate" or add memories to discover new links or merges.'
                 : 'No historical proposals match this status filter.'}
             </p>
           </div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {proposals.map((proposal) => (
-            <div
-              key={proposal.id}
-              style={{
-                backgroundColor: 'var(--surface-primary)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-lg)',
-                padding: 'var(--space-4)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--space-3)',
-                boxShadow: 'var(--shadow-sm)',
-              }}
-            >
-              {/* Proposal Card Header */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                      #{proposal.id}
+          {displayItems.map((item) => {
+            if (item.kind === 'suggestion') {
+              return renderSuggestedLinkCard(item.link);
+            }
+            const proposal = item.proposal;
+            return (
+              <div
+                key={`proposal-${proposal.id}`}
+                style={{
+                  backgroundColor: 'var(--surface-primary)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: 'var(--space-4)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--space-3)',
+                  boxShadow: 'var(--shadow-sm)',
+                }}
+              >
+                {/* Proposal Card Header */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                        #{proposal.id}
+                      </span>
+                      <h4 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {proposal.title}
+                      </h4>
+                      <Badge
+                        variant={
+                          proposal.proposal_type === 'merge'
+                            ? 'accent'
+                            : 'neutral'
+                        }
+                        size="sm"
+                      >
+                        {proposal.proposal_type.toUpperCase()}
+                      </Badge>
+                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      Scope: {proposal.scope_path} · Created {new Date(proposal.created_at).toLocaleString()}
                     </span>
-                    <h4 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {proposal.title}
-                    </h4>
-                    <Badge
-                      variant={
-                        proposal.proposal_type === 'merge'
-                          ? 'accent'
-                          : 'neutral'
-                      }
-                      size="sm"
-                    >
-                      {proposal.proposal_type.toUpperCase()}
-                    </Badge>
                   </div>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Scope: {proposal.scope_path} · Created {new Date(proposal.created_at).toLocaleString()}
-                  </span>
+
+                  {/* Status or 1-Click Action Buttons */}
+                  {proposal.status === 'pending' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDismiss(proposal.id)}
+                        disabled={actionInProgress !== null || isBatchProcessing}
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        <XCircle size={14} style={{ marginRight: '4px' }} />
+                        <span>Dismiss</span>
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleApply(proposal.id)}
+                        disabled={actionInProgress !== null || isBatchProcessing}
+                      >
+                        <CheckCircle2 size={14} style={{ marginRight: '4px' }} />
+                        <span>Approve & Apply</span>
+                      </Button>
+                    </div>
+                  ) : proposal.status === 'dismissed' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <Badge variant="neutral" size="sm">
+                        DISMISSED
+                      </Badge>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleReopen(proposal.id)}
+                        disabled={actionInProgress !== null || isBatchProcessing}
+                        title="Restore proposal to pending"
+                      >
+                        <RefreshCw size={13} style={{ marginRight: '4px' }} />
+                        <span>Reopen</span>
+                      </Button>
+                    </div>
+                  ) : (
+                    <Badge variant="success" size="sm">
+                      APPLIED
+                    </Badge>
+                  )}
                 </div>
 
-                {/* Status or 1-Click Action Buttons */}
-                {proposal.status === 'pending' ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDismiss(proposal.id)}
-                      disabled={actionInProgress !== null || isBatchProcessing}
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      <XCircle size={14} style={{ marginRight: '4px' }} />
-                      <span>Dismiss</span>
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleApply(proposal.id)}
-                      disabled={actionInProgress !== null || isBatchProcessing}
-                    >
-                      <CheckCircle2 size={14} style={{ marginRight: '4px' }} />
-                      <span>Approve & Apply</span>
-                    </Button>
-                  </div>
-                ) : proposal.status === 'dismissed' ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <Badge variant="neutral" size="sm">
-                      DISMISSED
-                    </Badge>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handleReopen(proposal.id)}
-                      disabled={actionInProgress !== null || isBatchProcessing}
-                      title="Restore proposal to pending"
-                    >
-                      <RefreshCw size={13} style={{ marginRight: '4px' }} />
-                      <span>Reopen</span>
-                    </Button>
-                  </div>
-                ) : (
-                  <Badge variant="success" size="sm">
-                    APPLIED
-                  </Badge>
-                )}
+                {/* Proposal Payload Visual Component */}
+                {renderPayloadCard(proposal)}
               </div>
-
-              {/* Proposal Payload Visual Component */}
-              {renderPayloadCard(proposal)}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -827,7 +1189,8 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
         onClose={() => setBatchDialogAction(null)}
         onConfirm={handleBatchConfirm}
         action={batchDialogAction}
-        proposals={proposals}
+        proposals={visibleProposals}
+        suggestedLinks={visibleSuggestedLinks}
         selectedScope={selectedScope}
         typeFilter={typeFilter}
         isProcessing={isBatchProcessing}

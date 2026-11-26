@@ -99,7 +99,7 @@ export interface MemoryLink {
   to_id: number;
   relation: RelationType;
   suggested: boolean;
-  created_at: number; // Unix epoch microseconds or seconds
+  created_at: string | number; // RFC3339 timestamp string or Unix epoch
 }
 
 export interface MemoryLinkWithContent extends MemoryLink {
@@ -116,6 +116,36 @@ export interface MemoryLinksResponse {
   memory_id: number;
   outgoing: MemoryLinkWithContent[];
   incoming: MemoryLinkWithContent[];
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface SuggestedLinksFilters {
+  scope?: string;
+  relation?: RelationType | 'all';
+  limit?: number;
+  offset?: number;
+}
+
+export interface SuggestedLinksResponse {
+  ok: boolean;
+  links: MemoryLinkWithContent[];
+  count: number;
+  total: number;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface BatchSuggestedLinksResponse {
+  ok: boolean;
+  action: 'confirm' | 'dismiss';
+  total: number;
+  succeeded: number[];
+  failed: Array<{ id: number; error: string }>;
   error?: {
     code: string;
     message: string;

@@ -1,4 +1,5 @@
 export type ProposalType = 'link' | 'merge' | 'update' | 'archive';
+export type ProposalFilterType = ProposalType | 'auto-suggestion' | 'all';
 export type ProposalStatus = 'pending' | 'applied' | 'dismissed';
 
 export interface LinkProposalPayload {

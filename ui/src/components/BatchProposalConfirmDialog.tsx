@@ -4,6 +4,7 @@ import { Dialog } from './Dialog';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { Proposal } from '../types/agent';
+import { MemoryLinkWithContent } from '../types/memory';
 
 export interface BatchProposalConfirmDialogProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ export interface BatchProposalConfirmDialogProps {
   onConfirm: () => Promise<void> | void;
   action: 'apply' | 'dismiss' | null;
   proposals: Proposal[];
+  suggestedLinks?: MemoryLinkWithContent[];
   selectedScope: string;
   typeFilter?: string;
   isProcessing: boolean;
@@ -22,13 +24,16 @@ export const BatchProposalConfirmDialog: React.FC<BatchProposalConfirmDialogProp
   onConfirm,
   action,
   proposals,
+  suggestedLinks = [],
   selectedScope,
   typeFilter,
   isProcessing,
 }) => {
   if (!isOpen || !action) return null;
 
-  const count = proposals.length;
+  const proposalCount = proposals.length;
+  const suggestionCount = suggestedLinks.length;
+  const count = proposalCount + suggestionCount;
   const isApply = action === 'apply';
 
   const typeCounts = proposals.reduce(
@@ -39,10 +44,22 @@ export const BatchProposalConfirmDialog: React.FC<BatchProposalConfirmDialogProp
     {} as Record<string, number>
   );
 
-  const title = isApply ? 'Approve All Proposals' : 'Reject All Proposals';
-  const description = isApply
-    ? `Apply and execute all ${count} currently filtered pending proposals.`
-    : `Dismiss all ${count} currently filtered pending proposals.`;
+  const onlySuggestions = proposalCount === 0 && suggestionCount > 0;
+  const title = onlySuggestions
+    ? isApply
+      ? 'Approve All Auto-Suggestions'
+      : 'Reject All Auto-Suggestions'
+    : isApply
+    ? 'Approve All Proposals'
+    : 'Reject All Proposals';
+
+  const description = onlySuggestions
+    ? isApply
+      ? `Confirm and establish all ${count} currently filtered auto-suggested links.`
+      : `Dismiss all ${count} currently filtered auto-suggested links.`
+    : isApply
+    ? `Apply and execute all ${count} currently filtered pending ${proposalCount > 0 && suggestionCount > 0 ? 'items' : 'proposals'}.`
+    : `Dismiss all ${count} currently filtered pending ${proposalCount > 0 && suggestionCount > 0 ? 'items' : 'proposals'}.`;
 
   return (
     <Dialog
@@ -148,14 +165,14 @@ export const BatchProposalConfirmDialog: React.FC<BatchProposalConfirmDialogProp
               color: 'var(--text-secondary)',
             }}
           >
-            <span>Affected Proposals:</span>
+            <span>Affected Items:</span>
             <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
               {count} {count === 1 ? 'item' : 'items'}
             </span>
           </div>
 
           {/* Type Breakdown Badges */}
-          {Object.keys(typeCounts).length > 0 && (
+          {(Object.keys(typeCounts).length > 0 || suggestionCount > 0) && (
             <div
               style={{
                 display: 'flex',
@@ -183,6 +200,11 @@ export const BatchProposalConfirmDialog: React.FC<BatchProposalConfirmDialogProp
                   </Badge>
                 );
               })}
+              {suggestionCount > 0 && (
+                <Badge variant="warning" size="sm">
+                  {suggestionCount} AUTO-SUGGESTED
+                </Badge>
+              )}
             </div>
           )}
         </div>
@@ -209,8 +231,15 @@ export const BatchProposalConfirmDialog: React.FC<BatchProposalConfirmDialogProp
                 Consequence Warning:
               </div>
               <ul style={{ margin: 0, paddingLeft: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <li>Merge proposals consolidate memories into unified notes and archive the source memories.</li>
-                <li>Link proposals establish graph relationships in the knowledge store.</li>
+                {typeCounts['merge'] ? (
+                  <li>Merge proposals consolidate memories into unified notes and archive the source memories.</li>
+                ) : null}
+                {typeCounts['link'] ? (
+                  <li>Link proposals establish graph relationships in the knowledge store.</li>
+                ) : null}
+                {suggestionCount > 0 ? (
+                  <li>Auto-suggested links will be confirmed as permanent graph relationships between memories.</li>
+                ) : null}
                 {typeCounts['update'] ? (
                   <li>Update proposals revise memory content and tags, refreshing search embeddings.</li>
                 ) : null}
@@ -239,10 +268,24 @@ export const BatchProposalConfirmDialog: React.FC<BatchProposalConfirmDialogProp
             <Info size={16} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--color-info-icon)' }} />
             <div>
               <div style={{ fontWeight: 600, color: 'var(--color-info-text)', marginBottom: 'var(--space-1)' }}>
-                Notice on Proposal Dismissal:
+                Notice on Dismissal:
               </div>
               <div>
-                Dismissing these proposals will remove them from the pending inbox. No memories will be modified or deleted. You can review and reopen dismissed proposals at any time under the <strong>Dismissed</strong> tab.
+                {proposalCount > 0 && suggestionCount === 0 && (
+                  <>
+                    Dismissing these proposals will remove them from the pending inbox. No memories will be modified or deleted. You can review and reopen dismissed proposals at any time under the <strong>Dismissed</strong> tab.
+                  </>
+                )}
+                {proposalCount === 0 && suggestionCount > 0 && (
+                  <>
+                    Dismissing auto-suggested links permanently removes those pending suggestions. No memories will be modified or deleted.
+                  </>
+                )}
+                {proposalCount > 0 && suggestionCount > 0 && (
+                  <>
+                    Dismissed agent proposals move to the <strong>Dismissed</strong> tab and can be reopened later. Dismissed auto-suggested links are permanently removed. No memories will be modified or deleted.
+                  </>
+                )}
               </div>
             </div>
           </div>

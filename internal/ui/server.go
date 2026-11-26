@@ -1349,6 +1349,195 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// API Endpoints: Links (List pending auto-suggested links)
+	mux.HandleFunc("GET /api/links/suggested", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    true,
+				"links": []store.LinkWithContent{},
+				"count": 0,
+				"total": 0,
+			})
+			return
+		}
+
+		qVals := r.URL.Query()
+		scopePath := strings.TrimSpace(qVals.Get("scope"))
+		if scopePath == "global" {
+			scopePath = ""
+		}
+		if scopePath != "" {
+			if _, err := scope.Parse(scopePath); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_scope",
+						"message": err.Error(),
+					},
+				})
+				return
+			}
+		}
+
+		relation := strings.TrimSpace(qVals.Get("relation"))
+		if relation != "" && !store.IsValidLinkRelation(relation) {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_relation",
+					"message": fmt.Sprintf("invalid relation %q; must be one of: %s", relation, strings.Join(store.ValidLinkRelations, ", ")),
+				},
+			})
+			return
+		}
+
+		limit := 50
+		if lVal := qVals.Get("limit"); lVal != "" {
+			if l, err := strconv.Atoi(lVal); err == nil && l > 0 {
+				limit = l
+			}
+		}
+		if limit > 500 {
+			limit = 500
+		}
+
+		offset := 0
+		if oVal := qVals.Get("offset"); oVal != "" {
+			if o, err := strconv.Atoi(oVal); err == nil && o >= 0 {
+				offset = o
+			}
+		}
+
+		links, total, err := cfg.Store.ListSuggestedLinks(r.Context(), store.SuggestedLinkListQuery{
+			ScopePath: scopePath,
+			Relation:  relation,
+			Limit:     limit,
+			Offset:    offset,
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if links == nil {
+			links = []store.LinkWithContent{}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":    true,
+			"links": links,
+			"count": len(links),
+			"total": total,
+		})
+	})
+
+	// API Endpoints: Links (Batch confirm or dismiss auto-suggested links)
+	mux.HandleFunc("POST /api/links/suggested/batch", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		var req struct {
+			Action string  `json:"action"`
+			IDs    []int64 `json:"ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_json",
+					"message": fmt.Sprintf("invalid json payload: %v", err),
+				},
+			})
+			return
+		}
+
+		if req.Action != "confirm" && req.Action != "dismiss" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_action",
+					"message": "action must be 'confirm' or 'dismiss'",
+				},
+			})
+			return
+		}
+
+		if len(req.IDs) == 0 || len(req.IDs) > 500 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_ids",
+					"message": "ids must contain between 1 and 500 link IDs",
+				},
+			})
+			return
+		}
+
+		type batchFailure struct {
+			ID    int64  `json:"id"`
+			Error string `json:"error"`
+		}
+
+		succeeded := make([]int64, 0, len(req.IDs))
+		failed := make([]batchFailure, 0)
+
+		for _, id := range req.IDs {
+			if id <= 0 {
+				failed = append(failed, batchFailure{
+					ID:    id,
+					Error: fmt.Sprintf("invalid link id: %d", id),
+				})
+				continue
+			}
+
+			var err error
+			if req.Action == "confirm" {
+				err = cfg.Store.ConfirmLink(r.Context(), id)
+			} else {
+				err = cfg.Store.DismissLink(r.Context(), id)
+			}
+
+			if err != nil {
+				failed = append(failed, batchFailure{
+					ID:    id,
+					Error: err.Error(),
+				})
+			} else {
+				succeeded = append(succeeded, id)
+			}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":        true,
+			"action":    req.Action,
+			"total":     len(req.IDs),
+			"succeeded": succeeded,
+			"failed":    failed,
+		})
+	})
+
 	// API Endpoints: Memories (Forget/Delete memory by ID)
 	mux.HandleFunc("POST /api/memories/{id}/forget", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

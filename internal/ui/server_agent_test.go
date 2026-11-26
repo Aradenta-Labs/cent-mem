@@ -1439,3 +1439,214 @@ func TestServer_TestAgent_WhenActiveConfigDisabled(t *testing.T) {
 	}
 }
 
+func TestServer_SuggestedLinks_ListAndBatch(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	mGlobal, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "Global architecture baseline"})
+	if err != nil {
+		t.Fatalf("put mGlobal: %v", err)
+	}
+	mAlpha, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha", Type: "note", Content: "Alpha API gateway"})
+	if err != nil {
+		t.Fatalf("put mAlpha: %v", err)
+	}
+	mAlphaA1, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha/agent:a1", Type: "note", Content: "Alpha agent auth retry"})
+	if err != nil {
+		t.Fatalf("put mAlphaA1: %v", err)
+	}
+	mBeta, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:beta", Type: "note", Content: "Beta billing service"})
+	if err != nil {
+		t.Fatalf("put mBeta: %v", err)
+	}
+
+	s1, err := st.CreateLink(ctx, mAlpha, mAlphaA1, "supports", true)
+	if err != nil {
+		t.Fatalf("create s1: %v", err)
+	}
+	s2, err := st.CreateLink(ctx, mAlphaA1, mGlobal, "refines", true)
+	if err != nil {
+		t.Fatalf("create s2: %v", err)
+	}
+	s3, err := st.CreateLink(ctx, mBeta, mGlobal, "depends-on", true)
+	if err != nil {
+		t.Fatalf("create s3: %v", err)
+	}
+	if _, err := st.CreateLink(ctx, mAlpha, mBeta, "contradicts", false); err != nil {
+		t.Fatalf("create confirmed link: %v", err)
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	type suggestedListResp struct {
+		Ok    bool                    `json:"ok"`
+		Links []store.LinkWithContent `json:"links"`
+		Count int                     `json:"count"`
+		Total int                     `json:"total"`
+	}
+
+	// 1. GET /api/links/suggested (all)
+	req := httptest.NewRequest("GET", "/api/links/suggested", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/links/suggested status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var allResp suggestedListResp
+	if err := json.NewDecoder(rec.Body).Decode(&allResp); err != nil {
+		t.Fatalf("decode allResp: %v", err)
+	}
+	if !allResp.Ok || allResp.Count != 3 || allResp.Total != 3 {
+		t.Fatalf("expected ok=true count=3 total=3, got %+v", allResp)
+	}
+
+	// 2. Scope filter: project:alpha
+	req = httptest.NewRequest("GET", "/api/links/suggested?scope=project:alpha", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET scope=project:alpha status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var alphaResp suggestedListResp
+	if err := json.NewDecoder(rec.Body).Decode(&alphaResp); err != nil {
+		t.Fatalf("decode alphaResp: %v", err)
+	}
+	if !alphaResp.Ok || alphaResp.Count != 2 || alphaResp.Total != 2 {
+		t.Fatalf("expected alpha count=2 total=2, got %+v", alphaResp)
+	}
+
+	// 3. Relation filter: supports
+	req = httptest.NewRequest("GET", "/api/links/suggested?relation=supports", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET relation=supports status=%d", rec.Code)
+	}
+	var relResp suggestedListResp
+	_ = json.NewDecoder(rec.Body).Decode(&relResp)
+	if !relResp.Ok || relResp.Count != 1 || relResp.Total != 1 || relResp.Links[0].ID != s1.ID {
+		t.Fatalf("expected only s1(%d), got %+v", s1.ID, relResp)
+	}
+
+	// 4. Pagination preserves total
+	req = httptest.NewRequest("GET", "/api/links/suggested?limit=1&offset=0", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var pageResp suggestedListResp
+	_ = json.NewDecoder(rec.Body).Decode(&pageResp)
+	if !pageResp.Ok || pageResp.Count != 1 || pageResp.Total != 3 {
+		t.Fatalf("expected count=1 total=3, got %+v", pageResp)
+	}
+
+	// 5. Invalid scope / relation -> 400
+	req = httptest.NewRequest("GET", "/api/links/suggested?scope=badscope", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid scope, got %d", rec.Code)
+	}
+	req = httptest.NewRequest("GET", "/api/links/suggested?relation=unknown", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid relation, got %d", rec.Code)
+	}
+
+	type batchResp struct {
+		Ok        bool    `json:"ok"`
+		Action    string  `json:"action"`
+		Total     int     `json:"total"`
+		Succeeded []int64 `json:"succeeded"`
+		Failed    []struct {
+			ID    int64  `json:"id"`
+			Error string `json:"error"`
+		} `json:"failed"`
+	}
+
+	// 6. Batch confirm s1
+	confirmBody, _ := json.Marshal(map[string]any{
+		"action": "confirm",
+		"ids":    []int64{s1.ID},
+	})
+	req = httptest.NewRequest("POST", "/api/links/suggested/batch", bytes.NewReader(confirmBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch confirm status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var cResp batchResp
+	_ = json.NewDecoder(rec.Body).Decode(&cResp)
+	if !cResp.Ok || len(cResp.Succeeded) != 1 || cResp.Succeeded[0] != s1.ID || len(cResp.Failed) != 0 {
+		t.Fatalf("unexpected confirm resp: %+v", cResp)
+	}
+
+	// Verify s1 is now confirmed in DB
+	outAlpha, _, err := st.GetLinksForMemory(ctx, mAlpha, false)
+	if err != nil {
+		t.Fatalf("GetLinksForMemory: %v", err)
+	}
+	foundConfirmed := false
+	for _, l := range outAlpha {
+		if l.ID == s1.ID && !l.Suggested {
+			foundConfirmed = true
+		}
+	}
+	if !foundConfirmed {
+		t.Errorf("expected s1(%d) to be confirmed in DB", s1.ID)
+	}
+
+	// 7. Batch dismiss with partial failure (valid s2 + missing + negative)
+	dismissBody, _ := json.Marshal(map[string]any{
+		"action": "dismiss",
+		"ids":    []int64{s2.ID, 999999, -5},
+	})
+	req = httptest.NewRequest("POST", "/api/links/suggested/batch", bytes.NewReader(dismissBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch dismiss status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var dResp batchResp
+	_ = json.NewDecoder(rec.Body).Decode(&dResp)
+	if !dResp.Ok || dResp.Total != 3 || len(dResp.Succeeded) != 1 || dResp.Succeeded[0] != s2.ID || len(dResp.Failed) != 2 {
+		t.Fatalf("unexpected partial dismiss resp: %+v", dResp)
+	}
+
+	// Only s3 should remain suggested
+	rem, remTotal, err := st.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks remaining: %v", err)
+	}
+	if remTotal != 1 || len(rem) != 1 || rem[0].ID != s3.ID {
+		t.Fatalf("expected only s3(%d) remaining, got total=%d rem=%+v", s3.ID, remTotal, rem)
+	}
+
+	// 8. Invalid batch action / empty ids -> 400
+	badActionBody, _ := json.Marshal(map[string]any{"action": "delete", "ids": []int64{s3.ID}})
+	req = httptest.NewRequest("POST", "/api/links/suggested/batch", bytes.NewReader(badActionBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid batch action, got %d", rec.Code)
+	}
+
+	emptyIDsBody, _ := json.Marshal(map[string]any{"action": "confirm", "ids": []int64{}})
+	req = httptest.NewRequest("POST", "/api/links/suggested/batch", bytes.NewReader(emptyIDsBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty ids, got %d", rec.Code)
+	}
+}
+

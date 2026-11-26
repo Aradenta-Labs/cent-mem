@@ -254,3 +254,127 @@ func TestLinks_BatchFetch(t *testing.T) {
 		t.Errorf("expected 1 link for m3, got %d", len(batch[m3]))
 	}
 }
+
+func TestLinks_ListSuggestedLinks(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	mGlobal, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "note", Content: "Global memory"})
+	if err != nil {
+		t.Fatalf("PutMemory mGlobal: %v", err)
+	}
+	mAlpha, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha", Type: "note", Content: "Alpha memory"})
+	if err != nil {
+		t.Fatalf("PutMemory mAlpha: %v", err)
+	}
+	mAlphaAgent, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha/agent:claude", Type: "note", Content: "Alpha agent memory"})
+	if err != nil {
+		t.Fatalf("PutMemory mAlphaAgent: %v", err)
+	}
+	mBeta, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:beta", Type: "note", Content: "Beta memory"})
+	if err != nil {
+		t.Fatalf("PutMemory mBeta: %v", err)
+	}
+
+	// Suggested links
+	s1, err := s.CreateLink(ctx, mAlpha, mAlphaAgent, "supports", true)
+	if err != nil {
+		t.Fatalf("CreateLink s1: %v", err)
+	}
+	s2, err := s.CreateLink(ctx, mAlphaAgent, mGlobal, "refines", true)
+	if err != nil {
+		t.Fatalf("CreateLink s2: %v", err)
+	}
+	s3, err := s.CreateLink(ctx, mBeta, mGlobal, "depends-on", true)
+	if err != nil {
+		t.Fatalf("CreateLink s3: %v", err)
+	}
+	// Confirmed link (should never appear)
+	if _, err := s.CreateLink(ctx, mAlpha, mBeta, "contradicts", false); err != nil {
+		t.Fatalf("CreateLink confirmed: %v", err)
+	}
+
+	// 1. Unfiltered & "global" should return all 3 suggested links
+	all, total, err := s.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks all: %v", err)
+	}
+	if total != 3 || len(all) != 3 {
+		t.Fatalf("expected total=3 len=3, got total=%d len=%d", total, len(all))
+	}
+
+	globalRes, globalTotal, err := s.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{ScopePath: "global"})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks global: %v", err)
+	}
+	if globalTotal != 3 || len(globalRes) != 3 {
+		t.Fatalf("expected global total=3 len=3, got total=%d len=%d", globalTotal, len(globalRes))
+	}
+
+	// 2. Scope subtree filtering (project:alpha includes child project:alpha/agent:claude and cross-scope link to global, excludes project:beta-only)
+	alphaRes, alphaTotal, err := s.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{ScopePath: "project:alpha"})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks alpha: %v", err)
+	}
+	if alphaTotal != 2 || len(alphaRes) != 2 {
+		t.Fatalf("expected alpha total=2 len=2, got total=%d len=%d", alphaTotal, len(alphaRes))
+	}
+	seenIDs := map[int64]bool{}
+	for _, item := range alphaRes {
+		if seenIDs[item.ID] {
+			t.Fatalf("duplicate link id %d in alphaRes", item.ID)
+		}
+		seenIDs[item.ID] = true
+		if item.ID == s3.ID {
+			t.Errorf("unexpected beta link %d in alphaRes", s3.ID)
+		}
+	}
+	if !seenIDs[s1.ID] || !seenIDs[s2.ID] {
+		t.Errorf("expected s1(%d) and s2(%d) in alphaRes, got %v", s1.ID, s2.ID, seenIDs)
+	}
+
+	// 3. Relation filtering & invalid relation error
+	relRes, relTotal, err := s.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{Relation: "supports"})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks relation: %v", err)
+	}
+	if relTotal != 1 || len(relRes) != 1 || relRes[0].ID != s1.ID {
+		t.Fatalf("expected only s1(%d), got total=%d items=%+v", s1.ID, relTotal, relRes)
+	}
+	if _, _, err := s.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{Relation: "bogus"}); err == nil {
+		t.Errorf("expected error for invalid relation")
+	}
+
+	// 4. Unknown scope returns empty without error
+	unknownRes, unknownTotal, err := s.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{ScopePath: "project:nonexistent"})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks nonexistent: %v", err)
+	}
+	if unknownTotal != 0 || len(unknownRes) != 0 {
+		t.Fatalf("expected empty for unknown scope, got total=%d len=%d", unknownTotal, len(unknownRes))
+	}
+
+	// 5. Pagination preserves full total
+	pageRes, pageTotal, err := s.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks page: %v", err)
+	}
+	if pageTotal != 3 || len(pageRes) != 1 {
+		t.Fatalf("expected total=3 len=1, got total=%d len=%d", pageTotal, len(pageRes))
+	}
+
+	// 6. Confirm and dismiss remove items from suggested list
+	if err := s.ConfirmLink(ctx, s1.ID); err != nil {
+		t.Fatalf("ConfirmLink s1: %v", err)
+	}
+	if err := s.DismissLink(ctx, s2.ID); err != nil {
+		t.Fatalf("DismissLink s2: %v", err)
+	}
+	afterRes, afterTotal, err := s.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks after confirm/dismiss: %v", err)
+	}
+	if afterTotal != 1 || len(afterRes) != 1 || afterRes[0].ID != s3.ID {
+		t.Fatalf("expected only s3(%d) remaining, got total=%d items=%+v", s3.ID, afterTotal, afterRes)
+	}
+}

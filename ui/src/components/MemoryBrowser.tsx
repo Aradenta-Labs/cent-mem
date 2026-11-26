@@ -21,6 +21,7 @@ export interface MemoryBrowserProps {
   onSearchChange: (q: string) => void;
   onSelectScope: (scope: string) => void;
   onDeleteScope?: (scope: string) => void;
+  onLinksChanged?: () => void;
   refreshKey?: number;
 }
 
@@ -31,6 +32,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
   onSearchChange,
   onSelectScope,
   onDeleteScope,
+  onLinksChanged,
   refreshKey,
 }) => {
   const [, startTransition] = useTransition();
@@ -701,6 +703,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
           setSelectedMemory(null);
         }}
         onForget={setPendingForgetMemory}
+        onLinksChanged={onLinksChanged}
         onSelectMemory={async (id) => {
           try {
             const mem = await fetchMemoryDetail(id);

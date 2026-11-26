@@ -253,6 +253,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
                 onSearchChange={handleSearchChange}
                 onSelectScope={handleSelectScope}
                 onDeleteScope={handleOpenDeleteScope}
+                onLinksChanged={() => {
+                  refreshPendingCount();
+                  setDataVersion((v) => v + 1);
+                }}
                 refreshKey={dataVersion}
               />
             )}
@@ -269,6 +273,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
                 selectedScope={selectedScope}
                 onSelectMemory={handleOpenMemoryById}
                 onToast={showToast}
+                refreshKey={dataVersion}
                 onProposalApplied={() => {
                   loadData();
                   refreshPendingCount();
@@ -292,6 +297,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
         onClose={() => setDrawerMemory(null)}
         onSelectMemory={handleOpenMemoryById}
         onSelectScope={handleSelectScope}
+        onLinksChanged={() => {
+          refreshPendingCount();
+          setDataVersion((v) => v + 1);
+        }}
       />
 
       <KeyboardShortcutsModal

@@ -136,13 +136,14 @@ Manage and prune memory subtrees directly within the browser interface:
 - **Reactive Cache Invalidation**: Automatically resets view selection to `global`, invalidates SWR caches, and displays a success toast.
 
 ### 4.8 Proposals Review Center & Bulk Actions
-Human-in-the-loop review for autonomous memory agent suggestions (`merge`, `link`, `update`, `archive`):
-- **Visual Diffs**: Side-by-side comparison of source memories and proposed consolidated text, combined tags, and directional relationship arrows (`supports`, `contradicts`, `supersedes`).
-- **Individual Actions**: 1-click **Approve & Apply**, **Dismiss**, and **Undo/Reopen** with live status badge updates.
-- **Bulk Actions**: When viewing pending proposals, a dedicated review toolbar provides:
-  - **"Approve All"** button: Opens `BatchProposalConfirmDialog` to apply all currently filtered pending proposals in one batch.
-  - **"Reject All"** button: Opens confirmation dialog to dismiss all currently filtered pending proposals.
-  - **Batch Confirmation Dialog**: Displays the total count, category badges by proposal type, and explicit warning callouts (e.g. merging consolidates and archives original memories).
+Human-in-the-loop review for autonomous memory agent suggestions (`merge`, `link`, `update`, `archive`) and per-node auto-suggested links (`suggested = 1`):
+- **Unified Inbox & Filtering**: Displays staged agent proposals alongside pending per-node auto-suggested links in the `Pending` tab (and live sidebar badge count), with type filtering (`All Types`, `Auto-Suggestions`, `Merge`, `Agent Link`, `Update`, `Archive`) and scope subtree filtering.
+- **Visual Diffs & Node Previews**: Side-by-side comparison of source memories and proposed consolidated text, combined tags, directional relationship arrows (`supports`, `refines`, `contradicts`, `depends-on`, `supersedes`), and clickable source/target memory content previews for auto-suggested links.
+- **Individual Actions**: 1-click **Approve & Apply** / **Confirm Link**, **Dismiss**, and **Undo/Reopen** with live status badge updates.
+- **Bulk Actions**: When viewing pending proposals and/or auto-suggestions, a dedicated review toolbar provides:
+  - **"Approve All"** button: Opens `BatchProposalConfirmDialog` to apply/confirm all currently filtered pending items in one batch.
+  - **"Reject All"** button: Opens confirmation dialog to dismiss all currently filtered pending items.
+  - **Batch Confirmation Dialog**: Displays the total count, category badges by proposal type and auto-suggestions, and explicit warning callouts (e.g. merging consolidates and archives original memories; confirming auto-suggested links establishes permanent graph relationships).
   - **Transparent Chunking & Resilience**: Handles review sets up to 500 items with transparent client-side chunking and conflict handling.
 
 ### 4.9 Assistant Chat Tab (Active Intelligence)
@@ -202,6 +203,8 @@ The dashboard communicates with `centmem` via a local-only REST API:
 | `/api/proposals/:id/dismiss` | `POST` | Dismiss an individual staged proposal |
 | `/api/proposals/:id/reopen` | `POST` | Reopen a previously dismissed proposal |
 | `/api/proposals/batch` | `POST` | Batch apply or dismiss multiple proposals (`action: "apply"\|"dismiss", ids: [...]`) |
+| `/api/links/suggested` | `GET` | List pending per-node auto-suggested links (`scope`, `relation`, `limit`, `offset`) |
+| `/api/links/suggested/batch` | `POST` | Batch confirm or dismiss auto-suggested links (`action: "confirm"\|"dismiss", ids: [...]`) |
 | `/api/agent/chat` | `POST` | Send natural language inquiry to AI Memory Agent with ReAct reasoning and citations |
 | `/api/agent/conversations` | `GET` | List persistent agent conversation threads |
 | `/api/agent/conversations` | `POST` | Create a new agent conversation thread |

@@ -10,7 +10,11 @@ import {
   ExportFilters,
   RelationType,
   MemoryLink,
+  MemoryLinkWithContent,
   MemoryLinksResponse,
+  SuggestedLinksFilters,
+  SuggestedLinksResponse,
+  BatchSuggestedLinksResponse,
 } from '../types/memory';
 import { StoreStats, StatsResponse } from '../types/stats';
 import {
@@ -500,6 +504,77 @@ export async function deleteLink(linkId: number): Promise<{ ok: boolean; deleted
   return data;
 }
 
+export async function fetchSuggestedLinks(
+  filters: SuggestedLinksFilters = {}
+): Promise<{ links: MemoryLinkWithContent[]; total: number }> {
+  const params = new URLSearchParams();
+  if (filters.scope && filters.scope !== 'global') params.set('scope', filters.scope);
+  if (filters.relation && filters.relation !== 'all') params.set('relation', filters.relation);
+  if (filters.limit !== undefined) params.set('limit', String(filters.limit));
+  if (filters.offset !== undefined) params.set('offset', String(filters.offset));
+
+  const query = params.toString();
+  const res = await apiFetch(`/api/links/suggested${query ? `?${query}` : ''}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load suggested links: HTTP ${res.status}`);
+  }
+  const data: SuggestedLinksResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load suggested links');
+  }
+  return {
+    links: data.links || [],
+    total: data.total ?? data.count ?? (data.links ? data.links.length : 0),
+  };
+}
+
+export async function batchSuggestedLinks(
+  action: 'confirm' | 'dismiss',
+  ids: number[]
+): Promise<BatchSuggestedLinksResponse> {
+  if (ids.length === 0) {
+    return {
+      ok: true,
+      action,
+      total: 0,
+      succeeded: [],
+      failed: [],
+    };
+  }
+
+  const chunkSize = 100;
+  const combined: BatchSuggestedLinksResponse = {
+    ok: true,
+    action,
+    total: ids.length,
+    succeeded: [],
+    failed: [],
+  };
+
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const res = await apiFetch('/api/links/suggested/batch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action, ids: chunk }),
+    });
+    const data: BatchSuggestedLinksResponse = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error?.message || `Failed to ${action} suggested links: HTTP ${res.status}`);
+    }
+    if (data.succeeded) {
+      combined.succeeded.push(...data.succeeded);
+    }
+    if (data.failed) {
+      combined.failed.push(...data.failed);
+    }
+  }
+
+  return combined;
+}
+
 // ---------------------------------------------------------------------------
 // Agent & Proposals Endpoints
 // ---------------------------------------------------------------------------
@@ -525,20 +600,46 @@ export async function fetchProposals(filters: ProposalFilters = {}): Promise<Pro
 }
 
 export async function fetchPendingProposalsCount(scope?: string): Promise<number> {
-  const params = new URLSearchParams();
-  params.set('status', 'pending');
-  params.set('limit', '500');
+  const proposalParams = new URLSearchParams();
+  proposalParams.set('status', 'pending');
+  proposalParams.set('limit', '500');
   if (scope && scope !== 'global') {
-    params.set('scope', scope);
+    proposalParams.set('scope', scope);
   }
-  try {
-    const res = await apiFetch(`/api/proposals?${params.toString()}`);
-    if (!res.ok) return 0;
-    const data: ProposalsResponse = await res.json();
-    return data.count ?? data.proposals?.length ?? 0;
-  } catch {
-    return 0;
+
+  const suggestedParams = new URLSearchParams();
+  suggestedParams.set('limit', '1');
+  if (scope && scope !== 'global') {
+    suggestedParams.set('scope', scope);
   }
+
+  const fetchProposalsCnt = async (): Promise<number> => {
+    try {
+      const res = await apiFetch(`/api/proposals?${proposalParams.toString()}`);
+      if (!res.ok) return 0;
+      const data: ProposalsResponse = await res.json();
+      return data.count ?? data.proposals?.length ?? 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const fetchSuggestedCnt = async (): Promise<number> => {
+    try {
+      const res = await apiFetch(`/api/links/suggested?${suggestedParams.toString()}`);
+      if (!res.ok) return 0;
+      const data: SuggestedLinksResponse = await res.json();
+      return data.total ?? data.count ?? data.links?.length ?? 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const [proposalsCount, suggestedCount] = await Promise.all([
+    fetchProposalsCnt(),
+    fetchSuggestedCnt(),
+  ]);
+  return proposalsCount + suggestedCount;
 }
 
 export async function applyProposal(id: number): Promise<ProposalActionResponse> {

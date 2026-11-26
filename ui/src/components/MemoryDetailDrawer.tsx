@@ -35,6 +35,7 @@ export interface MemoryDetailDrawerProps {
   onSelectScope?: (scope: string) => void;
   onForget?: (memory: Memory) => void;
   onSelectMemory?: (id: number) => void;
+  onLinksChanged?: () => void;
 }
 
 const RELATION_COLORS: Record<RelationType, { bg: string; text: string; border: string }> = {
@@ -52,6 +53,7 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
   onSelectScope,
   onForget,
   onSelectMemory,
+  onLinksChanged,
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'relations'>('overview');
   const [copiedContent, setCopiedContent] = useState(false);
@@ -130,6 +132,7 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
     try {
       await confirmLink(linkId);
       if (memory.id) loadLinks(memory.id);
+      onLinksChanged?.();
     } catch (err: any) {
       alert(err.message || 'Failed to confirm link');
     }
@@ -139,6 +142,7 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
     try {
       await dismissLink(linkId);
       if (memory.id) loadLinks(memory.id);
+      onLinksChanged?.();
     } catch (err: any) {
       alert(err.message || 'Failed to dismiss link');
     }
@@ -148,6 +152,7 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
     try {
       await deleteLink(linkId);
       if (memory.id) loadLinks(memory.id);
+      onLinksChanged?.();
     } catch (err: any) {
       alert(err.message || 'Failed to delete link');
     }
@@ -171,6 +176,7 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
       await createLink(memory.id, targetIdNum, newRelation);
       setNewTargetId('');
       if (memory.id) loadLinks(memory.id);
+      onLinksChanged?.();
     } catch (err: any) {
       setFormError(err.message || 'Failed to create link');
     } finally {
