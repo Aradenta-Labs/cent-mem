@@ -34,6 +34,9 @@ import {
   ProposalsResponse,
   ProposalActionResponse,
   BatchProposalsResponse,
+  BatchStreamErrorItem,
+  BatchStreamOptions,
+  BatchStreamResult,
   Conversation,
   ConversationsResponse,
   Message,
@@ -548,7 +551,8 @@ export async function fetchSuggestedLinks(
 
 export async function batchSuggestedLinks(
   action: 'confirm' | 'dismiss',
-  ids: number[]
+  ids: number[],
+  signal?: AbortSignal
 ): Promise<BatchSuggestedLinksResponse> {
   if (ids.length === 0) {
     return {
@@ -570,6 +574,11 @@ export async function batchSuggestedLinks(
   };
 
   for (let i = 0; i < ids.length; i += chunkSize) {
+    if (signal?.aborted) {
+      const abortErr = new Error('The operation was aborted.');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
     const chunk = ids.slice(i, i + chunkSize);
     const res = await apiFetch('/api/links/suggested/batch', {
       method: 'POST',
@@ -577,6 +586,7 @@ export async function batchSuggestedLinks(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ action, ids: chunk }),
+      signal,
     });
     const data: BatchSuggestedLinksResponse = await res.json();
     if (!res.ok || !data.ok) {
@@ -721,7 +731,8 @@ export async function reopenProposal(id: number): Promise<ProposalActionResponse
 
 export async function batchProposals(
   action: 'apply' | 'dismiss',
-  ids: number[]
+  ids: number[],
+  signal?: AbortSignal
 ): Promise<BatchProposalsResponse> {
   if (ids.length === 0) {
     return {
@@ -744,10 +755,16 @@ export async function batchProposals(
   };
 
   for (let i = 0; i < ids.length; i += chunkSize) {
+    if (signal?.aborted) {
+      const abortErr = new Error('The operation was aborted.');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
     const chunk = ids.slice(i, i + chunkSize);
     const res = await apiFetch('/api/proposals/batch', {
       method: 'POST',
       body: JSON.stringify({ action, ids: chunk }),
+      signal,
     });
     const data: BatchProposalsResponse = await res.json();
     if (!res.ok || !data.ok) {
@@ -762,6 +779,272 @@ export async function batchProposals(
   }
 
   return combined;
+}
+
+const STREAM_BATCH_CHUNK_SIZE = 500;
+const FALLBACK_BATCH_CHUNK_SIZE = 100;
+
+async function streamBatchEndpoint<TAction extends string>(
+  streamUrl: string,
+  action: TAction,
+  ids: number[],
+  kind: 'proposal' | 'link',
+  fallbackBatch: (
+    chunkIds: number[],
+    signal?: AbortSignal
+  ) => Promise<{ succeeded: number[]; failed: Array<{ id: number; error: string }> }>,
+  options?: BatchStreamOptions
+): Promise<BatchStreamResult> {
+  const total = ids.length;
+  if (total === 0) {
+    return { processed: 0, succeeded: 0, failed: 0, total: 0, errors: [], cancelled: false };
+  }
+
+  const signal = options?.signal;
+  const errors: BatchStreamErrorItem[] = [];
+  let baseProcessed = 0;
+  let baseSucceeded = 0;
+  let baseFailed = 0;
+  let cancelled = false;
+
+  const canStream = typeof ReadableStream !== 'undefined' && typeof TextDecoder !== 'undefined';
+
+  // Returns false when cancelled mid-fallback so caller halts remaining chunks.
+  const runFallbackChunk = async (chunk: number[]): Promise<boolean> => {
+    for (let j = 0; j < chunk.length; j += FALLBACK_BATCH_CHUNK_SIZE) {
+      if (signal?.aborted) {
+        cancelled = true;
+        return false;
+      }
+      const subChunk = chunk.slice(j, j + FALLBACK_BATCH_CHUNK_SIZE);
+      try {
+        const res = await fallbackBatch(subChunk, signal);
+        const chunkSucc = res.succeeded?.length ?? 0;
+        const chunkFailItems = res.failed ?? [];
+        for (const f of chunkFailItems) {
+          errors.push({ id: f.id, kind, error: f.error });
+        }
+        baseSucceeded += chunkSucc;
+        baseFailed += chunkFailItems.length;
+        baseProcessed += chunkSucc + chunkFailItems.length;
+        options?.onProgress?.({
+          processed: baseProcessed,
+          succeeded: baseSucceeded,
+          failed: baseFailed,
+          total,
+        });
+      } catch (fallbackErr: any) {
+        if (fallbackErr?.name === 'AbortError' || signal?.aborted) {
+          cancelled = true;
+          return false;
+        }
+        throw fallbackErr;
+      }
+    }
+    return true;
+  };
+
+  for (let i = 0; i < total; i += STREAM_BATCH_CHUNK_SIZE) {
+    if (signal?.aborted) {
+      cancelled = true;
+      break;
+    }
+
+    const chunk = ids.slice(i, i + STREAM_BATCH_CHUNK_SIZE);
+    if (!canStream) {
+      const ok = await runFallbackChunk(chunk);
+      if (!ok) break;
+      continue;
+    }
+
+    let chunkProcessed = 0;
+    let chunkSucceeded = 0;
+    let chunkFailed = 0;
+    let chunkCancelled = false;
+    let sawDone = false;
+
+    const handleSseLine = (state: { event: string }, line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        state.event = '';
+        return;
+      }
+      if (trimmed.startsWith('event:')) {
+        state.event = trimmed.slice(6).trim();
+      } else if (trimmed.startsWith('data:')) {
+        const dataStr = trimmed.slice(5).trim();
+        try {
+          const parsed = JSON.parse(dataStr);
+          if (state.event === 'progress') {
+            chunkProcessed = typeof parsed.processed === 'number' ? parsed.processed : chunkProcessed + 1;
+            chunkSucceeded = typeof parsed.succeeded === 'number' ? parsed.succeeded : chunkSucceeded;
+            chunkFailed = typeof parsed.failed === 'number' ? parsed.failed : chunkFailed;
+            if (parsed.error) {
+              errors.push({ id: parsed.id, kind, error: String(parsed.error) });
+            }
+            options?.onProgress?.({
+              id: parsed.id,
+              processed: baseProcessed + chunkProcessed,
+              succeeded: baseSucceeded + chunkSucceeded,
+              failed: baseFailed + chunkFailed,
+              total,
+              error: parsed.error || undefined,
+            });
+          } else if (state.event === 'done') {
+            sawDone = true;
+            if (typeof parsed.processed === 'number') chunkProcessed = parsed.processed;
+            if (typeof parsed.succeeded === 'number') chunkSucceeded = parsed.succeeded;
+            if (typeof parsed.failed === 'number') chunkFailed = parsed.failed;
+            if (parsed.cancelled) chunkCancelled = true;
+          }
+        } catch {
+          // Ignore malformed SSE data frame
+        }
+      }
+    };
+
+    try {
+      const res = await apiFetch(streamUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify({ action, ids: chunk }),
+        signal,
+      });
+
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 405 || res.status === 501) {
+          const ok = await runFallbackChunk(chunk);
+          if (!ok) break;
+          continue;
+        }
+        let errMsg = `Batch ${action} failed: HTTP ${res.status}`;
+        try {
+          const errJson = await res.json();
+          if (typeof errJson?.error === 'string' && errJson.error) {
+            errMsg = errJson.error;
+          } else if (errJson?.error?.message) {
+            errMsg = errJson.error.message;
+          }
+        } catch {
+          // ignore JSON parse failure
+        }
+        throw new Error(errMsg);
+      }
+
+      const sseState = { event: '' };
+      if (!res.body || typeof res.body.getReader !== 'function') {
+        const text = await res.text();
+        for (const line of text.split('\n')) {
+          handleSseLine(sseState, line);
+        }
+      } else {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+              handleSseLine(sseState, line);
+            }
+          }
+          buffer += decoder.decode();
+          if (buffer.length > 0) {
+            for (const line of buffer.split('\n')) {
+              handleSseLine(sseState, line);
+            }
+          }
+        } catch (readErr: any) {
+          try {
+            await reader.cancel();
+          } catch {
+            // ignore cancel error
+          }
+          if (readErr?.name === 'AbortError' || signal?.aborted) {
+            baseProcessed += chunkProcessed;
+            baseSucceeded += chunkSucceeded;
+            baseFailed += chunkFailed;
+            cancelled = true;
+            break;
+          }
+          throw readErr;
+        }
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) {
+        baseProcessed += chunkProcessed;
+        baseSucceeded += chunkSucceeded;
+        baseFailed += chunkFailed;
+        cancelled = true;
+        break;
+      }
+      throw err;
+    }
+
+    baseProcessed += chunkProcessed;
+    baseSucceeded += chunkSucceeded;
+    baseFailed += chunkFailed;
+
+    if (!sawDone) {
+      if (signal?.aborted) {
+        cancelled = true;
+        break;
+      }
+      throw new Error(`Batch ${action} stream ended unexpectedly before completion (${baseProcessed}/${total} processed)`);
+    }
+
+    const hasMoreChunks = i + STREAM_BATCH_CHUNK_SIZE < total;
+    if (chunkCancelled || (signal?.aborted && hasMoreChunks)) {
+      cancelled = true;
+      break;
+    }
+  }
+
+  return {
+    processed: baseProcessed,
+    succeeded: baseSucceeded,
+    failed: baseFailed,
+    total,
+    errors,
+    cancelled,
+  };
+}
+
+export async function streamBatchProposals(
+  action: 'apply' | 'dismiss',
+  ids: number[],
+  options?: BatchStreamOptions
+): Promise<BatchStreamResult> {
+  return streamBatchEndpoint(
+    '/api/proposals/batch/stream',
+    action,
+    ids,
+    'proposal',
+    (chunk, signal) => batchProposals(action, chunk, signal),
+    options
+  );
+}
+
+export async function streamBatchSuggestedLinks(
+  action: 'confirm' | 'dismiss',
+  ids: number[],
+  options?: BatchStreamOptions
+): Promise<BatchStreamResult> {
+  return streamBatchEndpoint(
+    '/api/links/suggested/batch/stream',
+    action,
+    ids,
+    'link',
+    (chunk, signal) => batchSuggestedLinks(action, chunk, signal),
+    options
+  );
 }
 
 export const createMemory = restoreMemory;

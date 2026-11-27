@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.5] - 2026-11-27
+
+Streaming Proposal & Auto-Suggested Link Application (SSE Batch Progress & Mid-Flight Cancellation).
+
+### Added
+
+- **SSE Batch Streaming Endpoints (`POST /api/proposals/batch/stream`, `POST /api/links/suggested/batch/stream`)**:
+  - Added `POST /api/proposals/batch/stream` (`action: "apply"|"dismiss"`) and `POST /api/links/suggested/batch/stream` (`action: "confirm"|"dismiss"`) in `internal/ui/server.go`, keeping the existing non-streaming `/batch` endpoints intact for backward compatibility.
+  - Validates store availability (`503 store_unavailable`), JSON body (`400 invalid_json`), action (`400 invalid_action`), and ID bounds (`1 <= len(ids) <= 500`, `400 invalid_ids`) before switching to `text/event-stream`.
+  - Streams flushed SSE frames (`event: start`, per-item `event: progress` with `{id, processed, succeeded, failed, total, error}`, and `event: done` with `{processed, succeeded, failed, cancelled}`) and checks `r.Context().Done()` between items to halt cleanly on mid-flight cancellation while leaving already-committed items intact.
+  - Added unit tests in `internal/ui/server_agent_test.go` covering full SSE completion with mixed valid/missing/invalid IDs, deterministic mid-stream context cancellation, and pre-stream `400`/`503` JSON error responses for both endpoints.
+- **Web UI Live Batch Progress, Per-Item Errors & Cancellation (`ProposalsView.tsx`, `BatchProposalConfirmDialog.tsx`)**:
+  - Added `streamBatchProposals` and `streamBatchSuggestedLinks` in `ui/src/services/api.ts` using `fetch()` + `ReadableStream` SSE parsing with `AbortController`, transparent 500-item client-side chunking, and automatic fallback to non-streaming `/batch` endpoints if `ReadableStream`/SSE is unavailable.
+  - Upgraded `BatchProposalConfirmDialog.tsx` and `ProposalsView.tsx` with a determinate progress bar (`processed / total` and percentage), live `succeeded`/`failed` counters, a collapsible per-item error list when failures occur, and a **Cancel** button that aborts remaining items, displays a cancelled summary, and immediately refreshes both the inbox and Sidebar pending badge count.
+
 ## [2.1.4] - 2026-11-27
 
 Web UI Keyboard Shortcuts, Centralized Input/Modal Focus Guards & In-Drawer Memory Editing.
@@ -550,6 +565,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.1.5]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.5
 [2.1.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.4
 [2.1.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.3
 [2.1.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.2

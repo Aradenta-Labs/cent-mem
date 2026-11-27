@@ -84,15 +84,15 @@ This document captures feature ideas that are not blockers for the current miles
 
 ---
 
-### 7. Streaming Proposal Application *(Planned for v2.1.5)*
+### 7. Streaming Proposal Application ✅ *(Implemented in v2.1.5)*
 
-**Plan:** [docs/plans/plan-v2.1.5.md](plans/plan-v2.1.5.md)
+**Plan & Implementation:** [docs/plans/plan-v2.1.5.md](plans/plan-v2.1.5.md)
 
-**What:** Stream progress over SSE when applying large batches of proposals — `POST /api/proposals/batch` emits incremental `{applied: N, total: M}` events; Web UI shows a progress bar.
+**What:** Stream progress over SSE when applying large batches of proposals and auto-suggested links — `POST /api/proposals/batch/stream` and `POST /api/links/suggested/batch/stream` emit `start`, per-item `progress`, and `done` events; the Web UI renders a live progress bar, per-item error list, and mid-flight cancellation.
 
-**Why:** Applying proposals on a 500-memory scope currently blocks the UI until complete. Progress feedback makes the operation feel safe and cancellable.
+**Why:** Applying proposals on a 500-memory scope previously blocked the UI until complete. Real-time progress feedback and cancellation make large batch operations transparent and safe.
 
-**Signals:** Backend SSE pattern already exists in `/api/agent/chat`; reuse is straightforward.
+**Signals:** Shipped in v2.1.5 with `POST /api/proposals/batch/stream` and `POST /api/links/suggested/batch/stream` (keeping existing non-streaming `/batch` endpoints intact), pre-stream `400`/`503` validation, `r.Context().Done()` cancellation between items, and `BatchProposalConfirmDialog` / `ProposalsView` live SSE progress UI with `AbortController` and non-streaming fallback.
 
 ---
 

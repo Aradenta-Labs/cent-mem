@@ -5,6 +5,7 @@ import { Button } from './Button';
 export interface DialogProps {
   isOpen: boolean;
   onClose: () => void;
+  preventClose?: boolean;
   title: string;
   description?: string;
   children: React.ReactNode;
@@ -14,6 +15,7 @@ export interface DialogProps {
 export const Dialog: React.FC<DialogProps> = ({
   isOpen,
   onClose,
+  preventClose = false,
   title,
   description,
   children,
@@ -39,19 +41,32 @@ export const Dialog: React.FC<DialogProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
+        if (preventClose) {
+          e.preventDefault();
+          return;
+        }
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, preventClose]);
 
   if (!isOpen) return null;
 
   return (
     <dialog
       ref={dialogRef}
-      onClose={onClose}
+      onCancel={(e) => {
+        if (preventClose) {
+          e.preventDefault();
+        }
+      }}
+      onClose={() => {
+        if (!preventClose) {
+          onClose();
+        }
+      }}
       style={{
         position: 'fixed',
         inset: 0,
@@ -76,9 +91,11 @@ export const Dialog: React.FC<DialogProps> = ({
             </p>
           )}
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close dialog" style={{ padding: '4px' }}>
-          <X size={16} />
-        </Button>
+        {!preventClose && (
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close dialog" style={{ padding: '4px' }}>
+            <X size={16} />
+          </Button>
+        )}
       </div>
 
       <div style={{ padding: 'var(--space-4)', maxHeight: '60vh', overflowY: 'auto' }}>

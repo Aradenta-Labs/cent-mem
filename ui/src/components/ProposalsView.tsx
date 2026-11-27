@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   GitMerge,
   ArrowRight,
@@ -16,6 +16,7 @@ import {
   MergeProposalPayload,
   UpdateProposalPayload,
   ArchiveProposalPayload,
+  BatchStreamErrorItem,
 } from '../types/agent';
 import { MemoryLinkWithContent, RelationType } from '../types/memory';
 import {
@@ -23,16 +24,16 @@ import {
   applyProposal,
   dismissProposal,
   reopenProposal,
-  batchProposals,
+  streamBatchProposals,
   fetchSuggestedLinks,
   confirmLink,
   dismissLink,
-  batchSuggestedLinks,
+  streamBatchSuggestedLinks,
 } from '../services/api';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { SegmentedControl } from './SegmentedControl';
-import { BatchProposalConfirmDialog } from './BatchProposalConfirmDialog';
+import { BatchProposalConfirmDialog, BatchExecutionState } from './BatchProposalConfirmDialog';
 
 const RELATION_COLORS: Record<RelationType, { bg: string; text: string; border: string }> = {
   contradicts: { bg: 'rgba(239, 68, 68, 0.1)', text: '#ef4444', border: 'rgba(239, 68, 68, 0.3)' },
@@ -79,6 +80,14 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
   // Batch action state
   const [batchDialogAction, setBatchDialogAction] = useState<'apply' | 'dismiss' | null>(null);
   const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
+  const [batchExecution, setBatchExecution] = useState<BatchExecutionState | null>(null);
+  const batchAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      batchAbortRef.current?.abort();
+    };
+  }, []);
 
   const loadProposals = useCallback(async () => {
     setIsLoading(true);
@@ -282,37 +291,139 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
     }
   };
 
+  const handleBatchCancel = useCallback(() => {
+    batchAbortRef.current?.abort();
+  }, []);
+
+  const handleBatchDialogClose = useCallback(() => {
+    if (batchExecution?.status === 'running') return;
+    setBatchDialogAction(null);
+    setBatchExecution(null);
+  }, [batchExecution?.status]);
+
   const handleBatchConfirm = async () => {
     if (!batchDialogAction || (visibleProposals.length === 0 && visibleSuggestedLinks.length === 0)) {
       return;
     }
-    setIsBatchProcessing(true);
+
     const action = batchDialogAction;
     const proposalIds = visibleProposals.map((p) => p.id);
     const linkIds = visibleSuggestedLinks.map((l) => l.id);
+    const total = proposalIds.length + linkIds.length;
+
+    const controller = new AbortController();
+    batchAbortRef.current = controller;
+
+    setIsBatchProcessing(true);
+    setBatchExecution({
+      status: 'running',
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+      total,
+      errors: [],
+    });
+
+    const collectedErrors: BatchStreamErrorItem[] = [];
+    let processedCount = 0;
+    let successCount = 0;
+    let failCount = 0;
+    let latestProcessed = 0;
+    let latestSucceeded = 0;
+    let latestFailed = 0;
+    let wasCancelled = false;
 
     try {
-      let successCount = 0;
-      let failCount = 0;
-
       if (proposalIds.length > 0) {
-        const res = await batchProposals(action, proposalIds);
-        if (res.ok) {
-          successCount += res.succeeded.length;
-          failCount += res.failed.length;
+        const res = await streamBatchProposals(action, proposalIds, {
+          signal: controller.signal,
+          onProgress: (ev) => {
+            if (ev.error && ev.id !== undefined) {
+              collectedErrors.push({ id: ev.id, kind: 'proposal', error: ev.error });
+            }
+            latestProcessed = ev.processed;
+            latestSucceeded = ev.succeeded;
+            latestFailed = ev.failed;
+            setBatchExecution({
+              status: 'running',
+              processed: latestProcessed,
+              succeeded: latestSucceeded,
+              failed: latestFailed,
+              total,
+              errors: [...collectedErrors],
+            });
+          },
+        });
+        processedCount += res.processed;
+        successCount += res.succeeded;
+        failCount += res.failed;
+        latestProcessed = processedCount;
+        latestSucceeded = successCount;
+        latestFailed = failCount;
+        wasCancelled = res.cancelled;
+        // Fallback path may report errors in res.errors without per-item ev.error
+        if (collectedErrors.length < res.errors.length) {
+          collectedErrors.length = 0;
+          collectedErrors.push(...res.errors);
         }
       }
 
       if (linkIds.length > 0) {
-        const linkAction = action === 'apply' ? 'confirm' : 'dismiss';
-        const linkRes = await batchSuggestedLinks(linkAction, linkIds);
-        if (linkRes.ok) {
-          successCount += linkRes.succeeded.length;
-          failCount += linkRes.failed.length;
+        if (wasCancelled || controller.signal.aborted) {
+          wasCancelled = true;
+        } else {
+          const baseProcessed = processedCount;
+          const baseSucceeded = successCount;
+          const baseFailed = failCount;
+          const prevErrCount = collectedErrors.length;
+          const linkAction = action === 'apply' ? 'confirm' : 'dismiss';
+
+          const linkRes = await streamBatchSuggestedLinks(linkAction, linkIds, {
+            signal: controller.signal,
+            onProgress: (ev) => {
+              if (ev.error && ev.id !== undefined) {
+                collectedErrors.push({ id: ev.id, kind: 'link', error: ev.error });
+              }
+              latestProcessed = baseProcessed + ev.processed;
+              latestSucceeded = baseSucceeded + ev.succeeded;
+              latestFailed = baseFailed + ev.failed;
+              setBatchExecution({
+                status: 'running',
+                processed: latestProcessed,
+                succeeded: latestSucceeded,
+                failed: latestFailed,
+                total,
+                errors: [...collectedErrors],
+              });
+            },
+          });
+          processedCount += linkRes.processed;
+          successCount += linkRes.succeeded;
+          failCount += linkRes.failed;
+          latestProcessed = processedCount;
+          latestSucceeded = successCount;
+          latestFailed = failCount;
+          wasCancelled = linkRes.cancelled;
+          if (collectedErrors.length - prevErrCount < linkRes.errors.length) {
+            collectedErrors.splice(prevErrCount, collectedErrors.length - prevErrCount, ...linkRes.errors);
+          }
         }
       }
 
-      if (failCount === 0) {
+      if (wasCancelled) {
+        setBatchExecution({
+          status: 'cancelled',
+          processed: processedCount,
+          succeeded: successCount,
+          failed: failCount,
+          total,
+          errors: [...collectedErrors],
+        });
+        onToast?.(
+          `Batch cancelled after ${processedCount} of ${total} item${total === 1 ? '' : 's'} (${successCount} succeeded${failCount > 0 ? `, ${failCount} failed` : ''})`,
+          'info'
+        );
+      } else if (failCount === 0) {
         if (action === 'apply') {
           onToast?.(`Successfully approved ${successCount} item${successCount === 1 ? '' : 's'}`, 'success');
         } else {
@@ -322,18 +433,50 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
             onToast?.(`Dismissed ${successCount} item${successCount === 1 ? '' : 's'}`, 'info');
           }
         }
+        setBatchExecution(null);
+        setBatchDialogAction(null);
       } else {
+        setBatchExecution({
+          status: 'completed',
+          processed: processedCount,
+          succeeded: successCount,
+          failed: failCount,
+          total,
+          errors: [...collectedErrors],
+        });
         onToast?.(
           `${action === 'apply' ? 'Approved' : 'Dismissed'} ${successCount} item${successCount === 1 ? '' : 's'} (${failCount} failed)`,
           failCount > 0 && successCount === 0 ? 'error' : 'info'
         );
       }
+
+      batchAbortRef.current = null;
+      setIsBatchProcessing(false);
       onProposalApplied?.();
-      setBatchDialogAction(null);
       await loadProposals();
     } catch (err: any) {
-      onToast?.(err.message || `Failed to ${action} items in batch`, 'error');
+      const errMsg = err?.message || `Failed to ${action} items in batch`;
+      if (latestProcessed > 0) {
+        setBatchExecution({
+          status: 'error',
+          processed: latestProcessed,
+          succeeded: latestSucceeded,
+          failed: latestFailed,
+          total,
+          errors: [...collectedErrors],
+          errorMessage: errMsg,
+        });
+      } else {
+        setBatchExecution(null);
+        setBatchDialogAction(null);
+      }
+      batchAbortRef.current = null;
+      setIsBatchProcessing(false);
+      onToast?.(errMsg, 'error');
+      onProposalApplied?.();
+      await loadProposals();
     } finally {
+      batchAbortRef.current = null;
       setIsBatchProcessing(false);
     }
   };
@@ -1186,14 +1329,16 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
       {/* Batch Proposal Confirmation Dialog */}
       <BatchProposalConfirmDialog
         isOpen={batchDialogAction !== null}
-        onClose={() => setBatchDialogAction(null)}
+        onClose={handleBatchDialogClose}
         onConfirm={handleBatchConfirm}
+        onCancel={handleBatchCancel}
         action={batchDialogAction}
         proposals={visibleProposals}
         suggestedLinks={visibleSuggestedLinks}
         selectedScope={selectedScope}
         typeFilter={typeFilter}
         isProcessing={isBatchProcessing}
+        execution={batchExecution}
       />
     </div>
   );

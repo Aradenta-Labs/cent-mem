@@ -15,7 +15,7 @@ centmem ui
 ```
 
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.4"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.5"}
 ```
 
 The browser will open automatically to `http://127.0.0.1:4231`. To stop the server, press `Ctrl+C` in your terminal.
@@ -144,8 +144,8 @@ Human-in-the-loop review for autonomous memory agent suggestions (`merge`, `link
 - **Bulk Actions**: When viewing pending proposals and/or auto-suggestions, a dedicated review toolbar provides:
   - **"Approve All"** button: Opens `BatchProposalConfirmDialog` to apply/confirm all currently filtered pending items in one batch.
   - **"Reject All"** button: Opens confirmation dialog to dismiss all currently filtered pending items.
-  - **Batch Confirmation Dialog**: Displays the total count, category badges by proposal type and auto-suggestions, and explicit warning callouts (e.g. merging consolidates and archives original memories; confirming auto-suggested links establishes permanent graph relationships).
-  - **Transparent Chunking & Resilience**: Handles review sets up to 500 items with transparent client-side chunking and conflict handling.
+  - **Batch Confirmation Dialog & Live SSE Progress**: Displays the total count, category badges by proposal type and auto-suggestions, and explicit warning callouts (e.g. merging consolidates and archives original memories; confirming auto-suggested links establishes permanent graph relationships). During execution, streams real-time SSE progress via `POST /api/proposals/batch/stream` and `POST /api/links/suggested/batch/stream` with a determinate progress bar (`processed / total` and percentage), live `succeeded`/`failed` counters, a collapsible per-item error list if any item fails, and a **Cancel** button (`AbortController`) that halts remaining items cleanly (keeping already-processed items committed) and refreshes both the inbox and Sidebar pending badge count.
+  - **Transparent Chunking & Fallback**: Handles review sets exceeding 500 items via client-side chunking and falls back gracefully to non-streaming `/api/proposals/batch` and `/api/links/suggested/batch` if `ReadableStream` / SSE is unavailable.
 
 ### 4.9 Assistant Chat Tab (Active Intelligence)
 - **Interactive Conversational Inquiry**: Chat directly with the built-in AI Memory Agent in natural language.
@@ -217,8 +217,10 @@ The dashboard communicates with `centmem` via a local-only REST API:
 | `/api/proposals/:id/dismiss` | `POST` | Dismiss an individual staged proposal |
 | `/api/proposals/:id/reopen` | `POST` | Reopen a previously dismissed proposal |
 | `/api/proposals/batch` | `POST` | Batch apply or dismiss multiple proposals (`action: "apply"\|"dismiss", ids: [...]`) |
+| `/api/proposals/batch/stream` | `POST` | SSE streaming batch apply or dismiss (`start`, per-item `progress`, `done` with `cancelled` flag); supports client cancellation |
 | `/api/links/suggested` | `GET` | List pending per-node auto-suggested links (`scope`, `relation`, `limit`, `offset`) |
 | `/api/links/suggested/batch` | `POST` | Batch confirm or dismiss auto-suggested links (`action: "confirm"\|"dismiss", ids: [...]`) |
+| `/api/links/suggested/batch/stream` | `POST` | SSE streaming batch confirm or dismiss for auto-suggested links (`start`, per-item `progress`, `done` with `cancelled` flag); supports client cancellation |
 | `/api/graph` | `GET` | Fetch active memory nodes and relationship edges for the interactive graph (`scope`, `include_suggested`, `limit`) |
 | `/api/agent/chat` | `POST` | Send natural language inquiry to AI Memory Agent with ReAct reasoning and citations |
 | `/api/agent/conversations` | `GET` | List persistent agent conversation threads |

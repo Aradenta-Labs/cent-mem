@@ -1774,3 +1774,555 @@ func TestServer_Graph(t *testing.T) {
 	}
 }
 
+type sseFrame struct {
+	Event string
+	Data  string
+}
+
+func parseSSEFrames(t *testing.T, body string) []sseFrame {
+	t.Helper()
+	var frames []sseFrame
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	var curEvent string
+	var curData []string
+	flushFrame := func() {
+		if curEvent != "" || len(curData) > 0 {
+			frames = append(frames, sseFrame{
+				Event: curEvent,
+				Data:  strings.Join(curData, "\n"),
+			})
+			curEvent = ""
+			curData = nil
+		}
+	}
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			flushFrame()
+			continue
+		}
+		if strings.HasPrefix(line, "event:") {
+			curEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		} else if strings.HasPrefix(line, "data:") {
+			curData = append(curData, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	flushFrame()
+	return frames
+}
+
+// cancelOnFlushRecorder wraps httptest.ResponseRecorder and cancels a context
+// once the Nth Flush call occurs (e.g., 1=start, 2=first progress).
+type cancelOnFlushRecorder struct {
+	*httptest.ResponseRecorder
+	cancelAfterFlushes int
+	flushes            int
+	cancel             context.CancelFunc
+}
+
+func (r *cancelOnFlushRecorder) Flush() {
+	r.ResponseRecorder.Flush()
+	r.flushes++
+	if r.flushes == r.cancelAfterFlushes && r.cancel != nil {
+		r.cancel()
+	}
+}
+
+func TestServer_Proposals_BatchStream_SSE(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	m1, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:stream", Type: "note", Content: "Stream note 1"})
+	if err != nil {
+		t.Fatalf("put m1: %v", err)
+	}
+	m2, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:stream", Type: "note", Content: "Stream note 2"})
+	if err != nil {
+		t.Fatalf("put m2: %v", err)
+	}
+	m3, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:stream", Type: "note", Content: "Stream note 3"})
+	if err != nil {
+		t.Fatalf("put m3: %v", err)
+	}
+
+	makeLinkProposal := func(from, to int64, rel, title string) int64 {
+		payload, _ := json.Marshal(store.LinkProposalPayload{FromID: from, ToID: to, Relation: rel})
+		id, err := st.CreateProposal(ctx, &store.Proposal{
+			ScopePath:    "project:stream",
+			ProposalType: "link",
+			Title:        title,
+			Reasoning:    "test stream",
+			PayloadJSON:  string(payload),
+		})
+		if err != nil {
+			t.Fatalf("CreateProposal %s: %v", title, err)
+		}
+		return id
+	}
+
+	p1 := makeLinkProposal(m1, m2, "supports", "P1")
+	p2 := makeLinkProposal(m2, m3, "refines", "P2")
+	p3 := makeLinkProposal(m1, m3, "depends-on", "P3")
+	p4 := makeLinkProposal(m3, m1, "supports", "P4")
+	p5 := makeLinkProposal(m3, m2, "refines", "P5")
+
+	srv, err := NewServer(ServerConfig{Host: "127.0.0.1", Port: 0, NoOpen: true, Version: testVersion, Store: st})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	// 1. Full SSE completion with mixed valid + missing + negative IDs
+	body, _ := json.Marshal(map[string]any{
+		"action": "apply",
+		"ids":    []int64{p1, 999999, -3, p2},
+	})
+	req := httptest.NewRequest("POST", "/api/proposals/batch/stream", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("expected text/event-stream, got %q", ct)
+	}
+
+	frames := parseSSEFrames(t, rec.Body.String())
+	// Expected: 1 start + 4 progress + 1 done = 6 frames
+	if len(frames) != 6 {
+		t.Fatalf("expected 6 SSE frames, got %d: %+v", len(frames), frames)
+	}
+	if frames[0].Event != "start" {
+		t.Fatalf("expected first event=start, got %q", frames[0].Event)
+	}
+	var startEv struct {
+		Total  int    `json:"total"`
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal([]byte(frames[0].Data), &startEv); err != nil {
+		t.Fatalf("decode start: %v", err)
+	}
+	if startEv.Total != 4 || startEv.Action != "apply" {
+		t.Fatalf("unexpected start event: %+v", startEv)
+	}
+
+	type progressEv struct {
+		ID        int64  `json:"id"`
+		Processed int    `json:"processed"`
+		Succeeded int    `json:"succeeded"`
+		Failed    int    `json:"failed"`
+		Total     int    `json:"total"`
+		Error     string `json:"error"`
+	}
+	expectedProgress := []struct {
+		id        int64
+		processed int
+		succeeded int
+		failed    int
+		wantErr   bool
+	}{
+		{p1, 1, 1, 0, false},
+		{999999, 2, 1, 1, true},
+		{-3, 3, 1, 2, true},
+		{p2, 4, 2, 2, false},
+	}
+	for i, exp := range expectedProgress {
+		f := frames[i+1]
+		if f.Event != "progress" {
+			t.Fatalf("frame %d expected event=progress, got %q", i+1, f.Event)
+		}
+		var pev progressEv
+		if err := json.Unmarshal([]byte(f.Data), &pev); err != nil {
+			t.Fatalf("decode progress %d: %v", i, err)
+		}
+		if pev.ID != exp.id || pev.Processed != exp.processed || pev.Succeeded != exp.succeeded || pev.Failed != exp.failed || pev.Total != 4 {
+			t.Errorf("progress %d mismatch: got %+v, want %+v", i, pev, exp)
+		}
+		if exp.wantErr && pev.Error == "" {
+			t.Errorf("progress %d expected error message, got empty", i)
+		}
+		if !exp.wantErr && pev.Error != "" {
+			t.Errorf("progress %d expected empty error, got %q", i, pev.Error)
+		}
+	}
+
+	if frames[5].Event != "done" {
+		t.Fatalf("expected last event=done, got %q", frames[5].Event)
+	}
+	var doneEv struct {
+		Processed int  `json:"processed"`
+		Succeeded int  `json:"succeeded"`
+		Failed    int  `json:"failed"`
+		Cancelled bool `json:"cancelled"`
+	}
+	if err := json.Unmarshal([]byte(frames[5].Data), &doneEv); err != nil {
+		t.Fatalf("decode done: %v", err)
+	}
+	if doneEv.Processed != 4 || doneEv.Succeeded != 2 || doneEv.Failed != 2 || doneEv.Cancelled {
+		t.Fatalf("unexpected done event: %+v", doneEv)
+	}
+
+	// Verify p1 and p2 are applied in DB
+	for _, pid := range []int64{p1, p2} {
+		p, err := st.GetProposal(ctx, pid)
+		if err != nil || p.Status != "applied" {
+			t.Errorf("expected proposal %d applied, got status=%v err=%v", pid, p, err)
+		}
+	}
+
+	// 2. Mid-stream context cancellation stops remaining proposals while keeping item 1 committed
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelBody, _ := json.Marshal(map[string]any{
+		"action": "dismiss",
+		"ids":    []int64{p3, p4, p5},
+	})
+	cancelReq := httptest.NewRequest("POST", "/api/proposals/batch/stream", bytes.NewReader(cancelBody)).WithContext(cancelCtx)
+	cancelRec := &cancelOnFlushRecorder{
+		ResponseRecorder:   httptest.NewRecorder(),
+		cancelAfterFlushes: 2, // flush 1 = start, flush 2 = progress for p3
+		cancel:             cancel,
+	}
+	handler.ServeHTTP(cancelRec, cancelReq)
+
+	cancelFrames := parseSSEFrames(t, cancelRec.Body.String())
+	if len(cancelFrames) != 3 {
+		t.Fatalf("expected 3 frames on mid-stream cancel (start, 1 progress, done), got %d: %+v", len(cancelFrames), cancelFrames)
+	}
+	var cancelDone struct {
+		Processed int  `json:"processed"`
+		Succeeded int  `json:"succeeded"`
+		Failed    int  `json:"failed"`
+		Cancelled bool `json:"cancelled"`
+	}
+	if err := json.Unmarshal([]byte(cancelFrames[2].Data), &cancelDone); err != nil {
+		t.Fatalf("decode cancel done: %v", err)
+	}
+	if cancelFrames[2].Event != "done" || !cancelDone.Cancelled || cancelDone.Processed != 1 || cancelDone.Succeeded != 1 || cancelDone.Failed != 0 {
+		t.Fatalf("unexpected cancel done event: %+v", cancelDone)
+	}
+
+	// Verify p3 is dismissed while p4 and p5 remain pending
+	if got, _ := st.GetProposal(ctx, p3); got == nil || got.Status != "dismissed" {
+		t.Errorf("expected p3 dismissed, got %+v", got)
+	}
+	for _, pid := range []int64{p4, p5} {
+		if got, _ := st.GetProposal(ctx, pid); got == nil || got.Status != "pending" {
+			t.Errorf("expected proposal %d to remain pending after cancel, got %+v", pid, got)
+		}
+	}
+
+	// 3. Pre-stream validation returns JSON 400 / 503 BEFORE switching to text/event-stream
+	assertPreStreamError := func(h http.Handler, path string, payload string, wantStatus int, wantCode string) {
+		t.Helper()
+		rq := httptest.NewRequest("POST", path, strings.NewReader(payload))
+		rc := httptest.NewRecorder()
+		h.ServeHTTP(rc, rq)
+		if rc.Code != wantStatus {
+			t.Fatalf("%s payload=%s: expected status %d, got %d body=%s", path, payload, wantStatus, rc.Code, rc.Body.String())
+		}
+		if ct := rc.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			t.Fatalf("%s: expected application/json error content-type, got %q", path, ct)
+		}
+		var errResp struct {
+			Ok    bool `json:"ok"`
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(rc.Body.Bytes(), &errResp); err != nil {
+			t.Fatalf("%s: failed to decode error JSON: %v", path, err)
+		}
+		if errResp.Ok || errResp.Error.Code != wantCode {
+			t.Fatalf("%s: expected ok=false code=%q, got %+v", path, wantCode, errResp)
+		}
+	}
+
+	assertPreStreamError(handler, "/api/proposals/batch/stream", `{bad json`, http.StatusBadRequest, "invalid_json")
+	assertPreStreamError(handler, "/api/proposals/batch/stream", `{"action":"delete","ids":[1]}`, http.StatusBadRequest, "invalid_action")
+	assertPreStreamError(handler, "/api/proposals/batch/stream", `{"action":"apply","ids":[]}`, http.StatusBadRequest, "invalid_ids")
+
+	tooMany := make([]int64, 501)
+	for i := range tooMany {
+		tooMany[i] = int64(i + 1)
+	}
+	tooManyBody, _ := json.Marshal(map[string]any{"action": "apply", "ids": tooMany})
+	assertPreStreamError(handler, "/api/proposals/batch/stream", string(tooManyBody), http.StatusBadRequest, "invalid_ids")
+
+	noStoreSrv, err := NewServer(ServerConfig{Host: "127.0.0.1", Port: 0, NoOpen: true, Version: testVersion, Store: nil})
+	if err != nil {
+		t.Fatalf("NewServer nil store: %v", err)
+	}
+	assertPreStreamError(noStoreSrv.httpServer.Handler, "/api/proposals/batch/stream", `{"action":"apply","ids":[1]}`, http.StatusServiceUnavailable, "store_unavailable")
+	assertPreStreamError(noStoreSrv.httpServer.Handler, "/api/links/suggested/batch/stream", `{"action":"confirm","ids":[1]}`, http.StatusServiceUnavailable, "store_unavailable")
+}
+
+func TestServer_SuggestedLinks_BatchStream_SSE(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	m1, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:linkstream", Type: "note", Content: "Link stream 1"})
+	m2, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:linkstream", Type: "note", Content: "Link stream 2"})
+	m3, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:linkstream", Type: "note", Content: "Link stream 3"})
+	m4, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:linkstream", Type: "note", Content: "Link stream 4"})
+
+	l1, err := st.CreateLink(ctx, m1, m2, "supports", true)
+	if err != nil {
+		t.Fatalf("CreateLink l1: %v", err)
+	}
+	l2, err := st.CreateLink(ctx, m2, m3, "refines", true)
+	if err != nil {
+		t.Fatalf("CreateLink l2: %v", err)
+	}
+	l3, err := st.CreateLink(ctx, m3, m4, "depends-on", true)
+	if err != nil {
+		t.Fatalf("CreateLink l3: %v", err)
+	}
+	l4, err := st.CreateLink(ctx, m1, m4, "contradicts", true)
+	if err != nil {
+		t.Fatalf("CreateLink l4: %v", err)
+	}
+
+	srv, err := NewServer(ServerConfig{Host: "127.0.0.1", Port: 0, NoOpen: true, Version: testVersion, Store: st})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	// 1. Full SSE confirm with mixed valid + missing + negative IDs
+	body, _ := json.Marshal(map[string]any{
+		"action": "confirm",
+		"ids":    []int64{l1.ID, 888888, 0},
+	})
+	req := httptest.NewRequest("POST", "/api/links/suggested/batch/stream", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("expected text/event-stream, got %q", ct)
+	}
+	frames := parseSSEFrames(t, rec.Body.String())
+	if len(frames) != 5 {
+		t.Fatalf("expected 5 SSE frames (start + 3 progress + done), got %d: %+v", len(frames), frames)
+	}
+	var doneEv struct {
+		Processed int  `json:"processed"`
+		Succeeded int  `json:"succeeded"`
+		Failed    int  `json:"failed"`
+		Cancelled bool `json:"cancelled"`
+	}
+	if err := json.Unmarshal([]byte(frames[4].Data), &doneEv); err != nil {
+		t.Fatalf("decode done: %v", err)
+	}
+	if frames[4].Event != "done" || doneEv.Processed != 3 || doneEv.Succeeded != 1 || doneEv.Failed != 2 || doneEv.Cancelled {
+		t.Fatalf("unexpected done event: %+v", doneEv)
+	}
+
+	// Verify l1 is confirmed in DB
+	out, _, err := st.GetLinksForMemory(ctx, m1, false)
+	if err != nil {
+		t.Fatalf("GetLinksForMemory: %v", err)
+	}
+	confirmed := false
+	for _, link := range out {
+		if link.ID == l1.ID && !link.Suggested {
+			confirmed = true
+		}
+	}
+	if !confirmed {
+		t.Errorf("expected l1(%d) to be confirmed in DB", l1.ID)
+	}
+
+	// 2. Mid-stream cancellation on dismiss keeps l2 dismissed and leaves l3, l4 suggested
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dismissBody, _ := json.Marshal(map[string]any{
+		"action": "dismiss",
+		"ids":    []int64{l2.ID, l3.ID, l4.ID},
+	})
+	cancelReq := httptest.NewRequest("POST", "/api/links/suggested/batch/stream", bytes.NewReader(dismissBody)).WithContext(cancelCtx)
+	cancelRec := &cancelOnFlushRecorder{
+		ResponseRecorder:   httptest.NewRecorder(),
+		cancelAfterFlushes: 2, // flush 1 = start, flush 2 = progress for l2
+		cancel:             cancel,
+	}
+	handler.ServeHTTP(cancelRec, cancelReq)
+
+	cancelFrames := parseSSEFrames(t, cancelRec.Body.String())
+	if len(cancelFrames) != 3 || cancelFrames[2].Event != "done" {
+		t.Fatalf("expected 3 frames ending in done, got %+v", cancelFrames)
+	}
+	var cancelDone struct {
+		Processed int  `json:"processed"`
+		Succeeded int  `json:"succeeded"`
+		Failed    int  `json:"failed"`
+		Cancelled bool `json:"cancelled"`
+	}
+	_ = json.Unmarshal([]byte(cancelFrames[2].Data), &cancelDone)
+	if !cancelDone.Cancelled || cancelDone.Processed != 1 || cancelDone.Succeeded != 1 || cancelDone.Failed != 0 {
+		t.Fatalf("unexpected cancel done: %+v", cancelDone)
+	}
+
+	rem, total, err := st.ListSuggestedLinks(ctx, store.SuggestedLinkListQuery{})
+	if err != nil {
+		t.Fatalf("ListSuggestedLinks: %v", err)
+	}
+	if total != 2 || len(rem) != 2 {
+		t.Fatalf("expected 2 remaining suggested links (l3, l4), got total=%d rem=%+v", total, rem)
+	}
+
+	// 3. Pre-stream 400 validation checks
+	tooManyLinks := make([]int64, 501)
+	for i := range tooManyLinks {
+		tooManyLinks[i] = int64(i + 1)
+	}
+	tooManyLinksBody, _ := json.Marshal(map[string]any{"action": "confirm", "ids": tooManyLinks})
+
+	for _, tc := range []struct {
+		body string
+		code string
+	}{
+		{`{invalid`, "invalid_json"},
+		{`{"action":"apply","ids":[1]}`, "invalid_action"},
+		{`{"action":"confirm","ids":[]}`, "invalid_ids"},
+		{string(tooManyLinksBody), "invalid_ids"},
+	} {
+		rq := httptest.NewRequest("POST", "/api/links/suggested/batch/stream", strings.NewReader(tc.body))
+		rc := httptest.NewRecorder()
+		handler.ServeHTTP(rc, rq)
+		if rc.Code != http.StatusBadRequest {
+			t.Errorf("body=%s: expected 400, got %d", tc.body, rc.Code)
+		}
+		if ct := rc.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			t.Errorf("body=%s: expected application/json, got %q", tc.body, ct)
+		}
+	}
+}
+
+type failOnWriteRecorder struct {
+	*httptest.ResponseRecorder
+	failAfterWrites int
+	writes          int
+}
+
+func (r *failOnWriteRecorder) Write(p []byte) (int, error) {
+	r.writes++
+	if r.writes >= r.failAfterWrites {
+		return 0, io.ErrClosedPipe
+	}
+	return r.ResponseRecorder.Write(p)
+}
+
+func TestServer_Proposals_BatchStream_EdgeCases_And_RealTCP(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	m1, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:edge", Type: "note", Content: "Edge note 1"})
+	m2, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:edge", Type: "note", Content: "Edge note 2"})
+	payload, _ := json.Marshal(store.LinkProposalPayload{FromID: m1, ToID: m2, Relation: "supports"})
+
+	createProp := func(title string) int64 {
+		id, err := st.CreateProposal(ctx, &store.Proposal{
+			ScopePath:    "project:edge",
+			ProposalType: "link",
+			Title:        title,
+			Reasoning:    "edge test",
+			PayloadJSON:  string(payload),
+		})
+		if err != nil {
+			t.Fatalf("CreateProposal %s: %v", title, err)
+		}
+		return id
+	}
+
+	p1 := createProp("PreCancel1")
+	p2 := createProp("WriteErr1")
+	p3 := createProp("WriteErr2")
+
+	srv, err := NewServer(ServerConfig{Host: "127.0.0.1", Port: 0, NoOpen: true, Version: testVersion, Store: st})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	// 1. Pre-cancelled context before item 1 mutates zero items and emits done{cancelled:true}
+	preCtx, preCancel := context.WithCancel(context.Background())
+	preCancel()
+	preBody, _ := json.Marshal(map[string]any{"action": "dismiss", "ids": []int64{p1}})
+	preReq := httptest.NewRequest("POST", "/api/proposals/batch/stream", bytes.NewReader(preBody)).WithContext(preCtx)
+	preRec := httptest.NewRecorder()
+	handler.ServeHTTP(preRec, preReq)
+
+	preFrames := parseSSEFrames(t, preRec.Body.String())
+	if len(preFrames) != 2 || preFrames[0].Event != "start" || preFrames[1].Event != "done" {
+		t.Fatalf("expected [start, done] on pre-cancelled context, got %+v", preFrames)
+	}
+	var preDone struct {
+		Processed int  `json:"processed"`
+		Cancelled bool `json:"cancelled"`
+	}
+	_ = json.Unmarshal([]byte(preFrames[1].Data), &preDone)
+	if !preDone.Cancelled || preDone.Processed != 0 {
+		t.Fatalf("expected processed=0 cancelled=true, got %+v", preDone)
+	}
+	if got, _ := st.GetProposal(ctx, p1); got == nil || got.Status != "pending" {
+		t.Fatalf("expected p1 to remain pending on pre-cancelled context, got %+v", got)
+	}
+
+	// 2. Broken pipe write error on first progress write stops remaining mutations immediately
+	weBody, _ := json.Marshal(map[string]any{"action": "dismiss", "ids": []int64{p2, p3}})
+	weReq := httptest.NewRequest("POST", "/api/proposals/batch/stream", bytes.NewReader(weBody))
+	weRec := &failOnWriteRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		failAfterWrites:  2, // write 1 = start succeeds; write 2 = progress for p2 fails
+	}
+	handler.ServeHTTP(weRec, weReq)
+	if got, _ := st.GetProposal(ctx, p3); got == nil || got.Status != "pending" {
+		t.Fatalf("expected p3 to remain pending after write failure, got %+v", got)
+	}
+
+	// 3. Real TCP HTTP server streaming end-to-end
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	tcpProps := make([]int64, 5)
+	for i := range tcpProps {
+		tcpProps[i] = createProp(fmt.Sprintf("TCP-%d", i))
+	}
+	tcpBody, _ := json.Marshal(map[string]any{"action": "dismiss", "ids": tcpProps})
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/proposals/batch/stream", bytes.NewReader(tcpBody))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	resp, err := ts.Client().Do(httpReq)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 over TCP, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("expected text/event-stream over TCP, got %q", ct)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	tcpFrames := parseSSEFrames(t, string(raw))
+	if len(tcpFrames) != 7 || tcpFrames[0].Event != "start" || tcpFrames[6].Event != "done" {
+		t.Fatalf("expected 7 SSE frames over TCP (start + 5 progress + done), got %d: %+v", len(tcpFrames), tcpFrames)
+	}
+}
+
+

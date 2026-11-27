@@ -69,7 +69,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "2.1.4",
+		Version:  "2.1.5",
 		Store:    nil,
 		Searcher: nil,
 	}
@@ -95,7 +95,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "2.1.4"
+		cfg.Version = "2.1.5"
 	}
 
 	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
@@ -3789,24 +3789,29 @@ func streamBatchMutation(
 
 	flusher, isFlusher := w.(http.Flusher)
 	flush := func() {
-		if isFlusher {
+		if err := rc.Flush(); err != nil && isFlusher {
 			flusher.Flush()
 		}
 	}
-	emit := func(event string, payload any) {
+	emit := func(event string, payload any) error {
 		data, err := json.Marshal(payload)
 		if err != nil {
-			return
+			return err
 		}
-		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+			return err
+		}
 		flush()
+		return nil
 	}
 
 	total := len(req.IDs)
-	emit("start", map[string]any{
+	if err := emit("start", map[string]any{
 		"total":  total,
 		"action": req.Action,
-	})
+	}); err != nil {
+		return
+	}
 
 	type batchProgressEvent struct {
 		ID        int64  `json:"id"`
@@ -3837,7 +3842,7 @@ func streamBatchMutation(
 			failed++
 			itemErr = fmt.Sprintf("invalid %s id: %d", itemLabel, id)
 		} else if err := mutate(r.Context(), req.Action, id); err != nil {
-			if r.Context().Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			if r.Context().Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "interrupt")) {
 				cancelled = true
 				break
 			}
@@ -3848,23 +3853,24 @@ func streamBatchMutation(
 		}
 
 		processed++
-		emit("progress", batchProgressEvent{
+		if err := emit("progress", batchProgressEvent{
 			ID:        id,
 			Processed: processed,
 			Succeeded: succeeded,
 			Failed:    failed,
 			Total:     total,
 			Error:     itemErr,
-		})
+		}); err != nil {
+			cancelled = true
+			break
+		}
 	}
 
-	emit("done", map[string]any{
+	_ = emit("done", map[string]any{
 		"processed": processed,
 		"succeeded": succeeded,
 		"failed":    failed,
 		"cancelled": cancelled,
 	})
 }
-
-
 

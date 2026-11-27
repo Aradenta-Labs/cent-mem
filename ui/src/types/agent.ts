@@ -81,6 +81,35 @@ export interface BatchProposalsResponse {
   };
 }
 
+export interface BatchStreamErrorItem {
+  id: number;
+  kind?: 'proposal' | 'link';
+  error: string;
+}
+
+export interface BatchStreamProgress {
+  id?: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  total: number;
+  error?: string;
+}
+
+export interface BatchStreamResult {
+  processed: number;
+  succeeded: number;
+  failed: number;
+  total: number;
+  errors: BatchStreamErrorItem[];
+  cancelled: boolean;
+}
+
+export interface BatchStreamOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: BatchStreamProgress) => void;
+}
+
 export interface Conversation {
   id: string;
   scope_id: number;

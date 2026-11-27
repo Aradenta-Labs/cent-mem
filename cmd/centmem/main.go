@@ -14,7 +14,7 @@ import (
 
 // version is the current release version, set at build/release time.
 // Kept in sync with the git tag (vX.Y.Z) and CHANGELOG.md.
-const version = "2.1.4"
+const version = "2.1.5"
 
 // globalConfig holds global flags shared across subcommands.
 type globalFlags struct {
