@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 2.1.2
+**Version:** 2.1.3
 **Binary:** `centmem`, `centmemd`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 

@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] - 2026-11-27
+
+Interactive Obsidian-Style Knowledge Graph View & Unified Proposals Review Center with Per-Node Auto-Suggested Links.
+
+### Added
+
+- **Interactive Knowledge Graph View (`KnowledgeGraphView.tsx` & `GET /api/graph`)**:
+  - Added dedicated **Graph** tab in the Web UI Sidebar (`?tab=graph`) powered by `d3-force` physics and a HiDPI HTML5 Canvas 2D renderer with automatic light/dark theme syncing.
+  - Added `Store.GetGraph` (`internal/store/links.go`) and `GET /api/graph` (`internal/ui/server.go`) returning active memory nodes and links for the selected scope subtree (default cap 500 nodes prioritizing connected nodes first) plus external-scope linked endpoints marked `external: true`.
+  - Renders confirmed relationships as solid colored directional arrows and pending auto-suggested links as dashed arrows, with interactive relation legend filters (`supports`, `refines`, `contradicts`, `depends-on`, `supersedes`), `By Type` / `By Scope` coloring, degree-scaled node sizes, `Hide unlinked` & `Auto-suggested` toggles, live TopBar search highlighting, zoom/pan/drag/fit-to-view, 1-hop hover spotlight with preview tooltip, and click-to-open `MemoryDetailDrawer` with live refresh.
+- **Auto-Suggested Links in Proposals Review Center (`ProposalsView.tsx`)**:
+  - Added `Store.ListSuggestedLinks` (`internal/store/links.go`), `GET /api/links/suggested`, and `POST /api/links/suggested/batch` (`internal/ui/server.go`).
+  - Surfaced per-node auto-suggested links (`suggested = 1`) directly inside the Proposals Review Center `Pending` tab and live Sidebar badge count alongside staged agent proposals, with 3-part source/relation/target content preview cards, an `Auto-Suggestions` type filter, individual confirm/dismiss actions, and batch approve/reject support via `BatchProposalConfirmDialog`.
+  - Synchronized link mutations in `MemoryDetailDrawer` back to the Sidebar badge count, Proposals inbox, and Knowledge Graph view.
+
 ## [2.1.2] - 2026-09-14
 
 Portable Memory Export & Import across CLI and Web UI.
@@ -515,6 +530,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.1.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.3
 [2.1.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.2
 [2.1.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.1
 [2.1.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.0
