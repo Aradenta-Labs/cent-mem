@@ -26,6 +26,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/config"
 	"github.com/aradenta-labs/cent-mem/internal/embed"
 	"github.com/aradenta-labs/cent-mem/internal/export"
+	"github.com/aradenta-labs/cent-mem/internal/hooks"
 	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
@@ -69,7 +70,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "2.1.5",
+		Version:  "2.1.6",
 		Store:    nil,
 		Searcher: nil,
 	}
@@ -84,6 +85,7 @@ type Server struct {
 	mu          sync.RWMutex
 	probeClient *http.Client
 	agent       *agent.Engine
+	hooks       *hooks.Dispatcher
 }
 
 // NewServer creates a new centmem UI server.
@@ -95,7 +97,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "2.1.5"
+		cfg.Version = "2.1.6"
 	}
 
 	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
@@ -112,6 +114,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	s := &Server{
 		cfg:         cfg,
 		probeClient: &http.Client{Timeout: 5 * time.Second},
+		hooks:       hooks.NewDispatcher(cfg.Config.Hooks),
 	}
 	if cfg.Store != nil {
 		s.agent = agent.NewEngine(cfg.Config, cfg.Store, cfg.Searcher)
@@ -2183,6 +2186,9 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			if s.cfg.Config.Agent != (config.AgentConfig{}) {
 				loadedCfg.Agent = s.cfg.Config.Agent
 			}
+			if s.cfg.Config.Hooks != (config.HooksConfig{}) {
+				loadedCfg.Hooks = s.cfg.Config.Hooks
+			}
 			s.mu.RUnlock()
 		}
 
@@ -2204,6 +2210,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				"capture":   loadedCfg.Capture,
 				"llm":       loadedCfg.LLM,
 				"agent":     loadedCfg.Agent,
+				"hooks":     loadedCfg.Hooks,
 			},
 			"meta": map[string]any{
 				"home":        home,
@@ -2275,6 +2282,15 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			if s.cfg.Config.Capture.Harness != "" {
 				candidateConfig.Capture = s.cfg.Config.Capture
 			}
+			if s.cfg.Config.LLM.Backend != "" {
+				candidateConfig.LLM = s.cfg.Config.LLM
+			}
+			if s.cfg.Config.Agent != (config.AgentConfig{}) {
+				candidateConfig.Agent = s.cfg.Config.Agent
+			}
+			if s.cfg.Config.Hooks != (config.HooksConfig{}) {
+				candidateConfig.Hooks = s.cfg.Config.Hooks
+			}
 			s.mu.RUnlock()
 		}
 
@@ -2342,11 +2358,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			candidateConfig.Model.Path = s.cfg.Config.Model.Path
 		}
 		s.cfg.Config = candidateConfig
-		// Rebuild the agent engine so new LLM config takes effect immediately
-		// without requiring a server restart.
+		// Rebuild the agent engine and webhook dispatcher so updated config takes
+		// effect immediately without requiring a server restart.
 		if s.cfg.Store != nil {
 			s.agent = agent.NewEngine(candidateConfig, s.cfg.Store, s.cfg.Searcher)
 		}
+		s.hooks = hooks.NewDispatcher(candidateConfig.Hooks)
 		s.mu.Unlock()
 
 		writable := isPathWritable(cfgPath, home)
@@ -2358,6 +2375,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				"capture":   candidateConfig.Capture,
 				"llm":       candidateConfig.LLM,
 				"agent":     candidateConfig.Agent,
+				"hooks":     candidateConfig.Hooks,
 			},
 			"meta": map[string]any{
 				"home":        home,
@@ -2703,6 +2721,65 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			"model":      probe.Model,
 			"endpoint":   probe.Endpoint,
 			"message":    probe.Message,
+		})
+	})
+
+	// API Endpoints: Config (Test webhook delivery)
+	mux.HandleFunc("POST /api/config/test-hook", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		var req struct {
+			URL            string  `json:"url"`
+			Secret         *string `json:"secret"`
+			TimeoutSeconds *int    `json:"timeout_seconds"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_JSON", "invalid request JSON body: "+err.Error())
+			return
+		}
+
+		targetURL := strings.TrimSpace(req.URL)
+		if targetURL == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_URL", "webhook url is required")
+			return
+		}
+		if err := config.ValidateHookURL(targetURL); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_URL", err.Error())
+			return
+		}
+
+		s.mu.RLock()
+		activeHooks := s.cfg.Config.Hooks
+		s.mu.RUnlock()
+
+		secret := activeHooks.Secret
+		if req.Secret != nil {
+			secret = *req.Secret
+		}
+
+		testCfg := activeHooks
+		if req.TimeoutSeconds != nil && *req.TimeoutSeconds > 0 {
+			testCfg.TimeoutSeconds = *req.TimeoutSeconds
+		}
+
+		res := hooks.NewDispatcher(testCfg).Test(r.Context(), targetURL, secret)
+		if !res.OK {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"status_code": res.StatusCode,
+				"latency_ms":  res.LatencyMs,
+				"error": map[string]any{
+					"code":    "WEBHOOK_TEST_FAILED",
+					"message": res.Error,
+				},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"status_code": res.StatusCode,
+			"latency_ms":  res.LatencyMs,
 		})
 	})
 
@@ -3129,6 +3206,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			return
 		}
 
+		s.emitProposalsHook(hooks.EventProposalsApplied, []*store.Proposal{p})
+
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":       true,
 			"applied":  true,
@@ -3212,6 +3291,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			})
 			return
 		}
+
+		s.emitProposalsHook(hooks.EventProposalsDismissed, []*store.Proposal{p})
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":        true,
@@ -3393,6 +3474,17 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			}
 		}
 
+		if len(succeeded) > 0 {
+			event := hooks.EventProposalsApplied
+			if req.Action == "dismiss" {
+				event = hooks.EventProposalsDismissed
+			}
+			lookupCtx, lookupCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Second)
+			props := s.fetchProposalsByIDs(lookupCtx, succeeded)
+			lookupCancel()
+			s.emitProposalsHook(event, props)
+		}
+
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":        true,
 			"action":    req.Action,
@@ -3404,12 +3496,19 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 	// Proposals: SSE Streaming Batch Apply or Dismiss Proposals
 	mux.HandleFunc("POST /api/proposals/batch/stream", func(w http.ResponseWriter, r *http.Request) {
-		streamBatchMutation(w, r, cfg.Store != nil, "proposal", "apply", "dismiss", func(ctx context.Context, action string, id int64) error {
+		action, succeededIDs := streamBatchMutation(w, r, cfg.Store != nil, "proposal", "apply", "dismiss", func(ctx context.Context, action string, id int64) error {
 			if action == "apply" {
 				return cfg.Store.ApplyProposal(ctx, id)
 			}
 			return cfg.Store.DismissProposal(ctx, id)
 		})
+		if len(succeededIDs) > 0 {
+			event := hooks.EventProposalsApplied
+			if action == "dismiss" {
+				event = hooks.EventProposalsDismissed
+			}
+			s.emitProposalsHook(event, s.fetchProposalsByIDs(context.Background(), succeededIDs))
+		}
 	})
 
 	// Embedded Static File Server with SPA Fallback
@@ -3495,12 +3594,84 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
-// Shutdown gracefully shuts down the HTTP server.
+// Shutdown gracefully shuts down the HTTP server and flushes pending webhook deliveries.
 func (s *Server) Shutdown(ctx context.Context) error {
+	var err error
 	if s.httpServer != nil {
-		return s.httpServer.Shutdown(ctx)
+		err = s.httpServer.Shutdown(ctx)
 	}
-	return nil
+	if d := s.currentHooks(); d != nil {
+		baseCtx := ctx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		}
+		flushCtx, cancel := context.WithTimeout(baseCtx, 2*time.Second)
+		defer cancel()
+		d.Flush(flushCtx)
+	}
+	return err
+}
+
+func (s *Server) currentHooks() *hooks.Dispatcher {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.hooks
+}
+
+func (s *Server) fetchProposalsByIDs(ctx context.Context, ids []int64) []*store.Proposal {
+	if s.cfg.Store == nil || len(ids) == 0 {
+		return nil
+	}
+	out := make([]*store.Proposal, 0, len(ids))
+	for _, id := range ids {
+		if p, err := s.cfg.Store.GetProposal(ctx, id); err == nil && p != nil {
+			out = append(out, p)
+		} else {
+			out = append(out, &store.Proposal{ID: id})
+		}
+	}
+	return out
+}
+
+func (s *Server) emitProposalsHook(event string, proposals []*store.Proposal) {
+	if len(proposals) == 0 {
+		return
+	}
+	d := s.currentHooks()
+	if d == nil {
+		return
+	}
+	scopePath := ""
+	mixedScope := false
+	summaries := make([]hooks.ProposalSummary, 0, len(proposals))
+	for _, p := range proposals {
+		if p == nil {
+			continue
+		}
+		summaries = append(summaries, hooks.ProposalSummary{
+			ID:    p.ID,
+			Type:  p.ProposalType,
+			Title: p.Title,
+		})
+		if p.ScopePath != "" {
+			if scopePath == "" {
+				scopePath = p.ScopePath
+			} else if scopePath != p.ScopePath {
+				mixedScope = true
+			}
+		}
+	}
+	if len(summaries) == 0 {
+		return
+	}
+	if scopePath == "" || mixedScope {
+		scopePath = "global"
+	}
+	d.Emit(event, hooks.Payload{
+		Scope:     scopePath,
+		Count:     len(summaries),
+		Proposals: summaries,
+	})
 }
 
 // OpenBrowser opens the given URL in the user's default browser.
@@ -3754,10 +3925,10 @@ func streamBatchMutation(
 	actionA string,
 	actionB string,
 	mutate func(ctx context.Context, action string, id int64) error,
-) {
+) (string, []int64) {
 	if !storeReady {
 		writeJSONError(w, http.StatusServiceUnavailable, "store_unavailable", "store persistence is not configured")
-		return
+		return "", nil
 	}
 
 	var req struct {
@@ -3766,17 +3937,17 @@ func streamBatchMutation(
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_json", fmt.Sprintf("invalid json payload: %v", err))
-		return
+		return "", nil
 	}
 
 	if req.Action != actionA && req.Action != actionB {
 		writeJSONError(w, http.StatusBadRequest, "invalid_action", fmt.Sprintf("action must be '%s' or '%s'", actionA, actionB))
-		return
+		return "", nil
 	}
 
 	if len(req.IDs) == 0 || len(req.IDs) > 500 {
 		writeJSONError(w, http.StatusBadRequest, "invalid_ids", fmt.Sprintf("ids must contain between 1 and 500 %s IDs", itemLabel))
-		return
+		return "", nil
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -3810,7 +3981,7 @@ func streamBatchMutation(
 		"total":  total,
 		"action": req.Action,
 	}); err != nil {
-		return
+		return req.Action, nil
 	}
 
 	type batchProgressEvent struct {
@@ -3824,6 +3995,7 @@ func streamBatchMutation(
 
 	processed := 0
 	succeeded := 0
+	succeededIDs := make([]int64, 0, len(req.IDs))
 	failed := 0
 	cancelled := false
 
@@ -3850,6 +4022,7 @@ func streamBatchMutation(
 			itemErr = err.Error()
 		} else {
 			succeeded++
+			succeededIDs = append(succeededIDs, id)
 		}
 
 		processed++
@@ -3872,5 +4045,6 @@ func streamBatchMutation(
 		"failed":    failed,
 		"cancelled": cancelled,
 	})
+	return req.Action, succeededIDs
 }
 

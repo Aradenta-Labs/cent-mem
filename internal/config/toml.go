@@ -27,6 +27,7 @@ type tomlFileSchema struct {
 	Daemon    DaemonConfig  `toml:"daemon"`
 	LLM       LLMConfig     `toml:"llm"`
 	Agent     AgentConfig   `toml:"agent"`
+	Hooks     HooksConfig   `toml:"hooks"`
 }
 
 // LoadTOML reads a TOML configuration file and overlays it onto the default Config.
@@ -43,6 +44,7 @@ func LoadTOML(path string) (Config, error) {
 		Daemon:    DefaultDaemonConfig(),
 		LLM:       DefaultLLMConfig(),
 		Agent:     DefaultAgentConfig(),
+		Hooks:     DefaultHooksConfig(),
 	}
 
 	data, err := os.ReadFile(path)
@@ -61,6 +63,7 @@ func LoadTOML(path string) (Config, error) {
 		Daemon:    cfg.Daemon,
 		LLM:       cfg.LLM,
 		Agent:     cfg.Agent,
+		Hooks:     cfg.Hooks,
 	}
 
 	if err := toml.Unmarshal(data, &schema); err != nil {
@@ -74,6 +77,7 @@ func LoadTOML(path string) (Config, error) {
 	cfg.Daemon = schema.Daemon
 	cfg.LLM = schema.LLM
 	cfg.Agent = schema.Agent
+	cfg.Hooks = schema.Hooks
 
 	return cfg, nil
 }
@@ -93,6 +97,7 @@ func SaveTOML(path string, cfg Config) error {
 		Daemon:    cfg.Daemon,
 		LLM:       cfg.LLM,
 		Agent:     cfg.Agent,
+		Hooks:     cfg.Hooks,
 	}
 
 	data, err := toml.Marshal(schema)

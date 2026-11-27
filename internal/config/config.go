@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +20,64 @@ type Config struct {
 	Daemon    DaemonConfig  `json:"daemon" toml:"daemon"`
 	LLM       LLMConfig     `json:"llm" toml:"llm"`
 	Agent     AgentConfig   `json:"agent" toml:"agent"`
+	Hooks     HooksConfig   `json:"hooks" toml:"hooks"`
+}
+
+// HooksConfig configures opt-in HTTP webhook notifications for proposal lifecycle events.
+type HooksConfig struct {
+	Enabled            bool   `json:"enabled" toml:"enabled"`
+	ProposalsCreated   string `json:"proposals_created" toml:"proposals_created"`
+	ProposalsApplied   string `json:"proposals_applied" toml:"proposals_applied"`
+	ProposalsDismissed string `json:"proposals_dismissed" toml:"proposals_dismissed"`
+	Secret             string `json:"secret,omitempty" toml:"secret,omitempty"`
+	TimeoutSeconds     int    `json:"timeout_seconds" toml:"timeout_seconds"`
+}
+
+func DefaultHooksConfig() HooksConfig {
+	return HooksConfig{
+		Enabled:        false,
+		TimeoutSeconds: 5,
+	}
+}
+
+// ValidateHookURL verifies that a non-empty webhook URL uses http or https with a host.
+func ValidateHookURL(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return fmt.Errorf("invalid webhook URL %q: %w", raw, err)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("invalid webhook URL %q: scheme must be http or https", raw)
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return fmt.Errorf("invalid webhook URL %q: host is required", raw)
+	}
+	return nil
+}
+
+// ValidateHooksConfig validates webhook URLs and timeout settings.
+func ValidateHooksConfig(h HooksConfig) error {
+	if h.TimeoutSeconds < 0 {
+		return fmt.Errorf("config: invalid hooks.timeout_seconds=%d: must be > 0", h.TimeoutSeconds)
+	}
+	for _, entry := range []struct {
+		name string
+		raw  string
+	}{
+		{"hooks.proposals_created", h.ProposalsCreated},
+		{"hooks.proposals_applied", h.ProposalsApplied},
+		{"hooks.proposals_dismissed", h.ProposalsDismissed},
+	} {
+		if err := ValidateHookURL(entry.raw); err != nil {
+			return fmt.Errorf("config: %s: %w", entry.name, err)
+		}
+	}
+	return nil
 }
 
 type LLMConfig struct {
@@ -413,6 +472,36 @@ func Load() (Config, error) {
 		}
 	}
 
+	// 8b. Apply Hooks env overrides (CENTMEM_HOOKS_*).
+	if v := os.Getenv("CENTMEM_HOOKS_ENABLED"); v != "" {
+		if b, err := parseBoolFlexible(v); err == nil {
+			cfg.Hooks.Enabled = b
+		}
+	}
+	if v := os.Getenv("CENTMEM_HOOKS_PROPOSALS_CREATED"); v != "" {
+		cfg.Hooks.ProposalsCreated = v
+	}
+	if v := os.Getenv("CENTMEM_HOOKS_PROPOSALS_APPLIED"); v != "" {
+		cfg.Hooks.ProposalsApplied = v
+	}
+	if v := os.Getenv("CENTMEM_HOOKS_PROPOSALS_DISMISSED"); v != "" {
+		cfg.Hooks.ProposalsDismissed = v
+	}
+	if v := os.Getenv("CENTMEM_HOOKS_SECRET"); v != "" {
+		cfg.Hooks.Secret = v
+	}
+	if v := os.Getenv("CENTMEM_HOOKS_TIMEOUT_SECONDS"); v != "" {
+		if s, err := strconv.Atoi(v); err == nil {
+			if s <= 0 {
+				return Config{}, fmt.Errorf("config: invalid hooks.timeout_seconds=%d: must be > 0", s)
+			}
+			cfg.Hooks.TimeoutSeconds = s
+		}
+	}
+	if cfg.Hooks.TimeoutSeconds == 0 {
+		cfg.Hooks.TimeoutSeconds = 5
+	}
+
 	// 9. Fallback logic: If llm.backend is unconfigured, inherit from capture config.
 	if cfg.LLM.Backend == "" {
 		if cfg.Capture.Backend == "openai-compatible" {
@@ -455,6 +544,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if err := validateAgentConfig(cfg.Agent); err != nil {
+		return Config{}, err
+	}
+	if err := ValidateHooksConfig(cfg.Hooks); err != nil {
 		return Config{}, err
 	}
 

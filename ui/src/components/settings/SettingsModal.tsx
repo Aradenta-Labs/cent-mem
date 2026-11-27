@@ -12,8 +12,9 @@ import {
   AlertTriangle,
   FileText,
   Bot,
+  Webhook,
 } from 'lucide-react';
-import { useConfig } from '../../hooks/useConfig';
+import { useConfig, DEFAULT_CONFIG } from '../../hooks/useConfig';
 import { SettingsTabId } from '../../types/config';
 import { Button } from '../Button';
 import { GeneralTab } from './GeneralTab';
@@ -22,6 +23,7 @@ import { CaptureTab } from './CaptureTab';
 import { ClassifierTab } from './ClassifierTab';
 import { CategoriesTab } from './CategoriesTab';
 import { AgentTab } from './AgentTab';
+import { HooksTab } from './HooksTab';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -36,6 +38,7 @@ const TABS: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> =
   { id: 'classifier', label: 'Classifier', icon: <Cpu size={15} /> },
   { id: 'categories', label: 'Categories', icon: <Tag size={15} /> },
   { id: 'ai-agent', label: 'AI Agent', icon: <Bot size={15} /> },
+  { id: 'hooks', label: 'Webhooks', icon: <Webhook size={15} /> },
 ];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onToast }) => {
@@ -63,6 +66,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
     isTestingAgent,
     agentTestResult,
     testAgent,
+    isTestingHook,
+    hookTestResult,
+    testHook,
     reload,
   } = useConfig();
 
@@ -463,6 +469,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                     isTesting={isTestingAgent}
                     testResult={agentTestResult}
                     onTest={() => testAgent(draft.llm)}
+                  />
+                )}
+
+                {activeTab === 'hooks' && (
+                  <HooksTab
+                    hooks={draft.hooks ?? DEFAULT_CONFIG.hooks!}
+                    onChange={(k, v) => updateSection('hooks', k, v)}
+                    isTesting={isTestingHook}
+                    testResult={hookTestResult}
+                    onTest={(url) =>
+                      testHook({
+                        url,
+                        secret: draft.hooks?.secret,
+                        timeout_seconds: draft.hooks?.timeout_seconds,
+                      })
+                    }
                   />
                 )}
               </>

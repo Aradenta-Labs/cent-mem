@@ -27,6 +27,8 @@ import {
   TestClassifierResponse,
   TestAgentParams,
   TestAgentResponse,
+  TestHookParams,
+  TestHookResponse,
 } from '../types/config';
 import {
   Proposal,
@@ -458,6 +460,43 @@ export async function testAgentEndpoint(params: TestAgentParams): Promise<TestAg
       ok: false,
       status: 'error',
       message: err.message || 'Network error during agent probe.',
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function testHookEndpoint(params: TestHookParams): Promise<TestHookResponse> {
+  const timeoutMs = Math.max((params.timeout_seconds ?? 5) + 3, 8) * 1000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await apiFetch('/api/config/test-hook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+      signal: controller.signal,
+    });
+    const data: TestHookResponse = await res.json();
+    return data;
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      return {
+        ok: false,
+        error: {
+          code: 'TIMEOUT',
+          message: 'Webhook test timed out.',
+        },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err.message || 'Network error during webhook test.',
+      },
     };
   } finally {
     clearTimeout(timeoutId);

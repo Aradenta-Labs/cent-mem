@@ -15,7 +15,7 @@ centmem ui
 ```
 
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.5"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.6"}
 ```
 
 The browser will open automatically to `http://127.0.0.1:4231`. To stop the server, press `Ctrl+C` in your terminal.
@@ -122,6 +122,10 @@ Click the gear icon in the top bar or press `Cmd+,` (`Ctrl+,` on Linux/Windows) 
 - **Auto-Capture Tab**: Master switch for background and transcript auto-capture, target harness selector (`auto`, `claude-code`, `cursor`, `antigravity`, `trae`, `codex`, `generic`), triggers multi-select (`session-end`, `per-message`, `on-demand`), and default capture scope expression.
 - **Classifier Tab**: Configures the 3-tier memory classification backend (`heuristic`, `local-llm`, or `openai-compatible`). Provides endpoint URL, model tag, API key environment variable, and confidence cutoff slider (`0.10` to `1.00`). Includes a live **"Test Connection"** probe button verifying classifier latency and health.
 - **Categories Tab**: Interactive tag chip manager for whitelisted auto-capture categories with quick-add chips (`decision`, `convention`, `preference`, `learning`, `checkpoint`, `security`, `api`, `arch`).
+- **Webhooks Tab**: Opt-in HTTP notification configuration (`[hooks]`, disabled by default) for `proposals.created`, `proposals.applied`, and `proposals.dismissed` events:
+  - Toggle webhook delivery on/off, configure `http://`/`https://` target URLs, set an optional HMAC-SHA256 signing secret (raw token or env var name) with show/hide toggle, and configure per-attempt timeout seconds.
+  - **Live "Test Webhook"**: Sends a synchronous `hooks.test` POST via `POST /api/config/test-hook` using draft settings and displays the HTTP status code and round-trip latency in milliseconds.
+  - **Live Hot-Reloading**: Saving via `PATCH /api/config` immediately reloads the server's async webhook dispatcher without restarting `centmem ui`. Batch proposal mutations emit a single aggregated webhook payload per batch.
 - **Atomic Persistence & Dirty Tracking**: The footer tracks draft changes against `~/.centmem/config.toml` in real time with a dirty indicator dot. Includes "Revert Changes", "Reset to Defaults" (with confirmation), and prevents accidental dismissal via an unsaved changes confirmation dialog.
 
 ### 4.7 Hierarchical Scope Deletion & Project Pruning
@@ -212,6 +216,7 @@ The dashboard communicates with `centmem` via a local-only REST API:
 | `/api/config` | `PATCH` | Update configuration with dot-notation validation and atomic write to `~/.centmem/config.toml` |
 | `/api/config/test-agent` | `POST` | Live connectivity probe verifying AI Agent LLM endpoint health and round-trip latency |
 | `/api/config/test-classifier` | `POST` | Live connectivity probe verifying classifier endpoint health and latency |
+| `/api/config/test-hook` | `POST` | Synchronous dry-run webhook test (`hooks.test` POST) returning `{ok, status_code, latency_ms}` or structured error |
 | `/api/proposals` | `GET` | List staged agent proposals (`scope`, `status`, `type`) |
 | `/api/proposals/:id/apply` | `POST` | Apply an individual staged proposal |
 | `/api/proposals/:id/dismiss` | `POST` | Dismiss an individual staged proposal |

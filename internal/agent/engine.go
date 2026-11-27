@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/hooks"
 	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
@@ -25,6 +26,7 @@ type Engine struct {
 	tools    *ToolRegistry
 	cfg      config.AgentConfig
 	llmCfg   config.LLMConfig
+	hooks    *hooks.Dispatcher
 }
 
 // NewEngine creates a new Reasoning Engine.
@@ -38,6 +40,14 @@ func NewEngine(cfg config.Config, s *store.Store, searcher *search.Searcher) *En
 		tools:    tools,
 		cfg:      cfg.Agent,
 		llmCfg:   cfg.LLM,
+		hooks:    hooks.NewDispatcher(cfg.Hooks),
+	}
+}
+
+// FlushHooks waits for in-flight webhook notifications to finish up to ctx's deadline.
+func (e *Engine) FlushHooks(ctx context.Context) {
+	if e != nil && e.hooks != nil {
+		e.hooks.Flush(ctx)
 	}
 }
 
@@ -202,11 +212,15 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	afterProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope, Limit: 10000})
 	createdIDs := make([]int64, 0)
 	appliedIDs := make([]int64, 0)
+	createdSummaries := make([]hooks.ProposalSummary, 0)
+	appliedSummaries := make([]hooks.ProposalSummary, 0)
 	var contradictionsCount, duplicatesCount int
 
 	for _, p := range afterProps {
 		if !preExistingMap[p.ID] {
 			createdIDs = append(createdIDs, p.ID)
+			summary := hooks.ProposalSummary{ID: p.ID, Type: p.ProposalType, Title: p.Title}
+			createdSummaries = append(createdSummaries, summary)
 			if p.ProposalType == "merge" {
 				duplicatesCount++
 			} else if p.ProposalType == "link" {
@@ -218,8 +232,26 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 			if opts.AutoApply && !opts.DryRun {
 				if err := e.store.ApplyProposal(ctx, p.ID); err == nil {
 					appliedIDs = append(appliedIDs, p.ID)
+					appliedSummaries = append(appliedSummaries, summary)
 				}
 			}
+		}
+	}
+
+	if !opts.DryRun && e.hooks != nil {
+		if len(createdSummaries) > 0 {
+			e.hooks.Emit(hooks.EventProposalsCreated, hooks.Payload{
+				Scope:     scope,
+				Count:     len(createdSummaries),
+				Proposals: createdSummaries,
+			})
+		}
+		if len(appliedSummaries) > 0 {
+			e.hooks.Emit(hooks.EventProposalsApplied, hooks.Payload{
+				Scope:     scope,
+				Count:     len(appliedSummaries),
+				Proposals: appliedSummaries,
+			})
 		}
 	}
 
@@ -446,6 +478,8 @@ func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, au
 
 	createdIDs := make([]int64, 0)
 	appliedIDs := make([]int64, 0)
+	createdSummaries := make([]hooks.ProposalSummary, 0)
+	appliedSummaries := make([]hooks.ProposalSummary, 0)
 	var duplicatesCount int
 
 	if curateType == "dedup" || curateType == "all" {
@@ -484,23 +518,44 @@ func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, au
 					TargetContent: group[0].Content,
 					TargetTags:    group[0].Tags,
 				})
+				propTitle := fmt.Sprintf("Deduplicate %d identical memories", len(sids))
 				propID, err := e.store.CreateProposal(ctx, &store.Proposal{
 					ScopeID:      group[0].ScopeID,
 					ScopePath:    group[0].ScopePath,
 					ProposalType: "merge",
-					Title:        fmt.Sprintf("Deduplicate %d identical memories", len(sids)),
+					Title:        propTitle,
 					Reasoning:    "Exact content hash duplicate detected in offline mode",
 					PayloadJSON:  string(payload),
 				})
 				if err == nil {
 					createdIDs = append(createdIDs, propID)
+					summary := hooks.ProposalSummary{ID: propID, Type: "merge", Title: propTitle}
+					createdSummaries = append(createdSummaries, summary)
 					if autoApply {
 						if err := e.store.ApplyProposal(ctx, propID); err == nil {
 							appliedIDs = append(appliedIDs, propID)
+							appliedSummaries = append(appliedSummaries, summary)
 						}
 					}
 				}
 			}
+		}
+	}
+
+	if !dryRun && e.hooks != nil {
+		if len(createdSummaries) > 0 {
+			e.hooks.Emit(hooks.EventProposalsCreated, hooks.Payload{
+				Scope:     scope,
+				Count:     len(createdSummaries),
+				Proposals: createdSummaries,
+			})
+		}
+		if len(appliedSummaries) > 0 {
+			e.hooks.Emit(hooks.EventProposalsApplied, hooks.Payload{
+				Scope:     scope,
+				Count:     len(appliedSummaries),
+				Proposals: appliedSummaries,
+			})
 		}
 	}
 

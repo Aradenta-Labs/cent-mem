@@ -48,6 +48,12 @@ var KnownConfigKeys = []string{
 	"agent.max_reasoning_steps",
 	"agent.confidence_threshold",
 	"agent.auto_apply_safe_links",
+	"hooks.enabled",
+	"hooks.proposals_created",
+	"hooks.proposals_applied",
+	"hooks.proposals_dismissed",
+	"hooks.secret",
+	"hooks.timeout_seconds",
 }
 
 // GetConfigValue retrieves a config property by its dot-notation key or table name.
@@ -157,6 +163,21 @@ func GetConfigValue(cfg Config, key string) (any, error) {
 		return cfg.Agent.ConfidenceThreshold, nil
 	case "agent.auto_apply_safe_links":
 		return cfg.Agent.AutoApplySafeLinks, nil
+
+	case "hooks":
+		return cfg.Hooks, nil
+	case "hooks.enabled":
+		return cfg.Hooks.Enabled, nil
+	case "hooks.proposals_created":
+		return cfg.Hooks.ProposalsCreated, nil
+	case "hooks.proposals_applied":
+		return cfg.Hooks.ProposalsApplied, nil
+	case "hooks.proposals_dismissed":
+		return cfg.Hooks.ProposalsDismissed, nil
+	case "hooks.secret":
+		return cfg.Hooks.Secret, nil
+	case "hooks.timeout_seconds":
+		return cfg.Hooks.TimeoutSeconds, nil
 
 	default:
 		return nil, fmt.Errorf("unknown config key %q", key)
@@ -435,6 +456,41 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 		}
 		cfg.Agent.AutoApplySafeLinks = b
 
+	case "hooks.enabled":
+		b, err := parseBoolFlexible(val)
+		if err != nil {
+			return fmt.Errorf("invalid hooks.enabled %q: must be a boolean", val)
+		}
+		cfg.Hooks.Enabled = b
+
+	case "hooks.proposals_created":
+		if err := ValidateHookURL(val); err != nil {
+			return fmt.Errorf("invalid hooks.proposals_created: %w", err)
+		}
+		cfg.Hooks.ProposalsCreated = val
+
+	case "hooks.proposals_applied":
+		if err := ValidateHookURL(val); err != nil {
+			return fmt.Errorf("invalid hooks.proposals_applied: %w", err)
+		}
+		cfg.Hooks.ProposalsApplied = val
+
+	case "hooks.proposals_dismissed":
+		if err := ValidateHookURL(val); err != nil {
+			return fmt.Errorf("invalid hooks.proposals_dismissed: %w", err)
+		}
+		cfg.Hooks.ProposalsDismissed = val
+
+	case "hooks.secret":
+		cfg.Hooks.Secret = val
+
+	case "hooks.timeout_seconds":
+		s, err := strconv.Atoi(val)
+		if err != nil || s <= 0 {
+			return fmt.Errorf("invalid hooks.timeout_seconds %q: must be a positive integer (> 0)", val)
+		}
+		cfg.Hooks.TimeoutSeconds = s
+
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}
@@ -452,6 +508,9 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 		return err
 	}
 	if err := validateAgentConfig(cfg.Agent); err != nil {
+		return err
+	}
+	if err := ValidateHooksConfig(cfg.Hooks); err != nil {
 		return err
 	}
 

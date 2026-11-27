@@ -6,12 +6,15 @@ import {
   TestClassifierResponse,
   TestAgentParams,
   TestAgentResponse,
+  TestHookParams,
+  TestHookResponse,
 } from '../types/config';
 import {
   fetchConfig,
   updateConfig,
   testClassifierEndpoint,
   testAgentEndpoint,
+  testHookEndpoint,
 } from '../services/api';
 
 export const DEFAULT_CONFIG: ConfigData = {
@@ -40,6 +43,14 @@ export const DEFAULT_CONFIG: ConfigData = {
     api_model: 'gpt-4o-mini',
     confidence_threshold: 0.7,
     categories: ['decision', 'convention', 'preference', 'learning', 'checkpoint'],
+  },
+  hooks: {
+    enabled: false,
+    proposals_created: '',
+    proposals_applied: '',
+    proposals_dismissed: '',
+    secret: '',
+    timeout_seconds: 5,
   },
 };
 
@@ -165,6 +176,22 @@ export function computeDiff(source: ConfigData, draft: ConfigData): Record<strin
     Object.entries(draft.agent).forEach(([k, v]) => { diff[`agent.${k}`] = v; });
   }
 
+  // Hooks
+  if (draft.hooks && source.hooks) {
+    const hooksKeys: Array<keyof typeof draft.hooks> = [
+      'enabled', 'proposals_created', 'proposals_applied', 'proposals_dismissed', 'secret', 'timeout_seconds',
+    ];
+    for (const k of hooksKeys) {
+      const srcVal = k === 'secret' ? (source.hooks[k] ?? '') : source.hooks[k];
+      const dstVal = k === 'secret' ? (draft.hooks[k] ?? '') : draft.hooks[k];
+      if (srcVal !== dstVal) {
+        diff[`hooks.${k}`] = dstVal;
+      }
+    }
+  } else if (draft.hooks && !source.hooks) {
+    Object.entries(draft.hooks).forEach(([k, v]) => { diff[`hooks.${k}`] = v; });
+  }
+
   return diff;
 }
 
@@ -180,6 +207,8 @@ export function useConfig() {
   const [testResult, setTestResult] = useState<TestClassifierResponse | null>(null);
   const [isTestingAgent, setIsTestingAgent] = useState<boolean>(false);
   const [agentTestResult, setAgentTestResult] = useState<TestAgentResponse | null>(null);
+  const [isTestingHook, setIsTestingHook] = useState<boolean>(false);
+  const [hookTestResult, setHookTestResult] = useState<TestHookResponse | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -190,6 +219,7 @@ export function useConfig() {
       setMeta(res.meta);
       setDraft(JSON.parse(JSON.stringify(res.config)));
       setFieldErrors({});
+      setHookTestResult(null);
     } catch (err: any) {
       setError(err.message || 'Failed to load configuration');
     } finally {
@@ -264,6 +294,9 @@ export function useConfig() {
         delete next[dotKey];
         return next;
       });
+      if (section === 'hooks') {
+        setHookTestResult(null);
+      }
     },
     []
   );
@@ -276,6 +309,7 @@ export function useConfig() {
     setDraft(JSON.parse(JSON.stringify(config)));
     setFieldErrors({});
     setError(null);
+    setHookTestResult(null);
   }, [config]);
 
   /**
@@ -285,6 +319,7 @@ export function useConfig() {
     setDraft(JSON.parse(JSON.stringify(DEFAULT_CONFIG)));
     setFieldErrors({});
     setError(null);
+    setHookTestResult(null);
   }, []);
 
   /**
@@ -411,6 +446,44 @@ export function useConfig() {
     [draft]
   );
 
+  const testHook = useCallback(
+    async (overrideParams?: Partial<TestHookParams>): Promise<TestHookResponse> => {
+      setIsTestingHook(true);
+      setHookTestResult(null);
+
+      const fallbackUrl =
+        draft?.hooks?.proposals_created ||
+        draft?.hooks?.proposals_applied ||
+        draft?.hooks?.proposals_dismissed ||
+        '';
+
+      const params: TestHookParams = {
+        url: (overrideParams?.url ?? fallbackUrl).trim(),
+        secret: overrideParams?.secret !== undefined ? overrideParams.secret : draft?.hooks?.secret,
+        timeout_seconds: overrideParams?.timeout_seconds ?? draft?.hooks?.timeout_seconds ?? 5,
+      };
+
+      try {
+        const res = await testHookEndpoint(params);
+        setHookTestResult(res);
+        return res;
+      } catch (err: any) {
+        const fallback: TestHookResponse = {
+          ok: false,
+          error: {
+            code: 'NETWORK_ERROR',
+            message: err.message || 'Webhook test request failed',
+          },
+        };
+        setHookTestResult(fallback);
+        return fallback;
+      } finally {
+        setIsTestingHook(false);
+      }
+    },
+    [draft]
+  );
+
   return {
     config,
     meta,
@@ -419,12 +492,14 @@ export function useConfig() {
     isSaving,
     isTesting,
     isTestingAgent,
+    isTestingHook,
     isDirty,
     dirtyKeys,
     error,
     fieldErrors,
     testResult,
     agentTestResult,
+    hookTestResult,
     updateField,
     updateSection,
     revert,
@@ -432,6 +507,7 @@ export function useConfig() {
     save,
     testClassifier,
     testAgent,
+    testHook,
     reload: load,
   };
 }

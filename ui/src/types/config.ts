@@ -51,12 +51,22 @@ export interface AgentConfig {
   inquiry_top_citations: number;
 }
 
+export interface HooksConfig {
+  enabled: boolean;
+  proposals_created: string;
+  proposals_applied: string;
+  proposals_dismissed: string;
+  secret?: string;
+  timeout_seconds: number;
+}
+
 export interface ConfigData {
   model: ModelConfig;
   retention: RetentionConfig;
   capture: CaptureConfig;
   llm?: LLMConfig;
   agent?: AgentConfig;
+  hooks?: HooksConfig;
 }
 
 export interface ConfigMeta {
@@ -128,7 +138,23 @@ export interface TestAgentResponse {
   };
 }
 
-export type SettingsTabId = 'general' | 'retention' | 'capture' | 'classifier' | 'categories' | 'ai-agent';
+export interface TestHookParams {
+  url: string;
+  secret?: string;
+  timeout_seconds?: number;
+}
+
+export interface TestHookResponse {
+  ok: boolean;
+  status_code?: number;
+  latency_ms?: number;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export type SettingsTabId = 'general' | 'retention' | 'capture' | 'classifier' | 'categories' | 'ai-agent' | 'hooks';
 
 export interface TabItem {
   id: SettingsTabId;

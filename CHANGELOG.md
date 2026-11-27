@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.6] - 2026-11-27
+
+Opt-in Webhook / Notification Hooks for Proposal Lifecycle Events.
+
+### Added
+
+- **Webhook Configuration Schema (`[hooks]` in `internal/config`)**:
+  - Added `HooksConfig` + `DefaultHooksConfig()` (`enabled = false`, `proposals_created`, `proposals_applied`, `proposals_dismissed`, `secret`, `timeout_seconds = 5`) with TOML load/save, `CENTMEM_HOOKS_*` env overrides, `centmem config get/set hooks.*` support, and URL scheme (`http`/`https` + host) and positive timeout validation.
+- **Async Non-Blocking Webhook Dispatcher (`internal/hooks`)**:
+  - Created `internal/hooks/dispatcher.go` with bounded concurrency/queueing, strict zero-network no-op when disabled or URL empty, canonical JSON envelope (`event`, `timestamp`, `scope`, `count`, `proposals`), `User-Agent: centmem/2.1.6`, `X-Centmem-Event`, optional HMAC-SHA256 `X-Centmem-Signature-256: sha256=<hex>` (resolving env var name or direct secret via `config.ResolveAPIKey`), single 500ms retry on network error or `5xx`, bounded `Flush(ctx)`, and synchronous `Test(ctx, url, secret)` dry-run emitting `hooks.test`.
+  - Added unit tests in `internal/hooks/dispatcher_test.go` and `internal/config/hooks_test.go`.
+- **Proposal Lifecycle Wiring & Test Endpoint (CLI + Web UI)**:
+  - Wired `proposals.created` (and auto-applied `proposals.applied`) emission into `internal/agent/engine.go` (`Curate()`) and `proposals.applied` / `proposals.dismissed` into `cmd/centmem/` (`curate`, `proposals apply`, `proposals dismiss`) with a bounded 2s flush before CLI exit.
+  - Wired single and aggregated batch webhook emission into `internal/ui/server.go` (`/api/proposals/{id}/apply`, `/api/proposals/{id}/dismiss`, `/api/proposals/batch`, `/api/proposals/batch/stream`), hot-reloaded `s.hooks` on `PATCH /api/config`, exposed `hooks` in `GET`/`PATCH /api/config`, and added `POST /api/config/test-hook`.
+  - Added integration tests in `internal/ui/server_agent_test.go` and `cmd/centmem/webhook_cli_test.go`.
+- **Web UI Webhooks Settings Tab (`HooksTab.tsx`)**:
+  - Added a **Webhooks** tab in `SettingsModal.tsx` with enable toggle, per-event URL inputs, secret input with show/hide toggle, timeout input, dirty-dot tracking, and a live **Test Webhook** button displaying HTTP status code and latency ms.
+
 ## [2.1.5] - 2026-11-27
 
 Streaming Proposal & Auto-Suggested Link Application (SSE Batch Progress & Mid-Flight Cancellation).
@@ -565,6 +583,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.1.6]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.6
 [2.1.5]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.5
 [2.1.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.4
 [2.1.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.3

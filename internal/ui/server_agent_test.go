@@ -12,10 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/hooks"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
@@ -2324,5 +2326,425 @@ func TestServer_Proposals_BatchStream_EdgeCases_And_RealTCP(t *testing.T) {
 		t.Fatalf("expected 7 SSE frames over TCP (start + 5 progress + done), got %d: %+v", len(tcpFrames), tcpFrames)
 	}
 }
+
+func TestServer_Hooks_ConfigHotReloadAndTestEndpoint(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	home := t.TempDir()
+	cfg := config.Config{
+		Home:      home,
+		DBPath:    filepath.Join(home, "centmem.db"),
+		Model:     config.ModelConfig{Name: "bge-small-en-v1.5", Dims: 384},
+		Retention: config.DefaultRetention(),
+		Capture:   config.DefaultCaptureConfig(),
+		LLM:       config.DefaultLLMConfig(),
+		Agent:     config.DefaultAgentConfig(),
+		Hooks:     config.DefaultHooksConfig(),
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:   "127.0.0.1",
+		Port:   0,
+		Store:  st,
+		Config: cfg,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	// 1. GET /api/config includes hooks section with defaults
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/api/config", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/config status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var getResp struct {
+		OK     bool `json:"ok"`
+		Config struct {
+			Hooks config.HooksConfig `json:"hooks"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("unmarshal GET /api/config: %v", err)
+	}
+	if getResp.Config.Hooks.Enabled || getResp.Config.Hooks.TimeoutSeconds != 5 {
+		t.Fatalf("unexpected default hooks config: %+v", getResp.Config.Hooks)
+	}
+
+	// Receiver for test-hook probes
+	var mu sync.Mutex
+	var gotEvents, gotSigs []string
+	var gotBodies [][]byte
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotEvents = append(gotEvents, r.Header.Get("X-Centmem-Event"))
+		gotSigs = append(gotSigs, r.Header.Get("X-Centmem-Signature-256"))
+		gotBodies = append(gotBodies, b)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hookSrv.Close()
+
+	// 2. PATCH /api/config rejects invalid URL scheme
+	badPatch := `{"hooks":{"enabled":true,"proposals_created":"ftp://evil.example/hook"}}`
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/config", strings.NewReader(badPatch)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid scheme, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. PATCH /api/config saves hooks and hot-reloads dispatcher
+	patchBody, _ := json.Marshal(map[string]any{
+		"hooks": map[string]any{
+			"enabled":             true,
+			"proposals_created":   hookSrv.URL,
+			"proposals_applied":   hookSrv.URL,
+			"proposals_dismissed": hookSrv.URL,
+			"secret":              "saved-hook-secret",
+			"timeout_seconds":     4,
+		},
+	})
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/config", bytes.NewReader(patchBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH /api/config status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 4. POST /api/config/test-hook with omitted secret falls back to saved secret
+	testBody, _ := json.Marshal(map[string]any{"url": hookSrv.URL})
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("POST", "/api/config/test-hook", bytes.NewReader(testBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/config/test-hook status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var testResp struct {
+		OK         bool  `json:"ok"`
+		StatusCode int   `json:"status_code"`
+		LatencyMs  int64 `json:"latency_ms"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &testResp); err != nil {
+		t.Fatalf("unmarshal test-hook: %v", err)
+	}
+	if !testResp.OK || testResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected ok=true status_code=200, got %+v", testResp)
+	}
+
+	// 5. POST /api/config/test-hook rejects invalid scheme with 400
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("POST", "/api/config/test-hook", strings.NewReader(`{"url":"file:///etc/passwd"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid test-hook scheme, got %d", rec.Code)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(gotEvents) != 1 || gotEvents[0] != hooks.EventHooksTest {
+		t.Fatalf("expected 1 hooks.test event, got %+v", gotEvents)
+	}
+	if want := hooks.SignPayload("saved-hook-secret", gotBodies[0]); gotSigs[0] != want {
+		t.Errorf("test-hook signature = %q, want %q", gotSigs[0], want)
+	}
+}
+
+func TestServer_Hooks_ProposalSingleAndBatchAggregation(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	var mu sync.Mutex
+	type receivedHook struct {
+		Event   string
+		Sig     string
+		RawBody []byte
+		Payload hooks.Payload
+	}
+	var received []receivedHook
+	hookCh := make(chan struct{}, 16)
+
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var p hooks.Payload
+		_ = json.Unmarshal(b, &p)
+		mu.Lock()
+		received = append(received, receivedHook{
+			Event:   r.Header.Get("X-Centmem-Event"),
+			Sig:     r.Header.Get("X-Centmem-Signature-256"),
+			RawBody: b,
+			Payload: p,
+		})
+		mu.Unlock()
+		hookCh <- struct{}{}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hookSrv.Close()
+
+	home := t.TempDir()
+	cfg := config.Config{
+		Home:      home,
+		DBPath:    filepath.Join(home, "centmem.db"),
+		Model:     config.ModelConfig{Name: "bge-small-en-v1.5", Dims: 384},
+		Retention: config.DefaultRetention(),
+		Capture:   config.DefaultCaptureConfig(),
+		LLM:       config.DefaultLLMConfig(),
+		Agent:     config.DefaultAgentConfig(),
+		Hooks: config.HooksConfig{
+			Enabled:            true,
+			ProposalsApplied:   hookSrv.URL,
+			ProposalsDismissed: hookSrv.URL,
+			Secret:             "batch-secret-xyz",
+			TimeoutSeconds:     5,
+		},
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:   "127.0.0.1",
+		Port:   0,
+		Store:  st,
+		Config: cfg,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	// Seed memories & proposals
+	m1, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:wh", Type: "note", Content: "Hook note 1"})
+	m2, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:wh", Type: "note", Content: "Hook note 2"})
+	m3, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:wh", Type: "note", Content: "Hook note 3"})
+	m4, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:wh", Type: "note", Content: "Hook note 4"})
+
+	makeProp := func(from, to int64, rel, title string) int64 {
+		pJSON, _ := json.Marshal(store.LinkProposalPayload{FromID: from, ToID: to, Relation: rel})
+		id, err := st.CreateProposal(ctx, &store.Proposal{
+			ScopePath:    "project:wh",
+			ProposalType: "link",
+			Title:        title,
+			Reasoning:    "test",
+			PayloadJSON:  string(pJSON),
+		})
+		if err != nil {
+			t.Fatalf("CreateProposal: %v", err)
+		}
+		return id
+	}
+
+	pSingleApply := makeProp(m1, m2, "supports", "Single apply")
+	pSingleDismiss := makeProp(m1, m3, "supports", "Single dismiss")
+	pBatch1 := makeProp(m1, m4, "supports", "Batch apply 1")
+	pBatch2 := makeProp(m2, m3, "supports", "Batch apply 2")
+	pBatch3 := makeProp(m2, m4, "supports", "Batch apply 3")
+	pStream1 := makeProp(m3, m4, "supersedes", "Stream dismiss 1")
+	pStream2 := makeProp(m4, m1, "supersedes", "Stream dismiss 2")
+
+	// 1. Single apply
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("POST", fmt.Sprintf("/api/proposals/%d/apply", pSingleApply), nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("single apply failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Single dismiss
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("POST", fmt.Sprintf("/api/proposals/%d/dismiss", pSingleDismiss), nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("single dismiss failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. Batch apply (3 proposals -> must produce 1 aggregated webhook)
+	batchBody, _ := json.Marshal(map[string]any{"action": "apply", "ids": []int64{pBatch1, pBatch2, pBatch3}})
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("POST", "/api/proposals/batch", bytes.NewReader(batchBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch apply failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Batch stream dismiss (2 proposals -> must produce 1 aggregated webhook)
+	streamBody, _ := json.Marshal(map[string]any{"action": "dismiss", "ids": []int64{pStream1, pStream2}})
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("POST", "/api/proposals/batch/stream", bytes.NewReader(streamBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch stream dismiss failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Flush dispatcher to ensure all 4 async webhooks finished
+	flushCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	srv.currentHooks().Flush(flushCtx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 4 {
+		t.Fatalf("expected exactly 4 webhook deliveries (single apply, single dismiss, 1 aggregated batch, 1 aggregated stream), got %d", len(received))
+	}
+
+	// Verify HMAC and counts across all 4 deliveries
+	byCount := map[string]int{}
+	for _, h := range received {
+		if want := hooks.SignPayload("batch-secret-xyz", h.RawBody); h.Sig != want {
+			t.Errorf("invalid HMAC for %s: got %q want %q", h.Event, h.Sig, want)
+		}
+		if h.Payload.Scope != "project:wh" {
+			t.Errorf("expected scope project:wh, got %q", h.Payload.Scope)
+		}
+		if h.Payload.Count != len(h.Payload.Proposals) {
+			t.Errorf("count mismatch: count=%d len=%d", h.Payload.Count, len(h.Payload.Proposals))
+		}
+		key := fmt.Sprintf("%s:%d", h.Event, h.Payload.Count)
+		byCount[key]++
+	}
+	for _, wantKey := range []string{
+		"proposals.applied:1",
+		"proposals.dismissed:1",
+		"proposals.applied:3",
+		"proposals.dismissed:2",
+	} {
+		if byCount[wantKey] != 1 {
+			t.Errorf("expected 1 delivery matching %q, got counts=%+v", wantKey, byCount)
+		}
+	}
+
+	// 5. Hot-reload disable via PATCH /api/config -> zero further calls
+	pDisabled := makeProp(m3, m1, "supports", "Disabled dismiss")
+	disableBody := `{"hooks":{"enabled":false}}`
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/config", strings.NewReader(disableBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable hooks failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("POST", fmt.Sprintf("/api/proposals/%d/dismiss", pDisabled), nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dismiss when disabled failed: %d", rec.Code)
+	}
+	srv.currentHooks().Flush(flushCtx)
+	if len(received) != 4 {
+		t.Fatalf("expected 0 additional webhooks after disabling, got total %d", len(received))
+	}
+}
+
+func TestServer_Hooks_BatchStreamMidFlightCancellation(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	var mu sync.Mutex
+	var received []hooks.Payload
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var p hooks.Payload
+		_ = json.Unmarshal(body, &p)
+		mu.Lock()
+		received = append(received, p)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hookSrv.Close()
+
+	home := t.TempDir()
+	cfg := config.Config{
+		Home:      home,
+		DBPath:    filepath.Join(home, "centmem.db"),
+		Model:     config.ModelConfig{Name: "bge-small-en-v1.5", Dims: 384},
+		Retention: config.DefaultRetention(),
+		Capture:   config.DefaultCaptureConfig(),
+		LLM:       config.DefaultLLMConfig(),
+		Agent:     config.DefaultAgentConfig(),
+		Hooks: config.HooksConfig{
+			Enabled:          true,
+			ProposalsApplied: hookSrv.URL,
+			TimeoutSeconds:   5,
+		},
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:   "127.0.0.1",
+		Port:   0,
+		Store:  st,
+		Config: cfg,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	ctx := context.Background()
+	m1, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:cancel", Type: "note", Content: "Cancel note 1"})
+	m2, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:cancel", Type: "note", Content: "Cancel note 2"})
+	m3, _, _ := st.PutMemory(ctx, store.MemoryInput{Scope: "project:cancel", Type: "note", Content: "Cancel note 3"})
+
+	makeProp := func(from, to int64, title string) int64 {
+		pJSON, _ := json.Marshal(store.LinkProposalPayload{FromID: from, ToID: to, Relation: "supports"})
+		id, err := st.CreateProposal(ctx, &store.Proposal{
+			ScopePath:    "project:cancel",
+			ProposalType: "link",
+			Title:        title,
+			Reasoning:    "cancel test",
+			PayloadJSON:  string(pJSON),
+		})
+		if err != nil {
+			t.Fatalf("CreateProposal: %v", err)
+		}
+		return id
+	}
+	p1 := makeProp(m1, m2, "Stream item 1")
+	p2 := makeProp(m2, m3, "Stream item 2")
+	p3 := makeProp(m1, m3, "Stream item 3")
+
+	// Cancel the request context right after the first progress event flushes.
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	defer cancelReq()
+
+	bodyBytes, _ := json.Marshal(map[string]any{
+		"action": "apply",
+		"ids":    []int64{p1, p2, p3},
+	})
+	req := httptest.NewRequest("POST", "/api/proposals/batch/stream", bytes.NewReader(bodyBytes)).WithContext(reqCtx)
+	rec := &cancelAfterFirstProgressWriter{
+		ResponseRecorder: httptest.NewRecorder(),
+		onFirstProgress:  cancelReq,
+	}
+	handler.ServeHTTP(rec, req)
+
+	flushCtx, cancelFlush := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelFlush()
+	srv.currentHooks().Flush(flushCtx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 1 {
+		t.Fatalf("expected 1 aggregated webhook for mid-flight cancelled stream, got %d", len(received))
+	}
+	if received[0].Event != hooks.EventProposalsApplied {
+		t.Errorf("event = %q, want %q", received[0].Event, hooks.EventProposalsApplied)
+	}
+	if received[0].Count != 1 || len(received[0].Proposals) != 1 || received[0].Proposals[0].ID != p1 {
+		t.Errorf("expected only succeeded subset [p1=%d], got %+v", p1, received[0])
+	}
+	if received[0].Scope != "project:cancel" {
+		t.Errorf("expected scope project:cancel, got %q", received[0].Scope)
+	}
+}
+
+type cancelAfterFirstProgressWriter struct {
+	*httptest.ResponseRecorder
+	onFirstProgress func()
+	cancelled       bool
+}
+
+func (w *cancelAfterFirstProgressWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseRecorder.Write(p)
+	if !w.cancelled && bytes.Contains(p, []byte("event: progress")) {
+		w.cancelled = true
+		w.onFirstProgress()
+	}
+	return n, err
+}
+
+func (w *cancelAfterFirstProgressWriter) Flush() {
+	w.ResponseRecorder.Flush()
+}
+
 
 

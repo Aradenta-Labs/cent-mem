@@ -2,7 +2,7 @@
 
 **Version:** 2.1.6 (target)  
 **Owner:** Aradenta Labs  
-**Status:** Planned  
+**Status:** Implemented  
 **Schema Migration:** None  
 **Source:** [docs/v2-nice-to-have.md](../v2-nice-to-have.md) — Medium Effort #8
 

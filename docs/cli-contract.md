@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 2.1.5
+**Version:** 2.1.6
 **Binary:** `centmem`, `centmemd`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
@@ -307,8 +307,16 @@ centmem config set <key> <value>
 centmem config get [key]
 ```
 
-- `set`: updates a dot-notation config key in `config.toml` (e.g. `capture.harness`, `capture.categories`, `retention.note_summarize_after_days`).
+- `set`: updates a dot-notation config key in `config.toml` (e.g. `capture.harness`, `capture.categories`, `retention.note_summarize_after_days`, `hooks.enabled`, `hooks.proposals_created`).
 - `get`: retrieves the value of a specific key (or full configuration if no key specified). Exit 2 if key not found.
+
+**Webhook configuration (`[hooks]`, v2.1.6):**
+Opt-in, disabled-by-default HTTP notifications for proposal lifecycle events (`proposals.created`, `proposals.applied`, `proposals.dismissed`). Zero network calls are made unless `hooks.enabled = true` and a target `http://`/`https://` URL is configured for the event.
+- Keys: `hooks.enabled` (`bool`, default `false`), `hooks.proposals_created` (`url`), `hooks.proposals_applied` (`url`), `hooks.proposals_dismissed` (`url`), `hooks.secret` (optional HMAC-SHA256 signing secret or env var name), `hooks.timeout_seconds` (`int > 0`, default `5`).
+- Env overrides: `CENTMEM_HOOKS_ENABLED`, `CENTMEM_HOOKS_PROPOSALS_CREATED`, `CENTMEM_HOOKS_PROPOSALS_APPLIED`, `CENTMEM_HOOKS_PROPOSALS_DISMISSED`, `CENTMEM_HOOKS_SECRET`, `CENTMEM_HOOKS_TIMEOUT_SECONDS`.
+- Delivery headers: `Content-Type: application/json`, `User-Agent: centmem/2.1.6`, `X-Centmem-Event: <event>`, and optional `X-Centmem-Signature-256: sha256=<hex>` over raw JSON body when `secret` resolves non-empty.
+- Payload envelope: `{"event": "proposals.created", "timestamp": "<RFC3339>", "scope": "<scope>", "count": 1, "proposals": [{"id": 12, "type": "merge", "title": "..."}]}`.
+- Web UI test endpoint: `POST /api/config/test-hook` (`{"url": "...", "secret": "..."}`, falling back to saved secret if omitted) emits a synchronous `hooks.test` POST and returns `{"ok": true, "status_code": 200, "latency_ms": 42}` or structured error.
 
 **Output (`config set` / `config get <key>`):**
 ```json

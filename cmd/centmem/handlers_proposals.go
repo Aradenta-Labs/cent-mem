@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aradenta-labs/cent-mem/internal/cli"
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/hooks"
 	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
@@ -133,6 +136,7 @@ func cmdProposals(args []string) int {
 			}
 
 			p, _ := s.GetProposal(ctx, id)
+			emitAndFlushProposalHook(cfg.Hooks, hooks.EventProposalsApplied, id, p)
 			return prettyPrint(fs, map[string]any{
 				"ok":       true,
 				"applied":  true,
@@ -161,6 +165,7 @@ func cmdProposals(args []string) int {
 			}
 
 			p, _ := s.GetProposal(ctx, id)
+			emitAndFlushProposalHook(cfg.Hooks, hooks.EventProposalsDismissed, id, p)
 			return prettyPrint(fs, map[string]any{
 				"ok":        true,
 				"dismissed": true,
@@ -171,4 +176,28 @@ func cmdProposals(args []string) int {
 			return cli.Invalidf("proposals: unknown action %q (expected list, show, apply, or dismiss)", posArgs[0])
 		}
 	})
+}
+
+func emitAndFlushProposalHook(cfg config.HooksConfig, event string, id int64, p *store.Proposal) {
+	if !cfg.Enabled {
+		return
+	}
+	scopePath := "global"
+	summary := hooks.ProposalSummary{ID: id}
+	if p != nil {
+		if p.ScopePath != "" {
+			scopePath = p.ScopePath
+		}
+		summary.Type = p.ProposalType
+		summary.Title = p.Title
+	}
+	d := hooks.NewDispatcher(cfg)
+	d.Emit(event, hooks.Payload{
+		Scope:     scopePath,
+		Count:     1,
+		Proposals: []hooks.ProposalSummary{summary},
+	})
+	flushCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	d.Flush(flushCtx)
 }

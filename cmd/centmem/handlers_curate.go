@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"strings"
+	"time"
 
 	"github.com/aradenta-labs/cent-mem/internal/agent"
 	"github.com/aradenta-labs/cent-mem/internal/cli"
@@ -63,6 +65,10 @@ func cmdCurate(args []string) int {
 		if err != nil {
 			return cli.Internalf("curate: %v", err)
 		}
+
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		engine.FlushHooks(flushCtx)
+		flushCancel()
 
 		created := res.ProposalsCreated
 		if created == nil {

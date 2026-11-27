@@ -96,21 +96,25 @@ This document captures feature ideas that are not blockers for the current miles
 
 ---
 
-### 8. Webhook / Notification Hooks *(Planned for v2.1.6)*
+### 8. Webhook / Notification Hooks ✅ *(Implemented in v2.1.6)*
 
-**Plan:** [docs/plans/plan-v2.1.6.md](plans/plan-v2.1.6.md)
+**Plan & Implementation:** [docs/plans/plan-v2.1.6.md](plans/plan-v2.1.6.md)
 
-**What:** Fire a configurable webhook when agent proposals are created or applied. Config:
+**What:** Opt-in, disabled-by-default HTTP webhook notifications for proposal lifecycle events (`proposals.created`, `proposals.applied`, `proposals.dismissed`) across CLI and Web UI, with optional HMAC-SHA256 signing (`X-Centmem-Signature-256`), bounded async non-blocking delivery with single 500ms retry on network error/`5xx`, `POST /api/config/test-hook`, and a Web UI Webhooks Settings tab. Config:
 
 ```toml
 [hooks]
+enabled = false
 proposals_created = "https://hooks.slack.com/..."
 proposals_applied = "https://n8n.example.com/webhook/..."
+proposals_dismissed = ""
+secret = ""
+timeout_seconds = 5
 ```
 
 **Why:** Teams using centmem in multi-agent workflows have no way to receive external notifications when the agent proposes changes. Webhooks unlock Slack alerts, n8n flows, and custom dashboards at zero runtime cost.
 
-**Signals:** No new dependencies; fire-and-forget HTTP POST; very composable.
+**Signals:** Shipped in v2.1.6 with zero external dependencies, strict no-op when disabled, bounded CLI shutdown flush (`2s`), aggregated batch event emission, and hot-reload on `PATCH /api/config`.
 
 ---
 

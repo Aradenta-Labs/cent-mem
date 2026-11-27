@@ -426,6 +426,15 @@ centmem config set <key> <value>
 - `agent.confidence_threshold`: (`float`, default: `0.75`) Minimum model confidence score required to stage memory proposals.
 - `agent.auto_apply_safe_links`: (`bool`, default: `false`) When set to `true`, high-confidence (≥0.90) semantic relationship links bypass the proposals queue and are applied immediately.
 
+#### Webhook / Notification Hook Settings (`hooks.*`) — v2.1.6
+Opt-in, disabled-by-default HTTP POST notifications for proposal lifecycle events. Zero network calls are made unless `hooks.enabled = true` and a valid `http://`/`https://` URL is configured for the event.
+- `hooks.enabled`: (`bool`, default: `false`) Enable asynchronous webhook delivery.
+- `hooks.proposals_created`: (`string`, default: `""`) Target HTTP(S) URL for `proposals.created` events emitted by `centmem curate`.
+- `hooks.proposals_applied`: (`string`, default: `""`) Target HTTP(S) URL for `proposals.applied` events emitted on CLI/UI proposal approval (aggregated per batch in Web UI).
+- `hooks.proposals_dismissed`: (`string`, default: `""`) Optional target HTTP(S) URL for `proposals.dismissed` events.
+- `hooks.secret`: (`string`, default: `""`) Optional HMAC-SHA256 signing secret (environment variable name or direct secret string); when set, adds `X-Centmem-Signature-256: sha256=<hex>` over the raw JSON body.
+- `hooks.timeout_seconds`: (`int`, default: `5`) Per-attempt HTTP timeout in seconds (must be `> 0`).
+
 #### Environment Variable Overrides
 All configuration settings can be overridden at runtime via environment variables:
 
@@ -442,6 +451,12 @@ All configuration settings can be overridden at runtime via environment variable
 | `CENTMEM_AGENT_MAX_REASONING_STEPS` | `agent.max_reasoning_steps` | Override cycle guard step limit |
 | `CENTMEM_AGENT_CONFIDENCE_THRESHOLD` | `agent.confidence_threshold` | Override confidence threshold (0.0–1.0) |
 | `CENTMEM_AGENT_AUTO_APPLY_SAFE_LINKS` | `agent.auto_apply_safe_links` | Auto-apply safe link proposals (`true`/`false`) |
+| `CENTMEM_HOOKS_ENABLED` | `hooks.enabled` | Enable/disable webhook notifications (`true`/`false`) |
+| `CENTMEM_HOOKS_PROPOSALS_CREATED` | `hooks.proposals_created` | Override `proposals.created` webhook URL |
+| `CENTMEM_HOOKS_PROPOSALS_APPLIED` | `hooks.proposals_applied` | Override `proposals.applied` webhook URL |
+| `CENTMEM_HOOKS_PROPOSALS_DISMISSED` | `hooks.proposals_dismissed` | Override `proposals.dismissed` webhook URL |
+| `CENTMEM_HOOKS_SECRET` | `hooks.secret` | Override HMAC-SHA256 signing secret or env var name |
+| `CENTMEM_HOOKS_TIMEOUT_SECONDS` | `hooks.timeout_seconds` | Override per-attempt HTTP timeout seconds (`> 0`) |
 
 ---
 
@@ -1090,6 +1105,7 @@ The embedded HTTP server exposes the following endpoints for UI and programmatic
 | `GET` | `/api/export` | Query: `scope`, `format`, `type`, `tags`, `agent`, `since`, `until` | Download memories in canonical JSON or CSV format |
 | `POST` | `/api/import` | Multipart file upload (`file`) or JSON body | Idempotently import memories from JSON export envelope |
 | `POST` | `/api/config/test-agent` | JSON: `{"backend": "...", "endpoint": "...", "model": "...", "api_key": "...", "timeout_seconds": 8}` | Test live AI agent endpoint connectivity and latency |
+| `POST` | `/api/config/test-hook` | JSON: `{"url": "...", "secret": "...", "timeout_seconds": 5}` | Send synchronous `hooks.test` POST and return HTTP status code & latency ms |
 
 #### SSE Event Format (`POST /api/agent/chat`)
 - `event: delta`: Streaming text tokens `{"content": "text", "role": "assistant"}`
