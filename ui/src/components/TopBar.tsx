@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Menu, X, LayoutTemplate, Activity, CheckCircle2, AlertTriangle, XCircle, RotateCcw, HelpCircle, Settings, Sparkles } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { HealthResponse } from '../types/scope';
+import { isEditableTarget, hasOpenModal } from '../utils/keyboard';
 
 export interface TopBarProps {
   searchQuery: string;
@@ -44,29 +45,40 @@ export const TopBar: React.FC<TopBarProps> = ({
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+      if (e.key === 'Escape' && isHealthOpen && !hasOpenModal()) {
+        setIsHealthOpen(false);
+        return;
+      }
 
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      const editable = isEditableTarget(e.target);
+
+      // `?` toggles the keyboard shortcuts overlay unless typing or another modal is open
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (!editable && !hasOpenModal(['shortcuts']) && onOpenShortcuts) {
+          e.preventDefault();
+          onOpenShortcuts();
+        }
+        return;
+      }
+
+      // Suppress global shortcuts while typing in inputs/textareas/contenteditable or when a modal is open
+      if (editable || hasOpenModal()) return;
+
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         searchInputRef.current?.focus();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j' && onTabChange) {
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j' && onTabChange) {
         e.preventDefault();
         onTabChange(activeTab === 'assistant' ? 'memories' : 'assistant');
-      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p' && onTabChange) {
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p' && onTabChange) {
         e.preventDefault();
         onTabChange('proposals');
-      } else if ((e.metaKey || e.ctrlKey) && e.key === ',' && onOpenSettings) {
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === ',' && onOpenSettings) {
         e.preventDefault();
         onOpenSettings();
-      } else if (e.key === '/' && !isInput) {
+      } else if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         searchInputRef.current?.focus();
-      } else if (e.key === '?' && !isInput && onOpenShortcuts) {
-        e.preventDefault();
-        onOpenShortcuts();
-      } else if (e.key === 'Escape' && isHealthOpen) {
-        setIsHealthOpen(false);
       }
     };
 
@@ -159,7 +171,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               padding: '1px 5px',
             }}
           >
-            v{health?.version || '1.4.2'}
+            v{health?.version || '2.1.4'}
           </span>
         </div>
       </div>
@@ -405,6 +417,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             <div
               role="dialog"
               aria-label="Doctor Health Diagnostics"
+              data-popover-open="true"
               style={{
                 position: 'absolute',
                 right: 0,
@@ -505,7 +518,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                     : 'System requires attention'}
                 </span>
                 <span className="tabular-nums" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  v{health?.version || '1.4.2'}
+                  v{health?.version || '2.1.4'}
                 </span>
               </div>
 

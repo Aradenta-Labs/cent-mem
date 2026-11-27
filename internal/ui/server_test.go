@@ -18,7 +18,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
-const testVersion = "2.1.3"
+const testVersion = "2.1.4"
 
 func TestServer_HealthAndStaticServing(t *testing.T) {
 	cfg := ServerConfig{
@@ -1885,8 +1885,8 @@ func TestServer_LinkEndpoints(t *testing.T) {
 
 func TestServer_DefaultConfigVersion(t *testing.T) {
 	defCfg := DefaultServerConfig()
-	if defCfg.Version != "2.1.3" {
-		t.Errorf("expected DefaultServerConfig().Version to be 2.1.3, got %q", defCfg.Version)
+	if defCfg.Version != "2.1.4" {
+		t.Errorf("expected DefaultServerConfig().Version to be 2.1.4, got %q", defCfg.Version)
 	}
 
 	srv, err := NewServer(ServerConfig{
@@ -1897,8 +1897,8 @@ func TestServer_DefaultConfigVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer error: %v", err)
 	}
-	if srv.cfg.Version != "2.1.3" {
-		t.Errorf("expected NewServer fallback version 2.1.3, got %q", srv.cfg.Version)
+	if srv.cfg.Version != "2.1.4" {
+		t.Errorf("expected NewServer fallback version 2.1.4, got %q", srv.cfg.Version)
 	}
 }
 
@@ -2345,6 +2345,295 @@ func TestTimelineEndpointStoreNil(t *testing.T) {
 	errObj, ok := errResp["error"].(map[string]any)
 	if !ok || errObj["code"] != "store_unavailable" {
 		t.Errorf("expected error.code=store_unavailable, got %+v", errResp)
+	}
+}
+
+func TestPatchMemoryEndpoint(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(config.Config{DBPath: t.TempDir() + "/centmem.db"})
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer st.Close()
+
+	memID, _, err := st.PutMemory(ctx, store.MemoryInput{
+		Scope:   "project:demo",
+		Type:    "note",
+		Content: "original alpha content",
+		Tags:    []string{"initial"},
+	})
+	if err != nil {
+		t.Fatalf("PutMemory: %v", err)
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	doPatch := func(path string, body string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPatch, srv.URL()+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("PATCH %s: %v", path, err)
+		}
+		return resp
+	}
+
+	// Clear initial embed_queue row so we can assert re-queue behavior precisely.
+	if _, err := st.DB().ExecContext(ctx, `DELETE FROM embed_queue WHERE memory_id = ?`, memID); err != nil {
+		t.Fatalf("clear embed_queue: %v", err)
+	}
+
+	// 1. Valid content + tag edit -> 200, reindexed=true, FTS updated, embed_queue re-enqueued.
+	t.Run("ContentAndTagsEdit", func(t *testing.T) {
+		resp := doPatch(fmt.Sprintf("/api/memories/%d", memID), `{"content":"updated beta knowledge","tags":["Arch","Search"]}`)
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("status = %d, want 200 (body: %s)", resp.StatusCode, string(b))
+		}
+		var out struct {
+			OK        bool  `json:"ok"`
+			ID        int64 `json:"id"`
+			UpdatedAt int64 `json:"updated_at"`
+			Reindexed bool  `json:"reindexed"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if !out.OK || out.ID != memID || out.UpdatedAt <= 0 || !out.Reindexed {
+			t.Fatalf("unexpected response: %+v", out)
+		}
+
+		got, err := st.GetMemory(ctx, memID)
+		if err != nil {
+			t.Fatalf("GetMemory: %v", err)
+		}
+		if got.Content != "updated beta knowledge" {
+			t.Errorf("content = %q, want %q", got.Content, "updated beta knowledge")
+		}
+		if len(got.Tags) != 2 || got.Tags[0] != "arch" || got.Tags[1] != "search" {
+			t.Errorf("tags = %v, want [arch search]", got.Tags)
+		}
+
+		// Verify embed_queue has a pending job for memID.
+		var qCount int
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM embed_queue WHERE memory_id = ?`, memID).Scan(&qCount); err != nil {
+			t.Fatalf("query embed_queue: %v", err)
+		}
+		if qCount != 1 {
+			t.Errorf("embed_queue count = %d, want 1", qCount)
+		}
+
+		// Verify FTS5 index reflects updated content and no longer matches old token.
+		var ftsNew, ftsOld int
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM memories_fts WHERE memories_fts MATCH 'beta'`).Scan(&ftsNew); err != nil {
+			t.Fatalf("query fts new: %v", err)
+		}
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM memories_fts WHERE memories_fts MATCH 'alpha'`).Scan(&ftsOld); err != nil {
+			t.Fatalf("query fts old: %v", err)
+		}
+		if ftsNew != 1 || ftsOld != 0 {
+			t.Errorf("FTS counts: new=%d (want 1), old=%d (want 0)", ftsNew, ftsOld)
+		}
+	})
+
+	// 2. Tag-only edit -> 200, reindexed=false, no new embed_queue job.
+	t.Run("TagOnlyEdit", func(t *testing.T) {
+		if _, err := st.DB().ExecContext(ctx, `DELETE FROM embed_queue WHERE memory_id = ?`, memID); err != nil {
+			t.Fatalf("clear embed_queue: %v", err)
+		}
+
+		resp := doPatch(fmt.Sprintf("/api/memories/%d", memID), `{"content":"updated beta knowledge","tags":["decision"]}`)
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		var out struct {
+			OK        bool  `json:"ok"`
+			ID        int64 `json:"id"`
+			UpdatedAt int64 `json:"updated_at"`
+			Reindexed bool  `json:"reindexed"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if !out.OK || out.ID != memID || out.Reindexed {
+			t.Fatalf("expected reindexed=false for tag-only edit, got %+v", out)
+		}
+
+		got, err := st.GetMemory(ctx, memID)
+		if err != nil {
+			t.Fatalf("GetMemory: %v", err)
+		}
+		if len(got.Tags) != 1 || got.Tags[0] != "decision" {
+			t.Errorf("tags = %v, want [decision]", got.Tags)
+		}
+
+		var qCount int
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM embed_queue WHERE memory_id = ?`, memID).Scan(&qCount); err != nil {
+			t.Fatalf("query embed_queue: %v", err)
+		}
+		if qCount != 0 {
+			t.Errorf("embed_queue count = %d, want 0 for tag-only edit", qCount)
+		}
+	})
+
+	// 3. Empty / whitespace-only content -> 400 invalid_payload.
+	t.Run("EmptyContent400", func(t *testing.T) {
+		for _, payload := range []string{`{"content":"","tags":[]}`, `{"content":"   \n\t ","tags":[]}`, `{invalid json`} {
+			resp := doPatch(fmt.Sprintf("/api/memories/%d", memID), payload)
+			var errBody map[string]any
+			_ = json.NewDecoder(resp.Body).Decode(&errBody)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("payload %q: status = %d, want 400", payload, resp.StatusCode)
+			}
+			errObj, _ := errBody["error"].(map[string]any)
+			if errObj["code"] != "invalid_payload" {
+				t.Errorf("payload %q: error.code = %v, want invalid_payload", payload, errObj["code"])
+			}
+		}
+	})
+
+	// 4. Invalid ID -> 400 invalid_id.
+	t.Run("InvalidID400", func(t *testing.T) {
+		for _, idStr := range []string{"abc", "0", "-5"} {
+			resp := doPatch("/api/memories/"+idStr, `{"content":"valid"}`)
+			var errBody map[string]any
+			_ = json.NewDecoder(resp.Body).Decode(&errBody)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("id %q: status = %d, want 400", idStr, resp.StatusCode)
+			}
+			errObj, _ := errBody["error"].(map[string]any)
+			if errObj["code"] != "invalid_id" {
+				t.Errorf("id %q: error.code = %v, want invalid_id", idStr, errObj["code"])
+			}
+		}
+	})
+
+	// 5. Missing memory -> 404 not_found.
+	t.Run("MissingMemory404", func(t *testing.T) {
+		resp := doPatch("/api/memories/999999", `{"content":"does not exist","tags":[]}`)
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", resp.StatusCode)
+		}
+		var errBody map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&errBody)
+		errObj, _ := errBody["error"].(map[string]any)
+		if errObj["code"] != "not_found" {
+			t.Errorf("error.code = %v, want not_found", errObj["code"])
+		}
+	})
+
+	// 6. Archived (non-active) memory -> 404 not_found and no embed_queue re-enqueue.
+	t.Run("ArchivedMemory404", func(t *testing.T) {
+		archivedID, _, err := st.PutMemory(ctx, store.MemoryInput{
+			Scope:   "project:demo",
+			Type:    "note",
+			Content: "to be archived",
+			Tags:    []string{"temp"},
+		})
+		if err != nil {
+			t.Fatalf("PutMemory: %v", err)
+		}
+		if err := st.ArchiveMemory(ctx, archivedID); err != nil {
+			t.Fatalf("ArchiveMemory: %v", err)
+		}
+
+		resp := doPatch(fmt.Sprintf("/api/memories/%d", archivedID), `{"content":"should not update archived","tags":["x"]}`)
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", resp.StatusCode)
+		}
+		var errBody map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&errBody)
+		errObj, _ := errBody["error"].(map[string]any)
+		if errObj["code"] != "not_found" {
+			t.Errorf("error.code = %v, want not_found", errObj["code"])
+		}
+
+		got, err := st.GetMemory(ctx, archivedID)
+		if err != nil {
+			t.Fatalf("GetMemory: %v", err)
+		}
+		if got.Content != "to be archived" {
+			t.Errorf("archived memory was mutated: got content %q", got.Content)
+		}
+		var qCount int
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM embed_queue WHERE memory_id = ?`, archivedID).Scan(&qCount); err != nil {
+			t.Fatalf("query embed_queue: %v", err)
+		}
+		if qCount != 0 {
+			t.Errorf("embed_queue count = %d, want 0 for archived memory", qCount)
+		}
+	})
+}
+
+func TestPatchMemoryStoreNil(t *testing.T) {
+	srv, err := NewServer(ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   nil,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+
+	req, err := http.NewRequest(http.MethodPatch, srv.URL()+"/api/memories/1", strings.NewReader(`{"content":"hello"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /api/memories/1: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	errObj, _ := errBody["error"].(map[string]any)
+	if errObj["code"] != "store_unavailable" {
+		t.Errorf("error.code = %v, want store_unavailable", errObj["code"])
 	}
 }
 

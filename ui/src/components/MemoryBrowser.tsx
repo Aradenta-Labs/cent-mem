@@ -13,6 +13,7 @@ import { MemoryDetailDrawer } from './MemoryDetailDrawer';
 import { OverviewPanel } from './OverviewPanel';
 import { ForgetConfirmDialog } from './ForgetConfirmDialog';
 import { Toast } from './Toast';
+import { isEditableTarget, hasOpenModal, hasOpenPopover } from '../utils/keyboard';
 
 export interface MemoryBrowserProps {
   node: ScopeNode | null;
@@ -56,8 +57,10 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
   const [stats, setStats] = useState<StoreStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState<boolean>(true);
 
-  // Inspector States
+  // Inspector & Keyboard Focus States
+  const [focusedMemoryId, setFocusedMemoryId] = useState<number | null>(null);
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
+  const [drawerEditMode, setDrawerEditMode] = useState<boolean>(false);
 
   // Actions & Safety States
   const [pendingForgetMemory, setPendingForgetMemory] = useState<Memory | null>(null);
@@ -193,11 +196,44 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     loadStats();
   }, [loadStats]);
 
-  // When scope changes, reset offset and clear selected memory
+  // When scope changes, reset offset and clear selection
   useEffect(() => {
     setOffset(0);
+    setFocusedMemoryId(null);
     setSelectedMemory(null);
+    setDrawerEditMode(false);
   }, [selectedScope]);
+
+  const handleOpenMemory = useCallback((memory: Memory) => {
+    setFocusedMemoryId(memory.id);
+    setDrawerEditMode(false);
+    setSelectedMemory(memory);
+  }, []);
+
+  const handleEditMemory = useCallback((memory: Memory) => {
+    setFocusedMemoryId(memory.id);
+    setDrawerEditMode(true);
+    setSelectedMemory(memory);
+  }, []);
+
+  const handleCloseDrawer = useCallback(() => {
+    setSelectedMemory(null);
+    setDrawerEditMode(false);
+  }, []);
+
+  const handleMemoryUpdated = useCallback(
+    (updated: Memory, reindexed: boolean) => {
+      setMemories((prev) => prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m)));
+      setSelectedMemory(updated);
+      setDrawerEditMode(false);
+      showToast({
+        title: `Memory #${updated.id} updated`,
+        message: reindexed ? 'Changes saved and queued for re-indexing.' : 'Tags updated.',
+        variant: 'success',
+      });
+    },
+    [showToast]
+  );
 
   // Confirm deletion and trigger undoable toast
   const handleConfirmForget = async (memory: Memory) => {
@@ -206,6 +242,10 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     setTotal((prev) => Math.max(0, prev - 1));
     if (selectedMemory?.id === memory.id) {
       setSelectedMemory(null);
+      setDrawerEditMode(false);
+    }
+    if (focusedMemoryId === memory.id) {
+      setFocusedMemoryId(null);
     }
     showToast({
       title: `Memory #${memory.id} forgotten`,
@@ -319,20 +359,26 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     }
   };
 
-  // Keyboard shortcut: Backspace or Delete to forget selected memory
+  // Keyboard shortcuts while detail drawer is open in view mode (d / Backspace / Delete)
+  // and Escape to close the Export dropdown
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInput =
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable;
-      if (isInput) return;
+      if (e.key === 'Escape' && isExportOpen && !hasOpenModal()) {
+        setIsExportOpen(false);
+        return;
+      }
 
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEditableTarget(e.target)) return;
+
+      const lower = e.key.toLowerCase();
       if (
-        (e.key === 'Backspace' || e.key === 'Delete') &&
+        (lower === 'd' || e.key === 'Backspace' || e.key === 'Delete') &&
         selectedMemory &&
-        !pendingForgetMemory
+        !pendingForgetMemory &&
+        !hasOpenPopover() &&
+        !hasOpenModal(['memory-drawer']) &&
+        !document.querySelector('[data-modal-kind="memory-drawer"][data-editing="true"]')
       ) {
         e.preventDefault();
         setPendingForgetMemory(selectedMemory);
@@ -341,7 +387,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedMemory, pendingForgetMemory]);
+  }, [selectedMemory, pendingForgetMemory, isExportOpen]);
 
   const directCount = node ? node.count : 0;
   const totalCount = node ? node.total_count : 0;
@@ -482,6 +528,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
                     onClick={() => setIsExportOpen(false)}
                   />
                   <div
+                    data-popover-open="true"
                     style={{
                       position: 'absolute',
                       right: 0,
@@ -640,7 +687,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
           isLoading={isLoadingStats}
           selectedScope={selectedScope}
           onSelectType={handleTypeChange}
-          onSelectMemory={setSelectedMemory}
+          onSelectMemory={handleOpenMemory}
         />
       )}
 
@@ -663,8 +710,10 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
       {/* Memory Table */}
       <MemoryTable
         memories={memories}
-        selectedMemoryId={selectedMemory ? selectedMemory.id : null}
-        onSelectMemory={setSelectedMemory}
+        focusedMemoryId={focusedMemoryId}
+        onFocusMemory={(m) => setFocusedMemoryId(m ? m.id : null)}
+        onSelectMemory={handleOpenMemory}
+        onEditMemory={handleEditMemory}
         onSelectTag={(t) => handleTagChange(t)}
         onSelectScope={(sc) => onSelectScope(sc)}
         onForgetMemory={setPendingForgetMemory}
@@ -693,21 +742,24 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
       {/* Memory Detail Side Drawer */}
       <MemoryDetailDrawer
         memory={selectedMemory}
-        onClose={() => setSelectedMemory(null)}
+        initialEditMode={drawerEditMode}
+        onEditModeChange={setDrawerEditMode}
+        onClose={handleCloseDrawer}
         onSelectTag={(t) => {
           handleTagChange(t);
-          setSelectedMemory(null);
+          handleCloseDrawer();
         }}
         onSelectScope={(sc) => {
           onSelectScope(sc);
-          setSelectedMemory(null);
+          handleCloseDrawer();
         }}
         onForget={setPendingForgetMemory}
         onLinksChanged={onLinksChanged}
+        onMemoryUpdated={handleMemoryUpdated}
         onSelectMemory={async (id) => {
           try {
             const mem = await fetchMemoryDetail(id);
-            setSelectedMemory(mem);
+            handleOpenMemory(mem);
           } catch (e) {
             console.error('Failed to load memory detail', e);
           }

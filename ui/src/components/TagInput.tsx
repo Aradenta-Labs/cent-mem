@@ -5,6 +5,8 @@ import { Button } from './Button';
 export interface TagInputProps {
   tags: string[];
   onChange: (tags: string[]) => void;
+  inputValue?: string;
+  onInputValueChange?: (value: string) => void;
   presets?: string[];
   placeholder?: string;
   label?: string;
@@ -17,6 +19,8 @@ export interface TagInputProps {
 export const TagInput: React.FC<TagInputProps> = ({
   tags,
   onChange,
+  inputValue: controlledInputValue,
+  onInputValueChange,
   presets = [],
   placeholder = 'Add a tag...',
   label,
@@ -25,7 +29,14 @@ export const TagInput: React.FC<TagInputProps> = ({
   className = '',
   style,
 }) => {
-  const [inputValue, setInputValue] = useState('');
+  const [internalInputValue, setInternalInputValue] = useState('');
+  const inputValue = controlledInputValue !== undefined ? controlledInputValue : internalInputValue;
+  const setInputValue = (next: string) => {
+    if (controlledInputValue === undefined) {
+      setInternalInputValue(next);
+    }
+    onInputValueChange?.(next);
+  };
 
   const handleAdd = (tagToAdd?: string) => {
     if (disabled) return;
@@ -46,7 +57,7 @@ export const TagInput: React.FC<TagInputProps> = ({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return;
-    if (e.key === 'Enter' || e.key === ',') {
+    if ((e.key === 'Enter' && !e.metaKey && !e.ctrlKey) || e.key === ',') {
       e.preventDefault();
       handleAdd();
     } else if (e.key === 'Backspace' && !inputValue && tags.length > 0) {

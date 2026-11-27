@@ -10,7 +10,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/config"
 )
 
-const version = "2.1.3"
+const version = "2.1.4"
 
 type commandHandler func(args []string) int
 

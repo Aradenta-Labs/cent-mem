@@ -1,7 +1,7 @@
 # v2 Nice-to-Have Features
 
 > Generated: 2026-09-14  
-> Status: Ideas — not yet scheduled or scoped.  
+> Status: Planned — Phased implementation plans and versioning roadmap defined in [docs/plans/roadmap-v2.x.md](plans/roadmap-v2.x.md).  
 > For the official roadmap, see [docs/implementation-plan.md](implementation-plan.md).
 
 This document captures feature ideas that are not blockers for the current milestone but would meaningfully improve the product. Items are grouped by implementation effort and each includes a rationale and priority signal.
@@ -46,19 +46,23 @@ This document captures feature ideas that are not blockers for the current miles
 
 ---
 
-### 4. Keyboard Shortcuts in Web UI
+### 4. Keyboard Shortcuts in Web UI ✅ *(Implemented in v2.1.4)*
+
+**Plan & Implementation:** [docs/plans/plan-v2.1.4.md](plans/plan-v2.1.4.md)
 
 **What:** Standard power-user hotkeys in the memory browser: `j`/`k` to navigate, `/` to search, `e` to edit, `d` to delete, `?` to show help.
 
-**Why:** The Web UI is mouse-only today. Keyboard navigation is table stakes for a developer tool.
+**Why:** Power-user keyboard navigation and fast in-drawer editing remove mouse friction across the Memory Browser.
 
-**Signals:** Pure frontend; no backend or API changes.
+**Signals:** Shipped in v2.1.4 with `PATCH /api/memories/{id}` backend route wrapping `store.UpdateMemoryContent`, in-drawer edit mode (content textarea, tag chips, `Cmd/Ctrl+Enter` save, `Esc` cancel), `d` delete alias, centralized input/modal focus guards, and a categorized `?` overlay. *(Note: the original "pure frontend" signal was superseded by adding `PATCH /api/memories/{id}` to support `e` editing.)*
 
 ---
 
 ## 🟡 Medium Effort — High Value
 
-### 5. Taxonomy & Tag Clustering *(on roadmap)*
+### 5. Taxonomy & Tag Clustering *(on roadmap — Planned for v2.2.0)*
+
+**Plan:** [docs/plans/plan-v2.2.0.md](plans/plan-v2.2.0.md)
 
 **What:** Detect and normalize fragmented tags across a scope — e.g. `db`, `database`, and `sqlite` clustered under a canonical tag. Surface conflicts via `centmem curate`.
 
@@ -68,7 +72,9 @@ This document captures feature ideas that are not blockers for the current miles
 
 ---
 
-### 6. Memory Health & Quality Scoring *(on roadmap)*
+### 6. Memory Health & Quality Scoring *(on roadmap — Planned for v2.2.1)*
+
+**Plan:** [docs/plans/plan-v2.2.1.md](plans/plan-v2.2.1.md)
 
 **What:** Assign each memory a staleness/vagueness/redundancy score. Surface low-quality memories in the Web UI with "needs review" badges and in `centmem curate` output.
 
@@ -78,7 +84,9 @@ This document captures feature ideas that are not blockers for the current miles
 
 ---
 
-### 7. Streaming Proposal Application
+### 7. Streaming Proposal Application *(Planned for v2.1.5)*
+
+**Plan:** [docs/plans/plan-v2.1.5.md](plans/plan-v2.1.5.md)
 
 **What:** Stream progress over SSE when applying large batches of proposals — `POST /api/proposals/batch` emits incremental `{applied: N, total: M}` events; Web UI shows a progress bar.
 
@@ -88,7 +96,9 @@ This document captures feature ideas that are not blockers for the current miles
 
 ---
 
-### 8. Webhook / Notification Hooks
+### 8. Webhook / Notification Hooks *(Planned for v2.1.6)*
+
+**Plan:** [docs/plans/plan-v2.1.6.md](plans/plan-v2.1.6.md)
 
 **What:** Fire a configurable webhook when agent proposals are created or applied. Config:
 
@@ -106,7 +116,9 @@ proposals_applied = "https://n8n.example.com/webhook/..."
 
 ## 🔴 High Effort — Strategic
 
-### 9. Cross-Session Working Memory
+### 9. Cross-Session Working Memory *(Planned for v2.4.0)*
+
+**Plan:** [docs/plans/plan-v2.4.0.md](plans/plan-v2.4.0.md)
 
 **What:** Persist conversation history for `centmem ask` sessions across restarts. A `--session <id>` flag resumes a named thread; the session is stored in SQLite and recalled on next invocation.
 
@@ -116,7 +128,9 @@ proposals_applied = "https://n8n.example.com/webhook/..."
 
 ---
 
-### 10. Memory Versioning / Edit History
+### 10. Memory Versioning / Edit History *(Planned for v2.3.0)*
+
+**Plan:** [docs/plans/plan-v2.3.0.md](plans/plan-v2.3.0.md)
 
 **What:** A lightweight `revisions` table stores previous `content` snapshots with timestamps whenever a memory is updated or compacted. A `centmem history <id>` command and Web UI diff view expose the audit trail.
 
@@ -126,7 +140,9 @@ proposals_applied = "https://n8n.example.com/webhook/..."
 
 ---
 
-### 11. Distributed Multi-Machine Sync *(on roadmap for v2.1)*
+### 11. Distributed Multi-Machine Sync *(on roadmap — Planned for v2.5.0)*
+
+**Plan:** [docs/plans/plan-v2.5.0.md](plans/plan-v2.5.0.md)
 
 **What:** Remote gRPC event replication across centmem daemons + per-agent RBAC so teams can share a memory store across machines.
 

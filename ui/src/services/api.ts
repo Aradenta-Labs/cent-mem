@@ -5,6 +5,8 @@ import {
   MemoriesResponse,
   MemoryDetailResponse,
   ForgetMemoryResponse,
+  UpdateMemoryInput,
+  UpdateMemoryResponse,
   RestoreMemoryInput,
   RestoreMemoryResponse,
   ExportFilters,
@@ -266,6 +268,21 @@ export async function forgetMemory(id: number): Promise<ForgetMemoryResponse> {
   const data: ForgetMemoryResponse = await res.json();
   if (!res.ok || !data.ok) {
     throw new Error(data.error?.message || `Failed to forget memory ${id}: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function updateMemory(id: number, input: UpdateMemoryInput): Promise<UpdateMemoryResponse> {
+  const res = await apiFetch(`/api/memories/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+  const data: UpdateMemoryResponse = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error?.message || `Failed to update memory ${id}: HTTP ${res.status}`);
   }
   return data;
 }

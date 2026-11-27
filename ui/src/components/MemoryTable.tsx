@@ -3,11 +3,14 @@ import { Memory } from '../types/memory';
 import { MemoryRow } from './MemoryRow';
 import { MemorySkeleton } from './MemorySkeleton';
 import { EmptyState } from './EmptyState';
+import { isEditableTarget, hasOpenModal, hasOpenPopover } from '../utils/keyboard';
 
 export interface MemoryTableProps {
   memories: Memory[];
-  selectedMemoryId: number | null;
+  focusedMemoryId: number | null;
+  onFocusMemory: (memory: Memory | null) => void;
   onSelectMemory: (memory: Memory) => void;
+  onEditMemory?: (memory: Memory) => void;
   onSelectTag?: (tag: string) => void;
   onSelectScope?: (scope: string) => void;
   onForgetMemory?: (memory: Memory) => void;
@@ -21,8 +24,10 @@ export interface MemoryTableProps {
 
 export const MemoryTable: React.FC<MemoryTableProps> = ({
   memories,
-  selectedMemoryId,
+  focusedMemoryId,
+  onFocusMemory,
   onSelectMemory,
+  onEditMemory,
   onSelectTag,
   onSelectScope,
   onForgetMemory,
@@ -35,6 +40,7 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
 }) => {
   const [sortBy, setSortBy] = React.useState<'time' | 'access' | null>(null);
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('desc');
+  const rowRefs = React.useRef<Map<number, HTMLTableRowElement>>(new Map());
 
   const handleSort = (col: 'time' | 'access') => {
     if (sortBy === col) {
@@ -67,26 +73,61 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-      if (isInput || sortedMemories.length === 0) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEditableTarget(e.target) || hasOpenModal() || hasOpenPopover()) return;
+      if (sortedMemories.length === 0) return;
 
-      if (e.key === 'j' || e.key === 'ArrowDown') {
+      const focusRow = (mem: Memory) => {
+        onFocusMemory(mem);
+        const el = rowRefs.current.get(mem.id);
+        if (el) {
+          el.focus({ preventScroll: true });
+          el.scrollIntoView({ block: 'nearest' });
+        }
+      };
+
+      const lower = e.key.toLowerCase();
+
+      if (lower === 'j' || e.key === 'ArrowDown') {
         e.preventDefault();
-        const currentIndex = sortedMemories.findIndex((m) => m.id === selectedMemoryId);
+        const currentIndex = sortedMemories.findIndex((m) => m.id === focusedMemoryId);
         const nextIndex = currentIndex === -1 ? 0 : Math.min(currentIndex + 1, sortedMemories.length - 1);
-        onSelectMemory(sortedMemories[nextIndex]);
-      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        focusRow(sortedMemories[nextIndex]);
+        return;
+      }
+
+      if (lower === 'k' || e.key === 'ArrowUp') {
         e.preventDefault();
-        const currentIndex = sortedMemories.findIndex((m) => m.id === selectedMemoryId);
+        const currentIndex = sortedMemories.findIndex((m) => m.id === focusedMemoryId);
         const prevIndex = currentIndex === -1 ? 0 : Math.max(currentIndex - 1, 0);
-        onSelectMemory(sortedMemories[prevIndex]);
+        focusRow(sortedMemories[prevIndex]);
+        return;
+      }
+
+      const focused =
+        focusedMemoryId !== null ? sortedMemories.find((m) => m.id === focusedMemoryId) : undefined;
+      if (!focused) return;
+
+      if (e.key === 'Enter') {
+        if (e.target instanceof HTMLElement && e.target.closest('button, a, [role="button"], tr')) {
+          return;
+        }
+        e.preventDefault();
+        onSelectMemory(focused);
+      } else if (lower === 'e' && onEditMemory) {
+        e.preventDefault();
+        onEditMemory(focused);
+      } else if ((lower === 'd' || e.key === 'Backspace' || e.key === 'Delete') && onForgetMemory) {
+        e.preventDefault();
+        onForgetMemory(focused);
+      } else if (e.key === 'Escape') {
+        onFocusMemory(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [sortedMemories, selectedMemoryId, onSelectMemory]);
+  }, [sortedMemories, focusedMemoryId, onFocusMemory, onSelectMemory, onEditMemory, onForgetMemory]);
   if (errorMessage) {
     return (
       <EmptyState
@@ -107,6 +148,9 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
     );
   }
 
+  const hasFocusedRow =
+    focusedMemoryId !== null && sortedMemories.some((m) => m.id === focusedMemoryId);
+
   return (
     <div
       style={{
@@ -119,6 +163,7 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
     >
       <div style={{ overflowX: 'auto', width: '100%' }}>
         <table
+          aria-activedescendant={hasFocusedRow ? `memory-row-${focusedMemoryId}` : undefined}
           style={{
             width: '100%',
             borderCollapse: 'collapse',
@@ -189,7 +234,15 @@ export const MemoryTable: React.FC<MemoryTableProps> = ({
                 <MemoryRow
                   key={memory.id}
                   memory={memory}
-                  isSelected={selectedMemoryId === memory.id}
+                  isSelected={focusedMemoryId === memory.id}
+                  rowRef={(el) => {
+                    if (el) {
+                      rowRefs.current.set(memory.id, el);
+                    } else {
+                      rowRefs.current.delete(memory.id);
+                    }
+                  }}
+                  onFocusRow={onFocusMemory}
                   onSelect={onSelectMemory}
                   onSelectTag={onSelectTag}
                   onSelectScope={onSelectScope}

@@ -66,6 +66,22 @@ export interface ForgetMemoryResponse {
   };
 }
 
+export interface UpdateMemoryInput {
+  content: string;
+  tags: string[];
+}
+
+export interface UpdateMemoryResponse {
+  ok: boolean;
+  id?: number;
+  updated_at?: number;
+  reindexed?: boolean;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
 export interface RestoreMemoryInput {
   scope: string;
   type: string;

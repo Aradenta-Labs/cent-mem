@@ -194,7 +194,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onRefreshHealth={loadData}
-        onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onOpenShortcuts={() => setIsShortcutsOpen((prev) => !prev)}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
@@ -309,6 +309,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeView, onViewChange }
         onLinksChanged={() => {
           refreshPendingCount();
           setDataVersion((v) => v + 1);
+        }}
+        onMemoryUpdated={(updated, reindexed) => {
+          setDrawerMemory(updated);
+          setDataVersion((v) => v + 1);
+          showToast(
+            reindexed
+              ? `Memory #${updated.id} updated and queued for re-indexing`
+              : `Memory #${updated.id} tags updated`,
+            'success'
+          );
         }}
       />
 

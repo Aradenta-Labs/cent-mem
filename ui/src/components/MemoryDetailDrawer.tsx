@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   X,
   Copy,
@@ -15,27 +15,36 @@ import {
   ArrowRight,
   ArrowLeft,
   Plus,
+  Pencil,
+  AlertTriangle,
 } from 'lucide-react';
 import { Memory, MemoryLinksResponse, RelationType } from '../types/memory';
 import { Badge } from './Badge';
 import { Button } from './Button';
+import { TagInput } from './TagInput';
 import { MemoryGraphView } from './MemoryGraphView';
 import {
   fetchMemoryLinks,
+  fetchMemoryDetail,
+  updateMemory,
   createLink,
   confirmLink,
   dismissLink,
   deleteLink,
 } from '../services/api';
+import { isEditableTarget, hasOpenModal } from '../utils/keyboard';
 
 export interface MemoryDetailDrawerProps {
   memory: Memory | null;
+  initialEditMode?: boolean;
+  onEditModeChange?: (editing: boolean) => void;
   onClose: () => void;
   onSelectTag?: (tag: string) => void;
   onSelectScope?: (scope: string) => void;
   onForget?: (memory: Memory) => void;
   onSelectMemory?: (id: number) => void;
   onLinksChanged?: () => void;
+  onMemoryUpdated?: (memory: Memory, reindexed: boolean) => void;
 }
 
 const RELATION_COLORS: Record<RelationType, { bg: string; text: string; border: string }> = {
@@ -46,18 +55,33 @@ const RELATION_COLORS: Record<RelationType, { bg: string; text: string; border: 
   'depends-on': { bg: 'rgba(139, 92, 246, 0.1)', text: '#8b5cf6', border: 'rgba(139, 92, 246, 0.3)' },
 };
 
+const normalizeTags = (arr: string[]): string[] =>
+  Array.from(new Set(arr.map((t) => t.trim().toLowerCase()).filter(Boolean))).sort();
+
 export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
   memory,
+  initialEditMode = false,
+  onEditModeChange,
   onClose,
   onSelectTag,
   onSelectScope,
   onForget,
   onSelectMemory,
   onLinksChanged,
+  onMemoryUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'relations'>('overview');
   const [copiedContent, setCopiedContent] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
+
+  // Edit mode state
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftContent, setDraftContent] = useState('');
+  const [draftTags, setDraftTags] = useState<string[]>([]);
+  const [draftTagInput, setDraftTagInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Link state
   const [links, setLinks] = useState<MemoryLinksResponse | null>(null);
@@ -70,16 +94,135 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
   const [actionLoading, setActionLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Close on Escape key
+  const pendingTags = draftTagInput
+    .split(',')
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  const effectiveTags = normalizeTags([...draftTags, ...pendingTags]);
+
+  const isDirty = Boolean(
+    memory &&
+      (draftContent !== memory.content ||
+        JSON.stringify(effectiveTags) !== JSON.stringify(normalizeTags(memory.tags)))
+  );
+
+  const enterEditMode = useCallback(() => {
+    if (!memory) return;
+    setActiveTab('overview');
+    setDraftContent(memory.content);
+    setDraftTags([...memory.tags]);
+    setDraftTagInput('');
+    setEditError(null);
+    setIsEditing(true);
+    onEditModeChange?.(true);
+  }, [memory, onEditModeChange]);
+
+  const handleCancelEdit = useCallback(() => {
+    if (isSaving) return;
+    setIsEditing(false);
+    onEditModeChange?.(false);
+    setEditError(null);
+    setDraftTagInput('');
+    if (memory) {
+      setDraftContent(memory.content);
+      setDraftTags([...memory.tags]);
+    }
+  }, [isSaving, memory, onEditModeChange]);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!memory || isSaving) return;
+    if (draftContent.trim() === '') {
+      setEditError('Content cannot be empty.');
+      return;
+    }
+    if (!isDirty) {
+      setIsEditing(false);
+      onEditModeChange?.(false);
+      setDraftTagInput('');
+      return;
+    }
+
+    setIsSaving(true);
+    setEditError(null);
+    try {
+      const res = await updateMemory(memory.id, {
+        content: draftContent,
+        tags: effectiveTags,
+      });
+      let updated: Memory;
+      try {
+        updated = await fetchMemoryDetail(memory.id);
+      } catch {
+        updated = {
+          ...memory,
+          content: draftContent,
+          tags: effectiveTags,
+          updated_at: res.updated_at ?? Math.floor(Date.now() / 1000),
+        };
+      }
+      setDraftTags(updated.tags);
+      setDraftTagInput('');
+      setIsEditing(false);
+      onEditModeChange?.(false);
+      onMemoryUpdated?.(updated, Boolean(res.reindexed));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save changes';
+      setEditError(msg);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [memory, isSaving, draftContent, effectiveTags, isDirty, onEditModeChange, onMemoryUpdated]);
+
+  // Focus textarea when entering edit mode
   useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      const el = textareaRef.current;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }, [isEditing]);
+
+  // Keyboard handling: Escape, Cmd/Ctrl+Enter (save in edit mode), e (enter edit mode from view mode)
+  useEffect(() => {
+    if (!memory) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      // If another modal (e.g. ForgetConfirmDialog, SettingsModal) is open above the drawer, stay inert.
+      if (hasOpenModal(['memory-drawer'])) return;
+
       if (e.key === 'Escape') {
-        onClose();
+        e.preventDefault();
+        if (isEditing) {
+          handleCancelEdit();
+        } else {
+          onClose();
+        }
+        return;
+      }
+
+      if (isEditing) {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          if (draftContent.trim() !== '' && isDirty && !isSaving) {
+            void handleSaveEdit();
+          }
+        }
+        return;
+      }
+
+      if (
+        e.key.toLowerCase() === 'e' &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !isEditableTarget(e.target)
+      ) {
+        e.preventDefault();
+        enterEditMode();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [memory, isEditing, draftContent, isDirty, isSaving, handleCancelEdit, handleSaveEdit, enterEditMode, onClose]);
 
   const loadLinks = async (id: number) => {
     setLinksLoading(true);
@@ -104,6 +247,25 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
       setLinks(null);
     }
   }, [memory?.id]);
+
+  useEffect(() => {
+    if (memory) {
+      setDraftContent(memory.content);
+      setDraftTags([...memory.tags]);
+      setDraftTagInput('');
+      setEditError(null);
+      setIsSaving(false);
+      setIsEditing(initialEditMode);
+      if (initialEditMode) {
+        setActiveTab('overview');
+      }
+    } else {
+      setIsEditing(false);
+      setDraftTagInput('');
+      setEditError(null);
+      setIsSaving(false);
+    }
+  }, [memory?.id, initialEditMode]);
 
   if (!memory) return null;
 
@@ -211,7 +373,9 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
     <>
       {/* Backdrop overlay */}
       <div
-        onClick={onClose}
+        onClick={() => {
+          if (!isSaving) onClose();
+        }}
         style={{
           position: 'fixed',
           inset: 0,
@@ -226,6 +390,8 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
         role="dialog"
         aria-label="Memory details"
         aria-modal="true"
+        data-modal-kind="memory-drawer"
+        data-editing={isEditing ? 'true' : undefined}
         style={{
           position: 'fixed',
           top: 0,
@@ -292,12 +458,15 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              if (!isSaving) onClose();
+            }}
+            disabled={isSaving}
             aria-label="Close drawer"
             style={{
               background: 'transparent',
               border: 'none',
-              cursor: 'pointer',
+              cursor: isSaving ? 'not-allowed' : 'pointer',
               color: 'var(--text-muted)',
               padding: '4px',
               borderRadius: 'var(--radius-sm)',
@@ -337,11 +506,14 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
               gap: '6px',
             }}
           >
-            <span>Overview</span>
+            <span>{isEditing ? 'Overview · Editing' : 'Overview'}</span>
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('relations')}
+            disabled={isEditing}
+            onClick={() => {
+              if (!isEditing) setActiveTab('relations');
+            }}
             style={{
               padding: 'var(--space-3) 0',
               background: 'none',
@@ -350,7 +522,8 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
               color: activeTab === 'relations' ? 'var(--accent-primary)' : 'var(--text-secondary)',
               fontWeight: activeTab === 'relations' ? 600 : 500,
               fontSize: 'var(--text-xs)',
-              cursor: 'pointer',
+              cursor: isEditing ? 'not-allowed' : 'pointer',
+              opacity: isEditing ? 0.45 : 1,
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
@@ -387,7 +560,111 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
             gap: 'var(--space-5)',
           }}
         >
-          {activeTab === 'overview' ? (
+          {activeTab === 'overview' && isEditing ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              {memory.type === 'fact' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 'var(--space-2)',
+                    padding: 'var(--space-3)',
+                    backgroundColor: 'var(--color-warning-bg)',
+                    border: '1px solid var(--color-warning-border)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--color-warning-text)',
+                    fontSize: 'var(--text-xs)',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <span>
+                    Editing a <strong>fact</strong> updates its searchable content and tags, but keeps its structured key/value JSON unchanged.
+                  </span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label
+                  htmlFor="memory-edit-content"
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  Content
+                </label>
+                <textarea
+                  id="memory-edit-content"
+                  ref={textareaRef}
+                  value={draftContent}
+                  onChange={(e) => setDraftContent(e.target.value)}
+                  disabled={isSaving}
+                  rows={8}
+                  placeholder="Enter memory content..."
+                  style={{
+                    width: '100%',
+                    minHeight: '160px',
+                    resize: 'vertical',
+                    boxSizing: 'border-box',
+                    padding: 'var(--space-3)',
+                    borderRadius: 'var(--radius-md)',
+                    border: `1px solid ${draftContent.trim() === '' ? 'var(--color-error-border)' : 'var(--border-default)'}`,
+                    backgroundColor: 'var(--surface-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: 'var(--text-sm)',
+                    fontFamily: memory.type === 'fact' ? 'var(--font-mono)' : 'inherit',
+                    lineHeight: 'var(--leading-relaxed)',
+                    outline: 'none',
+                  }}
+                  onFocus={(e) => {
+                    if (draftContent.trim() !== '') {
+                      e.currentTarget.style.borderColor = 'var(--accent-primary)';
+                    }
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.borderColor =
+                      draftContent.trim() === '' ? 'var(--color-error-border)' : 'var(--border-default)';
+                  }}
+                />
+                {draftContent.trim() === '' && (
+                  <span style={{ fontSize: '11px', color: 'var(--color-error-text)' }}>
+                    Content is required and cannot be blank.
+                  </span>
+                )}
+              </div>
+
+              <TagInput
+                label="Tags"
+                helperText="Press Enter or comma to add a tag. Backspace removes the last tag."
+                tags={draftTags}
+                onChange={setDraftTags}
+                inputValue={draftTagInput}
+                onInputValueChange={setDraftTagInput}
+                disabled={isSaving}
+                placeholder="Add a tag..."
+              />
+
+              {editError && (
+                <div
+                  role="alert"
+                  style={{
+                    padding: 'var(--space-3)',
+                    backgroundColor: 'var(--color-error-bg)',
+                    border: '1px solid var(--color-error-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--color-error-text)',
+                    fontSize: 'var(--text-xs)',
+                  }}
+                >
+                  {editError}
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'overview' ? (
             <>
               {/* Main Payload Content */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
@@ -1130,23 +1407,79 @@ export const MemoryDetailDrawer: React.FC<MemoryDetailDrawerProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 'var(--space-3)',
           }}
         >
-          {onForget ? (
-            <Button
-              variant="danger"
-              size="sm"
-              leftIcon={<Trash2 size={13} />}
-              onClick={() => onForget(memory)}
-            >
-              Forget
-            </Button>
+          {isEditing ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                {isDirty ? (
+                  <>
+                    <span
+                      style={{
+                        width: '7px',
+                        height: '7px',
+                        borderRadius: 'var(--radius-pill)',
+                        backgroundColor: 'var(--accent-primary)',
+                        display: 'inline-block',
+                      }}
+                    />
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Unsaved changes</span>
+                  </>
+                ) : (
+                  <span>⌘↵ Save · Esc Cancel</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveEdit}
+                  isLoading={isSaving}
+                  disabled={isSaving || draftContent.trim() === '' || !isDirty}
+                >
+                  Save
+                </Button>
+              </div>
+            </>
           ) : (
-            <div />
+            <>
+              {onForget ? (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  leftIcon={<Trash2 size={13} />}
+                  onClick={() => onForget(memory)}
+                >
+                  Forget
+                </Button>
+              ) : (
+                <div />
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<Pencil size={13} />}
+                  onClick={enterEditMode}
+                  title="Edit memory (e)"
+                >
+                  Edit
+                </Button>
+                <Button variant="secondary" size="sm" onClick={onClose}>
+                  Close
+                </Button>
+              </div>
+            </>
           )}
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Close
-          </Button>
         </div>
       </aside>
     </>

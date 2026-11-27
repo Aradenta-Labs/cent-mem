@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.4] - 2026-11-27
+
+Web UI Keyboard Shortcuts, Centralized Input/Modal Focus Guards & In-Drawer Memory Editing.
+
+### Added
+
+- **Memory Update REST Endpoint (`PATCH /api/memories/{id}`)**:
+  - Added `PATCH /api/memories/{id}` in `internal/ui/server.go` wrapping `Store.UpdateMemoryContent(ctx, id, content, tags)` with strict validation (`400 invalid_id`/`invalid_payload`, `404 not_found`, `503 store_unavailable`, `500 store_error`) and `200` response `{ok, id, updated_at, reindexed}`.
+  - Added `PATCH` to `Access-Control-Allow-Methods` for dev-mode CORS compatibility.
+  - Added unit tests in `internal/ui/server_test.go` covering content + tag edits, tag-only edits (`reindexed: false`), empty/malformed payloads, invalid IDs, missing memories, `store == nil`, FTS5 index updates, and `embed_queue` re-enqueueing.
+- **In-Drawer Memory Editing (`MemoryDetailDrawer.tsx` & `e` Shortcut)**:
+  - Added `e` keyboard shortcut in `MemoryBrowser.tsx` (and in `MemoryDetailDrawer.tsx` view mode) plus an **Edit** button in the drawer footer.
+  - Opens the detail drawer in edit mode with an auto-focused content `<textarea>`, tag chip editor (`TagInput`), fact-memory warning banner, dirty indicator, inline error handling, **Save** (`Cmd/Ctrl+Enter`), and **Cancel** (`Esc`).
+  - Persists edits via `PATCH /api/memories/{id}`, refreshes row/drawer state across Browser, Timeline, Graph, Proposals, and Assistant views, and displays a toast notification.
+- **Keyboard Navigation & Action Improvements (`d` Alias, Focus Separation, `?` Overlay)**:
+  - Added `d` as a delete alias alongside `Backspace`/`Delete` in `MemoryBrowser.tsx` / `MemoryTable.tsx`.
+  - Separated keyboard row focus (`focusedMemoryId` with `aria-activedescendant`, visible focus ring, and `scrollIntoView`) from open drawer state so `j`/`k`/`ArrowDown`/`ArrowUp` move across rows cleanly and `Enter`/`e`/`d` act on the focused row.
+  - Centralized input-focus and modal suppression in `ui/src/utils/keyboard.ts` (`isEditableTarget`, `hasOpenModal`) so single-key shortcuts never hijack typing in inputs, textareas, selects, contenteditable elements, Assistant chat, Settings, Timeline date pickers, Graph search, or stacked modals, and fixed `Esc` layering when `ForgetConfirmDialog` opens above `MemoryDetailDrawer`.
+  - Updated `KeyboardShortcutsModal.tsx` (`?`) with categorized **Navigation**, **Actions**, and **Global** groups and made `?` toggle the overlay open and closed.
+
 ## [2.1.3] - 2026-11-27
 
 Interactive Obsidian-Style Knowledge Graph View & Unified Proposals Review Center with Per-Node Auto-Suggested Links.
@@ -530,6 +550,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.1.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.4
 [2.1.3]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.3
 [2.1.2]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.2
 [2.1.1]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.1

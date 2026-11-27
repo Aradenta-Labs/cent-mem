@@ -6,6 +6,8 @@ import { Badge } from './Badge';
 export interface MemoryRowProps {
   memory: Memory;
   isSelected: boolean;
+  rowRef?: (el: HTMLTableRowElement | null) => void;
+  onFocusRow?: (memory: Memory) => void;
   onSelect: (memory: Memory) => void;
   onSelectTag?: (tag: string) => void;
   onSelectScope?: (scope: string) => void;
@@ -15,6 +17,8 @@ export interface MemoryRowProps {
 export const MemoryRow: React.FC<MemoryRowProps> = ({
   memory,
   isSelected,
+  rowRef,
+  onFocusRow,
   onSelect,
   onSelectTag,
   onSelectScope,
@@ -52,14 +56,18 @@ export const MemoryRow: React.FC<MemoryRowProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
+      e.stopPropagation();
       onSelect(memory);
     }
   };
 
   return (
     <tr
+      id={`memory-row-${memory.id}`}
+      ref={rowRef}
       tabIndex={0}
       role="row"
       aria-selected={isSelected}
@@ -69,9 +77,10 @@ export const MemoryRow: React.FC<MemoryRowProps> = ({
         cursor: 'pointer',
         backgroundColor: isSelected ? 'var(--accent-lightest)' : 'transparent',
         borderBottom: '1px solid var(--border-subtle)',
-        borderLeft: isSelected ? '1px solid var(--accent-primary)' : '1px solid transparent',
-        transition: 'background-color var(--transition-fast), border-color var(--transition-fast)',
-        outline: 'none',
+        boxShadow: isSelected ? 'inset 3px 0 0 var(--accent-primary)' : undefined,
+        outline: isSelected ? '1px solid var(--accent-border)' : 'none',
+        outlineOffset: '-1px',
+        transition: 'background-color var(--transition-fast), box-shadow var(--transition-fast)',
       }}
       onMouseEnter={(e) => {
         if (!isSelected) {
@@ -84,6 +93,7 @@ export const MemoryRow: React.FC<MemoryRowProps> = ({
         }
       }}
       onFocus={(e) => {
+        onFocusRow?.(memory);
         if (!isSelected) {
           e.currentTarget.style.backgroundColor = 'var(--surface-hover)';
         }

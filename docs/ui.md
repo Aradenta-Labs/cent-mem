@@ -15,7 +15,7 @@ centmem ui
 ```
 
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.3"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.4"}
 ```
 
 The browser will open automatically to `http://127.0.0.1:4231`. To stop the server, press `Ctrl+C` in your terminal.
@@ -85,13 +85,14 @@ The sidebar renders the full 4-tier memory hierarchy (`global -> project -> agen
 - **Filters Panel**: Filter by memory type (`note`, `fact`, `log`), tags, date ranges (`24h`, `7d`, `30d`, or custom timestamps), agent name, and session ID.
 - **Teaching Empty States**: If a scope or query has no memories, the empty state displays the exact copy-pasteable `centmem put` CLI command with a one-click copy button.
 
-### 4.3 Detail Drawer & Inspector
+### 4.3 Detail Drawer, Inspector & In-Drawer Editing
 - Click any memory row or press `Enter` on a keyboard-selected row to open the side drawer.
-- View raw content, formatted timestamps, scope path, tags, and internal IDs.
+- View raw content, formatted timestamps, scope path, tags, relationships, and internal IDs.
 - Easily copy content to clipboard with one click.
+- **Edit Mode (`E` or Edit button)**: Click **Edit** in the drawer footer or press `E` on a selected row (or while viewing the drawer) to edit memory content and tags in place. Press `Cmd/Ctrl + Enter` to save via `PATCH /api/memories/:id` (automatically updating FTS5 and re-queuing embeddings when content changes) or `Esc` to discard changes.
 
 ### 4.4 Actions, Safety & Exports
-- **Memory Deletion**: Click the trash icon or press `Del`/`Backspace` on a selected memory. An explicit confirmation dialog explains consequences before deletion.
+- **Memory Deletion**: Click the trash icon or press `D`, `Del`, or `Backspace` on a selected memory. An explicit confirmation dialog explains consequences before deletion.
 - **Undo Toast**: Forgetting a memory triggers an 8-second floating toast with an **Undo** action that instantly restores the memory.
 - **Scoped Exports**: Export memories in the active scope as JSON or CSV directly from the top bar dropdown.
 
@@ -173,18 +174,22 @@ Obsidian-style force-directed graph visualization powered by `d3-force` and an H
 
 ## 5. Keyboard Shortcuts
 
-Press `?` anywhere in the dashboard to toggle the keyboard shortcuts overlay.
+Press `?` anywhere in the dashboard to toggle the keyboard shortcuts overlay. All shortcuts (except `Esc` and `Cmd/Ctrl + Enter` in edit/chat modes) are automatically suppressed while typing in inputs, textareas, selects, contenteditable elements, or while a modal dialog is open.
 
-| Shortcut | Action |
-|---|---|
-| `/` or `Cmd/Ctrl + K` | Focus memory search input |
-| `J` or `↓` | Select next memory row |
-| `K` or `↑` | Select previous memory row |
-| `Enter` | Open selected memory detail drawer |
-| `Backspace` or `Del` | Forget selected memory (with confirmation) |
-| `Cmd / Ctrl + ,` | Open Settings & Configuration dialog |
-| `Esc` | Close drawer, modal dialog, or popover |
-| `?` | Toggle keyboard shortcuts modal |
+| Category | Shortcut | Action |
+|---|---|---|
+| **Navigation** | `J` or `↓` | Select next memory row |
+| **Navigation** | `K` or `↑` | Select previous memory row |
+| **Navigation** | `Esc` | Close drawer, exit edit mode (discard), modal dialog, or popover |
+| **Actions** | `Enter` | Open selected memory detail drawer |
+| **Actions** | `E` | Open selected memory detail drawer in edit mode (or enter edit mode when drawer is open) |
+| **Actions** | `D`, `Backspace`, or `Del` | Forget selected memory (with confirmation) |
+| **Actions** | `Cmd / Ctrl + Enter` | Save edits in drawer edit mode / Send Assistant inquiry |
+| **Global** | `/` or `Cmd / Ctrl + K` | Focus memory search input |
+| **Global** | `Cmd / Ctrl + J` | Toggle AI Memory Assistant |
+| **Global** | `Cmd + Shift + P` | Open Proposals Review Center |
+| **Global** | `Cmd / Ctrl + ,` | Open Settings & Configuration dialog |
+| **Global** | `?` | Toggle keyboard shortcuts modal |
 
 ---
 
@@ -200,6 +205,7 @@ The dashboard communicates with `centmem` via a local-only REST API:
 | `/api/memories` | `GET` | List/filter memories (`scope`, `type`, `tags`, `agent`, `session`, `since`, `until`, `q`, `page`, `page_size`) |
 | `/api/timeline` | `GET` | Paginated chronological memory feed (`scope`, `since`, `until`, `type`, `limit`, `offset`) |
 | `/api/memories/:id` | `GET` | Retrieve full memory details by integer ID |
+| `/api/memories/:id` | `PATCH` | Update memory content and tags (`{"content": "...", "tags": [...]}`); returns `{ok, id, updated_at, reindexed}` and re-queues embeddings when content changes |
 | `/api/memories/:id/forget` | `POST` | Delete memory by ID |
 | `/api/memories` | `POST` | Restore or insert memory (used by Undo) |
 | `/api/config` | `GET` | Retrieve active system configuration and file metadata (`home`, `config_path`, `is_writable`) |

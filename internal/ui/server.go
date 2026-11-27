@@ -69,7 +69,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "2.1.3",
+		Version:  "2.1.4",
 		Store:    nil,
 		Searcher: nil,
 	}
@@ -95,7 +95,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "2.1.3"
+		cfg.Version = "2.1.4"
 	}
 
 	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
@@ -1538,6 +1538,16 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// API Endpoints: Links (SSE streaming batch confirm or dismiss auto-suggested links)
+	mux.HandleFunc("POST /api/links/suggested/batch/stream", func(w http.ResponseWriter, r *http.Request) {
+		streamBatchMutation(w, r, cfg.Store != nil, "link", "confirm", "dismiss", func(ctx context.Context, action string, id int64) error {
+			if action == "confirm" {
+				return cfg.Store.ConfirmLink(ctx, id)
+			}
+			return cfg.Store.DismissLink(ctx, id)
+		})
+	})
+
 	// API Endpoints: Knowledge Graph (All active nodes & links for selected scope)
 	mux.HandleFunc("GET /api/graph", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1670,6 +1680,135 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 			"ok":      true,
 			"deleted": n,
 			"id":      id,
+		})
+	})
+
+	// API Endpoints: Memories (Update content and tags by ID)
+	mux.HandleFunc("PATCH /api/memories/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		idStr := r.PathValue("id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_id",
+					"message": "invalid memory id",
+				},
+			})
+			return
+		}
+
+		var in struct {
+			Content string   `json:"content"`
+			Tags    []string `json:"tags"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_payload",
+					"message": "invalid request JSON body",
+				},
+			})
+			return
+		}
+		if strings.TrimSpace(in.Content) == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_payload",
+					"message": "content is required and must be non-empty",
+				},
+			})
+			return
+		}
+
+		existing, err := cfg.Store.GetMemory(r.Context(), id)
+		if errors.Is(err, store.ErrNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": fmt.Sprintf("memory %d not found", id),
+				},
+			})
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if existing.Status != "active" {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": fmt.Sprintf("memory %d not found or not active", id),
+				},
+			})
+			return
+		}
+
+		reindexed := existing.Content != in.Content
+
+		if err := cfg.Store.UpdateMemoryContent(r.Context(), id, in.Content, in.Tags); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "not_found",
+						"message": fmt.Sprintf("memory %d not found", id),
+					},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		updatedAt := time.Now().Unix()
+		if updated, err := cfg.Store.GetMemory(r.Context(), id); err == nil && updated != nil {
+			updatedAt = updated.UpdatedAt.Unix()
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":         true,
+			"id":         id,
+			"updated_at": updatedAt,
+			"reindexed":  reindexed,
 		})
 	})
 
@@ -3263,6 +3402,16 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// Proposals: SSE Streaming Batch Apply or Dismiss Proposals
+	mux.HandleFunc("POST /api/proposals/batch/stream", func(w http.ResponseWriter, r *http.Request) {
+		streamBatchMutation(w, r, cfg.Store != nil, "proposal", "apply", "dismiss", func(ctx context.Context, action string, id int64) error {
+			if action == "apply" {
+				return cfg.Store.ApplyProposal(ctx, id)
+			}
+			return cfg.Store.DismissProposal(ctx, id)
+		})
+	})
+
 	// Embedded Static File Server with SPA Fallback
 	staticHandler, err := FileServerHandler()
 	if err != nil {
@@ -3274,7 +3423,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
@@ -3584,5 +3733,138 @@ func flattenJSONMap(prefix string, m map[string]any, out map[string]string) erro
 	}
 	return nil
 }
+
+func writeJSONError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok": false,
+		"error": map[string]any{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
+func streamBatchMutation(
+	w http.ResponseWriter,
+	r *http.Request,
+	storeReady bool,
+	itemLabel string,
+	actionA string,
+	actionB string,
+	mutate func(ctx context.Context, action string, id int64) error,
+) {
+	if !storeReady {
+		writeJSONError(w, http.StatusServiceUnavailable, "store_unavailable", "store persistence is not configured")
+		return
+	}
+
+	var req struct {
+		Action string  `json:"action"`
+		IDs    []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json", fmt.Sprintf("invalid json payload: %v", err))
+		return
+	}
+
+	if req.Action != actionA && req.Action != actionB {
+		writeJSONError(w, http.StatusBadRequest, "invalid_action", fmt.Sprintf("action must be '%s' or '%s'", actionA, actionB))
+		return
+	}
+
+	if len(req.IDs) == 0 || len(req.IDs) > 500 {
+		writeJSONError(w, http.StatusBadRequest, "invalid_ids", fmt.Sprintf("ids must contain between 1 and 500 %s IDs", itemLabel))
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
+	flusher, isFlusher := w.(http.Flusher)
+	flush := func() {
+		if isFlusher {
+			flusher.Flush()
+		}
+	}
+	emit := func(event string, payload any) {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+		flush()
+	}
+
+	total := len(req.IDs)
+	emit("start", map[string]any{
+		"total":  total,
+		"action": req.Action,
+	})
+
+	type batchProgressEvent struct {
+		ID        int64  `json:"id"`
+		Processed int    `json:"processed"`
+		Succeeded int    `json:"succeeded"`
+		Failed    int    `json:"failed"`
+		Total     int    `json:"total"`
+		Error     string `json:"error,omitempty"`
+	}
+
+	processed := 0
+	succeeded := 0
+	failed := 0
+	cancelled := false
+
+	for _, id := range req.IDs {
+		select {
+		case <-r.Context().Done():
+			cancelled = true
+		default:
+		}
+		if cancelled {
+			break
+		}
+
+		var itemErr string
+		if id <= 0 {
+			failed++
+			itemErr = fmt.Sprintf("invalid %s id: %d", itemLabel, id)
+		} else if err := mutate(r.Context(), req.Action, id); err != nil {
+			if r.Context().Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+				cancelled = true
+				break
+			}
+			failed++
+			itemErr = err.Error()
+		} else {
+			succeeded++
+		}
+
+		processed++
+		emit("progress", batchProgressEvent{
+			ID:        id,
+			Processed: processed,
+			Succeeded: succeeded,
+			Failed:    failed,
+			Total:     total,
+			Error:     itemErr,
+		})
+	}
+
+	emit("done", map[string]any{
+		"processed": processed,
+		"succeeded": succeeded,
+		"failed":    failed,
+		"cancelled": cancelled,
+	})
+}
+
 
 

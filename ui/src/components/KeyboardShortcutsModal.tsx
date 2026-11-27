@@ -19,19 +19,34 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ 
 
   if (!isOpen) return null;
 
-  const shortcuts = [
-    { key: '/', description: 'Focus memory search input' },
-    { key: 'Cmd / Ctrl + K', description: 'Focus memory search input' },
-    { key: 'Cmd / Ctrl + J', description: 'Toggle AI Memory Assistant' },
-    { key: 'Cmd + Shift + P', description: 'Open Proposals Review Center' },
-    { key: 'Cmd + Enter', description: 'Send Assistant inquiry' },
-    { key: 'J / ↓', description: 'Select next memory row' },
-    { key: 'K / ↑', description: 'Select previous memory row' },
-    { key: 'Enter', description: 'Open selected memory detail' },
-    { key: 'Backspace / Del', description: 'Forget selected memory (with confirmation)' },
-    { key: 'Esc', description: 'Close detail drawer, modal, or health popover' },
-    { key: 'Cmd / Ctrl + ,', description: 'Open Settings & Configuration dialog' },
-    { key: '?', description: 'Toggle this keyboard shortcuts dialog' },
+  const groups = [
+    {
+      title: 'Navigation',
+      items: [
+        { key: 'J / ↓', description: 'Select next memory row' },
+        { key: 'K / ↑', description: 'Select previous memory row' },
+        { key: 'Esc', description: 'Close drawer, exit edit mode, or dismiss modal' },
+      ],
+    },
+    {
+      title: 'Actions',
+      items: [
+        { key: 'Enter', description: 'Open selected memory detail drawer' },
+        { key: 'E', description: 'Edit selected memory in detail drawer' },
+        { key: 'D / ⌫ / Del', description: 'Forget selected memory (with confirmation)' },
+        { key: 'Cmd / Ctrl + Enter', description: 'Save memory edits or send Assistant inquiry' },
+      ],
+    },
+    {
+      title: 'Global',
+      items: [
+        { key: '/  or  Cmd / Ctrl + K', description: 'Focus memory search input' },
+        { key: 'Cmd / Ctrl + J', description: 'Toggle AI Memory Assistant' },
+        { key: 'Cmd + Shift + P', description: 'Open Proposals Review Center' },
+        { key: 'Cmd / Ctrl + ,', description: 'Open Settings & Configuration dialog' },
+        { key: '?', description: 'Toggle this keyboard shortcuts dialog' },
+      ],
+    },
   ];
 
   return (
@@ -39,6 +54,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ 
       role="dialog"
       aria-modal="true"
       aria-labelledby="shortcuts-modal-title"
+      data-modal-kind="shortcuts"
       style={{
         position: 'fixed',
         inset: 0,
@@ -60,8 +76,10 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ 
           border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-lg)',
-          maxWidth: '480px',
+          maxWidth: '520px',
           width: '100%',
+          maxHeight: '85vh',
+          overflowY: 'auto',
           padding: 'var(--space-5)',
           display: 'flex',
           flexDirection: 'column',
@@ -101,35 +119,54 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ 
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          {shortcuts.map((s) => (
-            <div
-              key={s.key}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: 'var(--space-2) var(--space-3)',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: 'var(--surface-secondary)',
-              }}
-            >
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                {s.description}
-              </span>
-              <kbd
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {groups.map((group) => (
+            <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div
                 style={{
                   fontSize: '11px',
-                  fontFamily: 'var(--font-mono)',
-                  color: 'var(--text-primary)',
-                  backgroundColor: 'var(--surface-primary)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-xs)',
-                  padding: '2px 6px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  color: 'var(--text-muted)',
+                  paddingLeft: '2px',
                 }}
               >
-                {s.key}
-              </kbd>
+                {group.title}
+              </div>
+              {group.items.map((s) => (
+                <div
+                  key={s.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 'var(--space-3)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'var(--surface-secondary)',
+                  }}
+                >
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                    {s.description}
+                  </span>
+                  <kbd
+                    style={{
+                      fontSize: '11px',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--text-primary)',
+                      backgroundColor: 'var(--surface-primary)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-xs)',
+                      padding: '2px 6px',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {s.key}
+                  </kbd>
+                </div>
+              ))}
             </div>
           ))}
         </div>
