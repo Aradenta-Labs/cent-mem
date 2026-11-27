@@ -152,3 +152,37 @@ export interface BatchSuggestedLinksResponse {
   };
 }
 
+export interface GraphNode {
+  id: number;
+  scope: string;
+  type: 'note' | 'fact' | 'log';
+  content: string;
+  key?: string;
+  tags: string[];
+  access_count: number;
+  created_at: number; // Unix epoch seconds
+  degree: number;
+  external?: boolean;
+}
+
+export interface GraphEdge {
+  id: number;
+  from_id: number;
+  to_id: number;
+  relation: RelationType;
+  suggested: boolean;
+  created_at: number; // Unix epoch seconds
+}
+
+export interface GraphResponse {
+  ok: boolean;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  total_nodes: number;
+  truncated: boolean;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+

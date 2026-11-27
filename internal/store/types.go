@@ -168,6 +168,45 @@ type SuggestedLinkListQuery struct {
 	Offset    int    `json:"offset"`
 }
 
+// GraphQuery parameterizes GetGraph().
+type GraphQuery struct {
+	ScopePath        string `json:"scope_path"`
+	IncludeSuggested bool   `json:"include_suggested"`
+	Limit            int    `json:"limit"`
+}
+
+// GraphNode represents a memory node in the interactive knowledge graph.
+type GraphNode struct {
+	ID          int64    `json:"id"`
+	Scope       string   `json:"scope"`
+	Type        string   `json:"type"`
+	Content     string   `json:"content"`
+	Key         string   `json:"key,omitempty"`
+	Tags        []string `json:"tags"`
+	AccessCount int      `json:"access_count"`
+	CreatedAt   int64    `json:"created_at"`
+	Degree      int      `json:"degree"`
+	External    bool     `json:"external,omitempty"`
+}
+
+// GraphEdge represents a directed relationship edge in the interactive knowledge graph.
+type GraphEdge struct {
+	ID        int64  `json:"id"`
+	FromID    int64  `json:"from_id"`
+	ToID      int64  `json:"to_id"`
+	Relation  string `json:"relation"`
+	Suggested bool   `json:"suggested"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// GraphResult holds nodes, edges, and truncation metadata for a graph query.
+type GraphResult struct {
+	Nodes      []GraphNode `json:"nodes"`
+	Edges      []GraphEdge `json:"edges"`
+	TotalNodes int         `json:"total_nodes"`
+	Truncated  bool        `json:"truncated"`
+}
+
 // ValidProposalTypes defines the allowed values for proposal_type in agent_proposals.
 var ValidProposalTypes = []string{"link", "merge", "update", "archive"}
 

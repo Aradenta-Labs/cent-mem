@@ -1650,3 +1650,127 @@ func TestServer_SuggestedLinks_ListAndBatch(t *testing.T) {
 	}
 }
 
+func TestServer_Graph(t *testing.T) {
+	st, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	mGlobal, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "fact", Key: "region", Content: "region = us-east"})
+	if err != nil {
+		t.Fatalf("put mGlobal: %v", err)
+	}
+	mAlpha1, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha", Type: "note", Content: "Alpha gateway"})
+	if err != nil {
+		t.Fatalf("put mAlpha1: %v", err)
+	}
+	mAlpha2, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha/agent:a1", Type: "log", Content: "Alpha agent log"})
+	if err != nil {
+		t.Fatalf("put mAlpha2: %v", err)
+	}
+	mAlphaIso, _, err := st.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha", Type: "note", Content: "Alpha orphan"})
+	if err != nil {
+		t.Fatalf("put mAlphaIso: %v", err)
+	}
+	_, _, err = st.PutMemory(ctx, store.MemoryInput{Scope: "project:beta", Type: "note", Content: "Beta memory"})
+	if err != nil {
+		t.Fatalf("put mBeta: %v", err)
+	}
+
+	if _, err := st.CreateLink(ctx, mAlpha1, mAlpha2, "supports", false); err != nil {
+		t.Fatalf("create confirmed link: %v", err)
+	}
+	if _, err := st.CreateLink(ctx, mAlpha2, mGlobal, "depends-on", true); err != nil {
+		t.Fatalf("create suggested cross-scope link: %v", err)
+	}
+
+	srv, err := NewServer(ServerConfig{
+		Host:    "127.0.0.1",
+		Port:    0,
+		NoOpen:  true,
+		Version: testVersion,
+		Store:   st,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	handler := srv.httpServer.Handler
+
+	type graphResp struct {
+		Ok         bool              `json:"ok"`
+		Nodes      []store.GraphNode `json:"nodes"`
+		Edges      []store.GraphEdge `json:"edges"`
+		TotalNodes int               `json:"total_nodes"`
+		Truncated  bool              `json:"truncated"`
+	}
+
+	// 1. GET /api/graph (all)
+	req := httptest.NewRequest("GET", "/api/graph", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/graph status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var allResp graphResp
+	if err := json.NewDecoder(rec.Body).Decode(&allResp); err != nil {
+		t.Fatalf("decode allResp: %v", err)
+	}
+	if !allResp.Ok || allResp.TotalNodes != 5 || len(allResp.Nodes) != 5 || len(allResp.Edges) != 2 || allResp.Truncated {
+		t.Fatalf("unexpected allResp: %+v", allResp)
+	}
+
+	// 2. Scoped query includes external global endpoint
+	req = httptest.NewRequest("GET", "/api/graph?scope=project:alpha", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET scoped graph status=%d", rec.Code)
+	}
+	var alphaResp graphResp
+	_ = json.NewDecoder(rec.Body).Decode(&alphaResp)
+	if !alphaResp.Ok || alphaResp.TotalNodes != 3 || len(alphaResp.Nodes) != 4 || len(alphaResp.Edges) != 2 {
+		t.Fatalf("unexpected alphaResp: %+v", alphaResp)
+	}
+	extFound := false
+	for _, n := range alphaResp.Nodes {
+		if n.ID == mGlobal && n.External {
+			extFound = true
+		}
+	}
+	if !extFound {
+		t.Errorf("expected mGlobal to be returned as external node")
+	}
+
+	// 3. include_suggested=false omits suggested edge
+	req = httptest.NewRequest("GET", "/api/graph?scope=project:alpha&include_suggested=false", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var confResp graphResp
+	_ = json.NewDecoder(rec.Body).Decode(&confResp)
+	if !confResp.Ok || len(confResp.Edges) != 1 || len(confResp.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes and 1 confirmed edge, got %+v", confResp)
+	}
+
+	// 4. limit truncation
+	req = httptest.NewRequest("GET", "/api/graph?scope=project:alpha&include_suggested=false&limit=2", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var capResp graphResp
+	_ = json.NewDecoder(rec.Body).Decode(&capResp)
+	if !capResp.Ok || !capResp.Truncated || capResp.TotalNodes != 3 || len(capResp.Nodes) != 2 {
+		t.Fatalf("expected truncated=true total=3 len=2, got %+v", capResp)
+	}
+	for _, n := range capResp.Nodes {
+		if n.ID == mAlphaIso {
+			t.Errorf("expected isolated node to be dropped before connected nodes")
+		}
+	}
+
+	// 5. Invalid scope -> 400
+	req = httptest.NewRequest("GET", "/api/graph?scope=invalid_scope_syntax", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid scope, got %d", rec.Code)
+	}
+}
+

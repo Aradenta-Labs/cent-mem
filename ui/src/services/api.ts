@@ -15,6 +15,7 @@ import {
   SuggestedLinksFilters,
   SuggestedLinksResponse,
   BatchSuggestedLinksResponse,
+  GraphResponse,
 } from '../types/memory';
 import { StoreStats, StatsResponse } from '../types/stats';
 import {
@@ -573,6 +574,32 @@ export async function batchSuggestedLinks(
   }
 
   return combined;
+}
+
+export async function fetchGraph(options: {
+  scope?: string;
+  includeSuggested?: boolean;
+  limit?: number;
+} = {}): Promise<GraphResponse> {
+  const params = new URLSearchParams();
+  if (options.scope && options.scope !== 'global') params.set('scope', options.scope);
+  if (options.includeSuggested === false) params.set('include_suggested', 'false');
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+
+  const query = params.toString();
+  const res = await apiFetch(`/api/graph${query ? `?${query}` : ''}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load memory graph: HTTP ${res.status}`);
+  }
+  const data: GraphResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load memory graph');
+  }
+  return {
+    ...data,
+    nodes: data.nodes || [],
+    edges: data.edges || [],
+  };
 }
 
 // ---------------------------------------------------------------------------

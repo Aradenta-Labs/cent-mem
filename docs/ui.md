@@ -161,6 +161,14 @@ Human-in-the-loop review for autonomous memory agent suggestions (`merge`, `link
 - **Paginated Feed**: "Load more" button with ID deduplication and skeleton loading cards.
 - **Detail Drawer Integration**: Clicking any timeline entry card opens the full `MemoryDetailDrawer` (`/api/memories/:id`).
 
+### 4.11 Interactive Knowledge Graph View
+Obsidian-style force-directed graph visualization powered by `d3-force` and an HTML5 Canvas 2D renderer:
+- **Full-Workspace Tab**: Dedicated **Graph** tab in the sidebar (`?tab=graph`) displaying all active memories in the selected scope subtree (capped at 500 nodes, prioritizing connected nodes first).
+- **Confirmed & Auto-Suggested Edges**: Renders confirmed relationships as solid colored directional arrows and pending auto-suggested links as dashed arrows, with interactive relation legend chips (`supports`, `refines`, `contradicts`, `depends-on`, `supersedes`) and an **Auto-suggested** toggle.
+- **Cross-Scope Endpoints**: Linked memories outside the selected scope subtree appear as hollow/ring-styled external nodes so cross-scope dependencies remain visible.
+- **Visual Encoding & Filtering**: Color nodes **By Type** (`note`, `fact`, `log`) or **By Scope**, scale node size by connection degree, filter by memory type, toggle **Hide unlinked**, and highlight live **TopBar** search matches.
+- **Interactive Controls & Live Sync**: Smooth wheel zoom toward cursor, background pan, draggable nodes, 1-hop hover spotlight with preview tooltip, fit-to-view, and click-to-open `MemoryDetailDrawer` with automatic refresh when links change.
+
 ---
 
 ## 5. Keyboard Shortcuts
@@ -205,6 +213,7 @@ The dashboard communicates with `centmem` via a local-only REST API:
 | `/api/proposals/batch` | `POST` | Batch apply or dismiss multiple proposals (`action: "apply"\|"dismiss", ids: [...]`) |
 | `/api/links/suggested` | `GET` | List pending per-node auto-suggested links (`scope`, `relation`, `limit`, `offset`) |
 | `/api/links/suggested/batch` | `POST` | Batch confirm or dismiss auto-suggested links (`action: "confirm"\|"dismiss", ids: [...]`) |
+| `/api/graph` | `GET` | Fetch active memory nodes and relationship edges for the interactive graph (`scope`, `include_suggested`, `limit`) |
 | `/api/agent/chat` | `POST` | Send natural language inquiry to AI Memory Agent with ReAct reasoning and citations |
 | `/api/agent/conversations` | `GET` | List persistent agent conversation threads |
 | `/api/agent/conversations` | `POST` | Create a new agent conversation thread |

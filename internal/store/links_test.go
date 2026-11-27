@@ -378,3 +378,101 @@ func TestLinks_ListSuggestedLinks(t *testing.T) {
 		t.Fatalf("expected only s3(%d) remaining, got total=%d items=%+v", s3.ID, afterTotal, afterRes)
 	}
 }
+
+func TestLinks_GetGraph(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	mGlobal, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "global", Type: "fact", Key: "env", Content: "env = prod", Tags: []string{"infra"}})
+	if err != nil {
+		t.Fatalf("PutMemory mGlobal: %v", err)
+	}
+	mAlpha1, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha", Type: "note", Content: "Alpha API design"})
+	if err != nil {
+		t.Fatalf("PutMemory mAlpha1: %v", err)
+	}
+	mAlphaAgent, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha/agent:claude", Type: "log", Content: "Alpha agent trace"})
+	if err != nil {
+		t.Fatalf("PutMemory mAlphaAgent: %v", err)
+	}
+	mAlphaIso, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:alpha", Type: "note", Content: "Alpha isolated note"})
+	if err != nil {
+		t.Fatalf("PutMemory mAlphaIso: %v", err)
+	}
+	mBeta, _, err := s.PutMemory(ctx, store.MemoryInput{Scope: "project:beta", Type: "note", Content: "Beta unrelated note"})
+	if err != nil {
+		t.Fatalf("PutMemory mBeta: %v", err)
+	}
+
+	if _, err := s.CreateLink(ctx, mAlpha1, mAlphaAgent, "supports", false); err != nil {
+		t.Fatalf("CreateLink confirmed: %v", err)
+	}
+	if _, err := s.CreateLink(ctx, mAlphaAgent, mGlobal, "depends-on", true); err != nil {
+		t.Fatalf("CreateLink suggested cross-scope: %v", err)
+	}
+
+	// 1. All scopes with suggested links
+	resAll, err := s.GetGraph(ctx, store.GraphQuery{IncludeSuggested: true})
+	if err != nil {
+		t.Fatalf("GetGraph all: %v", err)
+	}
+	if resAll.TotalNodes != 5 || len(resAll.Nodes) != 5 || len(resAll.Edges) != 2 || resAll.Truncated {
+		t.Fatalf("unexpected all graph: total=%d nodes=%d edges=%d truncated=%v", resAll.TotalNodes, len(resAll.Nodes), len(resAll.Edges), resAll.Truncated)
+	}
+
+	// 2. Scoped query (project:alpha) includes child scope + external mGlobal endpoint, excludes mBeta
+	resAlpha, err := s.GetGraph(ctx, store.GraphQuery{ScopePath: "project:alpha", IncludeSuggested: true})
+	if err != nil {
+		t.Fatalf("GetGraph alpha: %v", err)
+	}
+	if resAlpha.TotalNodes != 3 {
+		t.Errorf("expected TotalNodes=3 in project:alpha subtree, got %d", resAlpha.TotalNodes)
+	}
+	if len(resAlpha.Nodes) != 4 || len(resAlpha.Edges) != 2 {
+		t.Fatalf("expected 4 nodes (3 in-scope + 1 external global) and 2 edges, got nodes=%d edges=%d", len(resAlpha.Nodes), len(resAlpha.Edges))
+	}
+	foundGlobalExternal := false
+	for _, n := range resAlpha.Nodes {
+		if n.ID == mBeta {
+			t.Errorf("unexpected beta node in alpha graph")
+		}
+		if n.ID == mGlobal {
+			foundGlobalExternal = n.External
+		}
+	}
+	if !foundGlobalExternal {
+		t.Errorf("expected mGlobal to be included with External=true")
+	}
+
+	// 3. IncludeSuggested=false omits suggested edge and therefore omits external mGlobal
+	resConfirmed, err := s.GetGraph(ctx, store.GraphQuery{ScopePath: "project:alpha", IncludeSuggested: false})
+	if err != nil {
+		t.Fatalf("GetGraph confirmed only: %v", err)
+	}
+	if len(resConfirmed.Edges) != 1 || len(resConfirmed.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes and 1 confirmed edge, got nodes=%d edges=%d", len(resConfirmed.Nodes), len(resConfirmed.Edges))
+	}
+
+	// 4. Limit prioritization keeps connected nodes ahead of isolated nodes
+	resCapped, err := s.GetGraph(ctx, store.GraphQuery{ScopePath: "project:alpha", IncludeSuggested: false, Limit: 2})
+	if err != nil {
+		t.Fatalf("GetGraph capped: %v", err)
+	}
+	if !resCapped.Truncated || resCapped.TotalNodes != 3 || len(resCapped.Nodes) != 2 {
+		t.Fatalf("expected Truncated=true TotalNodes=3 len=2, got %+v", resCapped)
+	}
+	for _, n := range resCapped.Nodes {
+		if n.ID == mAlphaIso {
+			t.Errorf("expected isolated node %d to be excluded when limit=2 prioritizes connected nodes", mAlphaIso)
+		}
+	}
+
+	// 5. Unknown scope returns empty cleanly
+	resEmpty, err := s.GetGraph(ctx, store.GraphQuery{ScopePath: "project:doesnotexist", IncludeSuggested: true})
+	if err != nil {
+		t.Fatalf("GetGraph unknown scope: %v", err)
+	}
+	if len(resEmpty.Nodes) != 0 || len(resEmpty.Edges) != 0 || resEmpty.TotalNodes != 0 {
+		t.Fatalf("expected empty graph, got %+v", resEmpty)
+	}
+}

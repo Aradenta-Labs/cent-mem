@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { Plus, RefreshCw, BookOpen, Layers, GitMerge, Sparkles, Clock } from 'lucide-react';
+import { Plus, RefreshCw, BookOpen, Layers, GitMerge, Sparkles, Clock, Network } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
 import { ScopeTree } from './ScopeTree';
 import { Button } from './Button';
 import { CreateScopeModal } from './CreateScopeModal';
 
 export interface SidebarProps {
-  activeTab: 'memories' | 'timeline' | 'proposals' | 'assistant';
-  onTabChange: (tab: 'memories' | 'timeline' | 'proposals' | 'assistant') => void;
+  activeTab: 'memories' | 'timeline' | 'graph' | 'proposals' | 'assistant';
+  onTabChange: (tab: 'memories' | 'timeline' | 'graph' | 'proposals' | 'assistant') => void;
   pendingProposalsCount?: number;
   scopes: ScopeNode[];
   selectedScope: string | null;
@@ -143,6 +143,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <Clock size={14} />
               <span>Timeline</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onTabChange('graph');
+              onClose();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: 'var(--space-2) var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: activeTab === 'graph' ? 'var(--surface-primary)' : 'transparent',
+              border: activeTab === 'graph' ? '1px solid var(--border-subtle)' : '1px solid transparent',
+              color: activeTab === 'graph' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              fontWeight: activeTab === 'graph' ? 600 : 500,
+              fontSize: 'var(--text-xs)',
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <Network size={14} />
+              <span>Graph</span>
             </div>
           </button>
 

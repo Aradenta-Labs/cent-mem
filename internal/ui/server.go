@@ -1538,6 +1538,80 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		})
 	})
 
+	// API Endpoints: Knowledge Graph (All active nodes & links for selected scope)
+	mux.HandleFunc("GET /api/graph", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.Store == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"nodes":       []store.GraphNode{},
+				"edges":       []store.GraphEdge{},
+				"total_nodes": 0,
+				"truncated":   false,
+			})
+			return
+		}
+
+		qVals := r.URL.Query()
+		scopePath := strings.TrimSpace(qVals.Get("scope"))
+		if scopePath == "global" {
+			scopePath = ""
+		}
+		if scopePath != "" {
+			if _, err := scope.Parse(scopePath); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"code":    "invalid_scope",
+						"message": err.Error(),
+					},
+				})
+				return
+			}
+		}
+
+		includeSuggested := true
+		if incVal := strings.ToLower(strings.TrimSpace(qVals.Get("include_suggested"))); incVal == "false" || incVal == "0" {
+			includeSuggested = false
+		}
+
+		limit := 500
+		if lVal := qVals.Get("limit"); lVal != "" {
+			if l, err := strconv.Atoi(lVal); err == nil && l > 0 {
+				limit = l
+			}
+		}
+		if limit > 1000 {
+			limit = 1000
+		}
+
+		res, err := cfg.Store.GetGraph(r.Context(), store.GraphQuery{
+			ScopePath:        scopePath,
+			IncludeSuggested: includeSuggested,
+			Limit:            limit,
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"nodes":       res.Nodes,
+			"edges":       res.Edges,
+			"total_nodes": res.TotalNodes,
+			"truncated":   res.Truncated,
+		})
+	})
+
 	// API Endpoints: Memories (Forget/Delete memory by ID)
 	mux.HandleFunc("POST /api/memories/{id}/forget", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
