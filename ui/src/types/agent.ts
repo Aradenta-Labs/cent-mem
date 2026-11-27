@@ -21,6 +21,13 @@ export interface UpdateProposalPayload {
   tags?: string[];
 }
 
+export interface TagMergeProposalPayload {
+  kind: 'tag_merge';
+  from_tags: string[];
+  to_tag: string;
+  affected_count: number;
+}
+
 export interface ArchiveProposalPayload {
   target_id: number;
   reason?: string;

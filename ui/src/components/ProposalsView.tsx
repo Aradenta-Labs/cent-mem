@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Archive,
   Sparkles,
+  Tag,
 } from 'lucide-react';
 import {
   Proposal,
@@ -15,6 +16,7 @@ import {
   LinkProposalPayload,
   MergeProposalPayload,
   UpdateProposalPayload,
+  TagMergeProposalPayload,
   ArchiveProposalPayload,
   BatchStreamErrorItem,
 } from '../types/agent';
@@ -41,6 +43,16 @@ const RELATION_COLORS: Record<RelationType, { bg: string; text: string; border: 
   refines: { bg: 'rgba(59, 130, 246, 0.1)', text: '#3b82f6', border: 'rgba(59, 130, 246, 0.3)' },
   supports: { bg: 'rgba(16, 185, 129, 0.1)', text: '#10b981', border: 'rgba(16, 185, 129, 0.3)' },
   'depends-on': { bg: 'rgba(139, 92, 246, 0.1)', text: '#8b5cf6', border: 'rgba(139, 92, 246, 0.3)' },
+};
+
+const isTagMergeProposal = (proposal: Proposal): boolean => {
+  if (proposal.proposal_type !== 'update') return false;
+  try {
+    const raw = JSON.parse(proposal.payload_json);
+    return raw?.kind === 'tag_merge';
+  } catch {
+    return false;
+  }
 };
 
 type ReviewItem =
@@ -707,6 +719,101 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
       }
 
       if (proposal.proposal_type === 'update') {
+        if (raw?.kind === 'tag_merge') {
+          const payload = raw as TagMergeProposalPayload;
+          const fromTags = payload.from_tags || [];
+          const affected = payload.affected_count ?? 0;
+          return (
+            <div
+              style={{
+                padding: 'var(--space-4)',
+                backgroundColor: 'var(--surface-secondary)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-subtle)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-3)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 'var(--space-3)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                    {fromTags.map((t) => (
+                      <span
+                        key={t}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '3px 9px',
+                          backgroundColor: 'var(--surface-primary)',
+                          border: '1px solid var(--border-default)',
+                          borderRadius: 'var(--radius-pill)',
+                          fontSize: 'var(--text-xs)',
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        <Tag size={11} color="var(--text-muted)" />
+                        <span>{t}</span>
+                      </span>
+                    ))}
+                  </div>
+
+                  <ArrowRight size={15} color="var(--accent-primary)" />
+
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '3px 10px',
+                      backgroundColor: 'var(--accent-lightest)',
+                      border: '1px solid var(--accent-border)',
+                      borderRadius: 'var(--radius-pill)',
+                      fontSize: 'var(--text-xs)',
+                      fontFamily: 'var(--font-mono)',
+                      fontWeight: 600,
+                      color: 'var(--accent-primary)',
+                    }}
+                  >
+                    <Tag size={11} />
+                    <span>{payload.to_tag}</span>
+                  </span>
+                </div>
+
+                <Badge variant="neutral" size="sm">
+                  <span className="tabular-nums">
+                    Affects {affected} {affected === 1 ? 'memory' : 'memories'}
+                  </span>
+                </Badge>
+              </div>
+
+              {proposal.reasoning && (
+                <div
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--text-secondary)',
+                    fontStyle: 'italic',
+                    paddingLeft: 'var(--space-3)',
+                    borderLeft: '2px solid var(--accent-primary)',
+                  }}
+                >
+                  Reasoning: {proposal.reasoning}
+                </div>
+              )}
+            </div>
+          );
+        }
+
         const payload = raw as UpdateProposalPayload;
         return (
           <div
@@ -1258,13 +1365,13 @@ export const ProposalsView: React.FC<ProposalsViewProps> = ({
                       </h4>
                       <Badge
                         variant={
-                          proposal.proposal_type === 'merge'
+                          proposal.proposal_type === 'merge' || isTagMergeProposal(proposal)
                             ? 'accent'
                             : 'neutral'
                         }
                         size="sm"
                       >
-                        {proposal.proposal_type.toUpperCase()}
+                        {isTagMergeProposal(proposal) ? 'TAG MERGE' : proposal.proposal_type.toUpperCase()}
                       </Badge>
                     </div>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>

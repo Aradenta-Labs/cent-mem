@@ -221,6 +221,25 @@ func New(modelPath string, dims int, sharedLibPath string) (Embedder, error) {
 	return NewStub(dims), nil
 }
 
+// IsStub reports whether e produces deterministic hash-based stub vectors (or wraps one)
+// rather than real semantic embeddings. Stub vectors are not semantically meaningful
+// and must not be used for semantic tag clustering.
+func IsStub(e Embedder) bool {
+	if e == nil {
+		return true
+	}
+	if ce, ok := e.(*CachingEmbedder); ok {
+		return IsStub(ce.inner)
+	}
+	switch e.(type) {
+	case *StubEmbedder, *ONNXEmbedder:
+		// ONNXEmbedder currently delegates to stubVector absent cgo ONNX runtime bindings.
+		return true
+	default:
+		return false
+	}
+}
+
 // Ensure interface conformance for documentation purposes.
 var _ Embedder = (*ONNXEmbedder)(nil)
 var _ Embedder = (*StubEmbedder)(nil)

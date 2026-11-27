@@ -1,0 +1,11 @@
+{
+  "affected_count": 2,
+  "dry_run": false,
+  "from_tags": [
+    "db",
+    "sqlite"
+  ],
+  "ok": true,
+  "scope": "project:golden-merge",
+  "to_tag": "database"
+}

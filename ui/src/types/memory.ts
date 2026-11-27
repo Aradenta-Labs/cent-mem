@@ -202,3 +202,30 @@ export interface GraphResponse {
   };
 }
 
+export interface TagStat {
+  tag: string;
+  count: number;
+  last_used: string;
+}
+
+export interface TagCluster {
+  canonical: string;
+  aliases: string[];
+  members: string[];
+  affected_count: number;
+  match_method: string;
+  similarity?: number;
+}
+
+export interface TagsResponse {
+  ok: boolean;
+  scope: string;
+  tags: TagStat[];
+  total: number;
+  clusters: TagCluster[];
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+

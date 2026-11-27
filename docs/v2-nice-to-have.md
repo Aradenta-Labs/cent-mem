@@ -60,15 +60,15 @@ This document captures feature ideas that are not blockers for the current miles
 
 ## 🟡 Medium Effort — High Value
 
-### 5. Taxonomy & Tag Clustering *(on roadmap — Planned for v2.2.0)*
+### 5. Taxonomy & Tag Clustering ✅ *(Implemented in v2.2.0)*
 
-**Plan:** [docs/plans/plan-v2.2.0.md](plans/plan-v2.2.0.md)
+**Plan & Implementation:** [docs/plans/plan-v2.2.0.md](plans/plan-v2.2.0.md)
 
-**What:** Detect and normalize fragmented tags across a scope — e.g. `db`, `database`, and `sqlite` clustered under a canonical tag. Surface conflicts via `centmem curate`.
+**What:** Detect and normalize fragmented tags across a scope — e.g. `db`, `database`, and `sqlite` clustered under a canonical tag. Surface conflicts via `centmem curate --type tags` (and `--type all`), stage atomic `tag_merge` proposals in `agent_proposals`, and expose `centmem tags list|merge` CLI + `GET /api/tags` Web UI Tag Hygiene.
 
 **Why:** Tag drift silently degrades recall precision. Fixing it at the data layer improves every search query without any user action.
 
-**Signals:** Already listed in [implementation-plan.md](implementation-plan.md). Feeds directly into the curate pipeline.
+**Signals:** Shipped in v2.2.0 with `internal/taxonomy` (Pass 1 lexical normalization + Pass 2 semantic embedding clustering with configurable `agent.tag_similarity_threshold`), `Store.ListTagStats` & atomic `Store.BulkRenameTag` preserving `updated_at`, `centmem tags list|merge`, `centmem curate --type tags`, `GET /api/tags`, and Web UI Tag Hygiene summary + visual `tag_merge` proposal cards.
 
 ---
 

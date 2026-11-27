@@ -15,7 +15,7 @@ centmem ui
 ```
 
 ```json
-{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.1.6"}
+{"ok": true, "url": "http://127.0.0.1:4231", "host": "127.0.0.1", "port": 4231, "version": "2.2.0"}
 ```
 
 The browser will open automatically to `http://127.0.0.1:4231`. To stop the server, press `Ctrl+C` in your terminal.
@@ -83,6 +83,7 @@ The sidebar renders the full 4-tier memory hierarchy (`global -> project -> agen
 ### 4.2 Hybrid Recall Search & Advanced Filters
 - **Global Search**: Type `/` or `Cmd+K` anywhere to focus the search input. Searches using hybrid Reciprocal Rank Fusion (RRF $k=60$), fusing SQLite FTS5 bm25 keyword scoring with local ONNX vector embeddings.
 - **Filters Panel**: Filter by memory type (`note`, `fact`, `log`), tags, date ranges (`24h`, `7d`, `30d`, or custom timestamps), agent name, and session ID.
+- **Tag Hygiene & Quick Filter Bar (v2.2.0)**: Displays active scope tags sorted by frequency as one-click filter pills via `GET /api/tags`, plus a compact hygiene indicator badge when synonymous or near-duplicate tag clusters are detected.
 - **Teaching Empty States**: If a scope or query has no memories, the empty state displays the exact copy-pasteable `centmem put` CLI command with a one-click copy button.
 
 ### 4.3 Detail Drawer, Inspector & In-Drawer Editing
@@ -143,7 +144,7 @@ Manage and prune memory subtrees directly within the browser interface:
 ### 4.8 Proposals Review Center & Bulk Actions
 Human-in-the-loop review for autonomous memory agent suggestions (`merge`, `link`, `update`, `archive`) and per-node auto-suggested links (`suggested = 1`):
 - **Unified Inbox & Filtering**: Displays staged agent proposals alongside pending per-node auto-suggested links in the `Pending` tab (and live sidebar badge count), with type filtering (`All Types`, `Auto-Suggestions`, `Merge`, `Agent Link`, `Update`, `Archive`) and scope subtree filtering.
-- **Visual Diffs & Node Previews**: Side-by-side comparison of source memories and proposed consolidated text, combined tags, directional relationship arrows (`supports`, `refines`, `contradicts`, `depends-on`, `supersedes`), and clickable source/target memory content previews for auto-suggested links.
+- **Visual Diffs & Node Previews**: Side-by-side comparison of source memories and proposed consolidated text, combined tags, directional relationship arrows (`supports`, `refines`, `contradicts`, `depends-on`, `supersedes`), visual tag-merge pill cards (`db`, `sqlite` → `database` with affected memory count), and clickable source/target memory content previews for auto-suggested links.
 - **Individual Actions**: 1-click **Approve & Apply** / **Confirm Link**, **Dismiss**, and **Undo/Reopen** with live status badge updates.
 - **Bulk Actions**: When viewing pending proposals and/or auto-suggestions, a dedicated review toolbar provides:
   - **"Approve All"** button: Opens `BatchProposalConfirmDialog` to apply/confirm all currently filtered pending items in one batch.
@@ -206,6 +207,7 @@ The dashboard communicates with `centmem` via a local-only REST API:
 | `/api/scopes` | `GET` | Returns full scope hierarchy tree with memory counts |
 | `/api/scopes` | `POST` | Create a new scope (`{"path": "..."}`) |
 | `/api/scopes` | `DELETE` | Cascade-delete a non-global scope subtree (`?path=<scope>`) |
+| `/api/tags` | `GET` | List tag inventory (`{tag, count, last_used}`) and detected synonym clusters for a scope subtree (`?scope=<scope>&children=true`) |
 | `/api/memories` | `GET` | List/filter memories (`scope`, `type`, `tags`, `agent`, `session`, `since`, `until`, `q`, `page`, `page_size`) |
 | `/api/timeline` | `GET` | Paginated chronological memory feed (`scope`, `since`, `until`, `type`, `limit`, `offset`) |
 | `/api/memories/:id` | `GET` | Retrieve full memory details by integer ID |

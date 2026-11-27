@@ -119,10 +119,13 @@ Legend: `[S]` small (~few hours), `[M]` medium (~a day), `[L]` large (multi-day)
   - [x] **Stage 3 (Web UI Experience)**: Assistant Chat tab with SSE streaming, Proposals Review Center with visual diffs and 1-click approvals.
   - [x] **Stage 4 (Hardening, Benchmarking & Documentation)**: Concurrency stress tests, CLI contracts, offline graceful degradation, release v2.0.0 and dedicated AI Memory Agent guide.
 
+- [x] **v2.2.0 (Taxonomy & Tag Clustering)**: Deterministic lexical + semantic embedding tag clustering (`internal/taxonomy`), `Store.ListTagStats` & atomic `Store.BulkRenameTag`, `centmem curate --type tags` (`tag_merge` proposals), `centmem tags list|merge` CLI, `GET /api/tags`, and Web UI Tag Hygiene & `tag_merge` proposal cards.
+
 ## Backlog / Future Roadmap
-- **v2.0.1**: Taxonomy & Tag Clustering (normalizing fragmented tags like `db` vs `database`).
-- **v2.0.2**: Memory Health & Quality Scoring (detecting stale, vague, or low-information memories).
-- **v2.1**: Distributed Multi-Machine Sync via remote gRPC event streaming and per-agent RBAC.
+- **v2.2.1**: Memory Health & Quality Scoring (detecting stale, vague, or low-information memories).
+- **v2.3.0**: Memory Versioning / Edit History.
+- **v2.4.0**: Cross-Session Working Memory.
+- **v2.5.0**: Distributed Multi-Machine Sync via remote gRPC event streaming and per-agent RBAC.
 
 ---
 

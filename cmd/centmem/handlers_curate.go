@@ -13,14 +13,14 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
-// cmdCurate handles autonomous curation (deduplication, contradiction & evolution detection).
+// cmdCurate handles autonomous curation (deduplication, contradiction, tag clustering & evolution detection).
 // Syntax:
 //
-//	centmem curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]
+//	centmem curate [--scope <scope>] [--type contradictions|dedup|tags|all] [--apply] [--dry-run]
 func cmdCurate(args []string) int {
 	fs := newFlagSet("curate")
 	fs.String("scope", "", "scope path filter")
-	fs.String("type", "all", "curation type (contradictions, dedup, all)")
+	fs.String("type", "all", "curation type (contradictions, dedup, tags, all)")
 	fs.Bool("apply", false, "automatically apply proposals exceeding confidence threshold")
 	fs.Bool("dry-run", false, "simulate curation without staging proposals to store")
 
@@ -30,9 +30,9 @@ func cmdCurate(args []string) int {
 			curateType = "all"
 		}
 		switch curateType {
-		case "contradictions", "dedup", "all":
+		case "contradictions", "dedup", "tags", "all":
 		default:
-			return cli.Invalidf("curate: invalid --type %q (expected contradictions, dedup, or all)", curateType)
+			return cli.Invalidf("curate: invalid --type %q (expected contradictions, dedup, tags, or all)", curateType)
 		}
 
 		scopePath := fs.Lookup("scope").Value.String()
@@ -87,6 +87,9 @@ func cmdCurate(args []string) int {
 			"contradictions_found": res.ContradictionsFound,
 			"duplicates_found":     res.DuplicatesFound,
 			"fallback_used":        res.FallbackUsed,
+		}
+		if curateType == "tags" || res.TagClustersFound > 0 {
+			out["tag_clusters_found"] = res.TagClustersFound
 		}
 
 		return prettyPrint(fs, out)

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/taxonomy"
 )
 
 // DoctorCheck represents a single health check result.
@@ -70,7 +72,7 @@ func DefaultServerConfig() ServerConfig {
 		Host:     "127.0.0.1",
 		Port:     4231,
 		NoOpen:   false,
-		Version:  "2.1.6",
+		Version:  "2.2.0",
 		Store:    nil,
 		Searcher: nil,
 	}
@@ -97,7 +99,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.Port = 4231
 	}
 	if cfg.Version == "" {
-		cfg.Version = "2.1.6"
+		cfg.Version = "2.2.0"
 	}
 
 	if !IsLoopbackHost(cfg.Host) && cfg.Token == "" {
@@ -400,6 +402,135 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":     true,
 			"scopes": tree,
+		})
+	})
+
+	// API Endpoints: Tags (Inventory + hygiene clusters for a scope subtree)
+	mux.HandleFunc("GET /api/tags", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		s.mu.RLock()
+		serverCfg := s.cfg
+		s.mu.RUnlock()
+
+		if serverCfg.Store == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "store_unavailable",
+					"message": "store persistence is not configured",
+				},
+			})
+			return
+		}
+
+		q := r.URL.Query()
+		scopePath := strings.TrimSpace(q.Get("scope"))
+		if scopePath == "" {
+			scopePath = "global"
+		}
+		sc, err := scope.Parse(scopePath)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "invalid_scope",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+
+		includeChildren := true
+		if rawChildren := strings.TrimSpace(strings.ToLower(q.Get("children"))); rawChildren != "" {
+			includeChildren = rawChildren != "false" && rawChildren != "0"
+		}
+
+		scopeIDs, err := serverCfg.Store.ResolveScopeIDs(r.Context(), sc, false, includeChildren)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "internal_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if scopeIDs == nil {
+			scopeIDs = []int64{}
+		}
+
+		stats, err := serverCfg.Store.ListTagStats(r.Context(), scopeIDs)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "internal_error",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if stats == nil {
+			stats = []store.TagStat{}
+		}
+
+		var emb embed.Embedder
+		if serverCfg.Searcher != nil {
+			emb = serverCfg.Searcher.Embedder()
+		}
+		clusters, err := taxonomy.ClusterTags(r.Context(), stats, taxonomy.Options{
+			SimilarityThreshold: serverCfg.Config.Agent.TagSimilarityThreshold,
+			Embedder:            emb,
+		})
+		if err != nil || clusters == nil {
+			clusters = []taxonomy.Cluster{}
+		}
+		normalizedClusters := make([]taxonomy.Cluster, 0, len(clusters))
+		for _, cl := range clusters {
+			// Align with curate --type tags and Store.BulkRenameTag (which always writes lowercase tags).
+			canonical := strings.TrimSpace(strings.ToLower(cl.Canonical))
+			if canonical == "" {
+				continue
+			}
+			aliases := make([]string, 0, len(cl.Members))
+			for _, m := range cl.Members {
+				if m != canonical {
+					aliases = append(aliases, m)
+				}
+			}
+			sort.Strings(aliases)
+			if len(aliases) == 0 {
+				continue
+			}
+			cl.Canonical = canonical
+			cl.Aliases = aliases
+			if exact, cErr := serverCfg.Store.CountMemoriesWithAnyTag(r.Context(), scopeIDs, cl.Aliases, cl.Canonical); cErr == nil {
+				if exact == 0 {
+					continue
+				}
+				cl.AffectedCount = exact
+			}
+			normalizedClusters = append(normalizedClusters, cl)
+		}
+		sort.Slice(normalizedClusters, func(i, j int) bool {
+			if normalizedClusters[i].AffectedCount != normalizedClusters[j].AffectedCount {
+				return normalizedClusters[i].AffectedCount > normalizedClusters[j].AffectedCount
+			}
+			return normalizedClusters[i].Canonical < normalizedClusters[j].Canonical
+		})
+		clusters = normalizedClusters
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       true,
+			"scope":    sc.Path,
+			"tags":     stats,
+			"total":    len(stats),
+			"clusters": clusters,
 		})
 	})
 

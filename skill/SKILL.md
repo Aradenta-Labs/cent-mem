@@ -1,7 +1,7 @@
 ---
 name: centmem
 description: Shared memory for AI agents. Call `centmem` CLI to recall prior context, store decisions, save facts, and inspect timeline so every agent shares one persistent brain. Use whenever you need to remember or retrieve project context, architecture decisions, user preferences, API conventions, or session checkpoints.
-version: 2.1.6
+version: 2.2.0
 binary: centmem
 homepage: https://github.com/aradenta-labs/cent-mem
 allowed-tools:
@@ -295,10 +295,11 @@ project:<name>/agent:<agent>/session:<id>
 | `links` | `centmem links <memory_id> [--all]` | List relationship links for a memory |
 | `serve` | `centmem serve [--mcp]` | Run MCP stdio JSON-RPC server for agent harnesses |
 | `ask` | `centmem ask "<question>" [--scope <s>] [--top N] [--interactive]` | Conversational Q&A grounded in memories with citations |
-| `curate` | `centmem curate [--scope <s>] [--type contradictions\|dedup\|all] [--apply] [--dry-run]` | Autonomous memory curation (conflicts & duplicates) |
+| `curate` | `centmem curate [--scope <s>] [--type contradictions\|dedup\|tags\|all] [--apply] [--dry-run]` | Autonomous memory curation (conflicts, duplicates & tag clustering) |
 | `summarize` | `centmem summarize [--scope <s>] [--focus <t>] [--format json\|markdown] [--save]` | Synthesize architectural pillars and scope developer briefings |
 | `proposals` | `centmem proposals <list\|show\|apply\|dismiss> [id] [flags]` | Manage human-in-the-loop staged curation actions |
 | `scope` | `centmem scope <delete\|list> [path] [--force]` | Delete or list hierarchical memory scope subtrees |
+| `tags` | `centmem tags <list\|merge> [--scope <s>] [--from a,b] [--to canonical] [--dry-run]` | Inspect scope tag inventory or merge synonymous tags |
 | `export` | `centmem export --scope <scope> [--format json\|csv] [--output <path>]` | Export memories to canonical JSON or CSV |
 | `import` | `centmem import <file> [--dry-run]` | Idempotently import memories from JSON export file |
 

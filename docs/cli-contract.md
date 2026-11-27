@@ -1,6 +1,6 @@
 # CLI & API Contract: centmem
 
-**Version:** 2.1.6
+**Version:** 2.2.0
 **Binary:** `centmem`, `centmemd`
 **Output default:** JSON to stdout; errors to stderr. Use `--pretty` for human-readable output.
 
@@ -314,7 +314,7 @@ centmem config get [key]
 Opt-in, disabled-by-default HTTP notifications for proposal lifecycle events (`proposals.created`, `proposals.applied`, `proposals.dismissed`). Zero network calls are made unless `hooks.enabled = true` and a target `http://`/`https://` URL is configured for the event.
 - Keys: `hooks.enabled` (`bool`, default `false`), `hooks.proposals_created` (`url`), `hooks.proposals_applied` (`url`), `hooks.proposals_dismissed` (`url`), `hooks.secret` (optional HMAC-SHA256 signing secret or env var name), `hooks.timeout_seconds` (`int > 0`, default `5`).
 - Env overrides: `CENTMEM_HOOKS_ENABLED`, `CENTMEM_HOOKS_PROPOSALS_CREATED`, `CENTMEM_HOOKS_PROPOSALS_APPLIED`, `CENTMEM_HOOKS_PROPOSALS_DISMISSED`, `CENTMEM_HOOKS_SECRET`, `CENTMEM_HOOKS_TIMEOUT_SECONDS`.
-- Delivery headers: `Content-Type: application/json`, `User-Agent: centmem/2.1.6`, `X-Centmem-Event: <event>`, and optional `X-Centmem-Signature-256: sha256=<hex>` over raw JSON body when `secret` resolves non-empty.
+- Delivery headers: `Content-Type: application/json`, `User-Agent: centmem/2.2.0`, `X-Centmem-Event: <event>`, and optional `X-Centmem-Signature-256: sha256=<hex>` over raw JSON body when `secret` resolves non-empty.
 - Payload envelope: `{"event": "proposals.created", "timestamp": "<RFC3339>", "scope": "<scope>", "count": 1, "proposals": [{"id": 12, "type": "merge", "title": "..."}]}`.
 - Web UI test endpoint: `POST /api/config/test-hook` (`{"url": "...", "secret": "..."}`, falling back to saved secret if omitted) emits a synchronous `hooks.test` POST and returns `{"ok": true, "status_code": 200, "latency_ms": 42}` or structured error.
 
@@ -503,13 +503,13 @@ centmem ask "<question>" [--scope <scope>] [--top N] [--interactive]
 ---
 
 ### 3.23 `curate` — autonomous memory curation
-Scan memories to proactively detect contradictions, evolution, and semantic duplicates, staging reversible human-in-the-loop proposals into the `agent_proposals` table.
+Scan memories to proactively detect contradictions, evolution, semantic duplicates, and fragmented tag clusters, staging reversible human-in-the-loop proposals into the `agent_proposals` table.
 
 ```
-centmem curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]
+centmem curate [--scope <scope>] [--type contradictions|dedup|tags|all] [--apply] [--dry-run]
 ```
 - `--scope`: scope path filter (default `global`).
-- `--type`: curation category (`contradictions`, `dedup`, or `all`; default `all`).
+- `--type`: curation category (`contradictions`, `dedup`, `tags`, or `all`; default `all`).
 - `--apply`: automatically apply proposals exceeding confidence threshold.
 - `--dry-run`: simulate curation without staging proposals to store.
 
@@ -522,9 +522,11 @@ centmem curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--
   "scanned_memories": 120,
   "contradictions_found": 1,
   "duplicates_found": 1,
+  "tag_clusters_found": 1,
   "fallback_used": false
 }
 ```
+*(Note: `tag_clusters_found` is emitted when `--type tags` is specified or when tag clusters are detected.)*
 
 ---
 
@@ -698,6 +700,41 @@ centmem import <file> [--dry-run]
   "imported": 290,
   "skipped": 22,
   "failed": 0
+}
+```
+
+### 3.29 `tags` — tag inventory & canonicalization
+Inspect tag usage across a scope subtree or atomically merge synonymous tags into a single canonical tag while preserving `updated_at`.
+
+```
+centmem tags list [--scope <scope>]
+centmem tags merge --scope <scope> --from a,b --to canonical [--dry-run]
+```
+- `tags list`: Returns each distinct tag, active memory count, and last-used timestamp in the scope subtree (default `--scope global`).
+- `tags merge`: Replaces all occurrences of `--from` tags with `--to` across active memories in `--scope` (including descendant scopes) inside a single transaction, deduplicating resulting tag arrays and preserving `updated_at`.
+- `--dry-run`: Preview `affected_count` without modifying the database.
+
+**Output (`tags list`):**
+```json
+{
+  "ok": true,
+  "scope": "project:cent-mem",
+  "tags": [
+    {"tag": "database", "count": 12, "last_used": "2026-11-27T09:00:00Z"}
+  ],
+  "count": 1
+}
+```
+
+**Output (`tags merge`):**
+```json
+{
+  "ok": true,
+  "dry_run": false,
+  "scope": "project:cent-mem",
+  "from_tags": ["db", "sqlite"],
+  "to_tag": "database",
+  "affected_count": 5
 }
 ```
 

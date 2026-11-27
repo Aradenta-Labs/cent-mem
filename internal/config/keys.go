@@ -48,6 +48,7 @@ var KnownConfigKeys = []string{
 	"agent.max_reasoning_steps",
 	"agent.confidence_threshold",
 	"agent.auto_apply_safe_links",
+	"agent.tag_similarity_threshold",
 	"hooks.enabled",
 	"hooks.proposals_created",
 	"hooks.proposals_applied",
@@ -163,6 +164,8 @@ func GetConfigValue(cfg Config, key string) (any, error) {
 		return cfg.Agent.ConfidenceThreshold, nil
 	case "agent.auto_apply_safe_links":
 		return cfg.Agent.AutoApplySafeLinks, nil
+	case "agent.tag_similarity_threshold":
+		return cfg.Agent.TagSimilarityThreshold, nil
 
 	case "hooks":
 		return cfg.Hooks, nil
@@ -455,6 +458,13 @@ func SetConfigValue(cfg *Config, key, rawVal string) error {
 			return fmt.Errorf("invalid agent.auto_apply_safe_links %q: must be a boolean", val)
 		}
 		cfg.Agent.AutoApplySafeLinks = b
+
+	case "agent.tag_similarity_threshold":
+		t, err := strconv.ParseFloat(val, 64)
+		if err != nil || !(t > 0.0 && t <= 1.0) {
+			return fmt.Errorf("invalid agent.tag_similarity_threshold %q: must be > 0.0 and <= 1.0", val)
+		}
+		cfg.Agent.TagSimilarityThreshold = t
 
 	case "hooks.enabled":
 		b, err := parseBoolFlexible(val)

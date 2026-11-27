@@ -19,6 +19,7 @@ type CurateResult struct {
 	ScannedMemories     int     `json:"scanned_memories"`
 	ContradictionsFound int     `json:"contradictions_found"`
 	DuplicatesFound     int     `json:"duplicates_found"`
+	TagClustersFound    int     `json:"tag_clusters_found,omitempty"`
 	FallbackUsed        bool    `json:"fallback_used,omitempty"`
 }
 
@@ -43,7 +44,7 @@ type InquiryOptions struct {
 // CurateOptions parameterizes a Curate run.
 type CurateOptions struct {
 	Scope     string
-	Type      string // "contradictions" | "dedup" | "all"
+	Type      string // "contradictions" | "dedup" | "tags" | "all"
 	AutoApply bool
 	DryRun    bool
 }

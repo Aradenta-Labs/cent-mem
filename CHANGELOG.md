@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-27
+
+Taxonomy & Tag Clustering — Deterministic + Semantic Tag Canonicalization across Store, Agent Curation, CLI & Web UI.
+
+### Added
+
+- **Tag Inventory & Atomic Bulk Rename (`internal/store/tags.go`, `internal/store/proposals.go`)**:
+  - Added `Store.ListTagStats(ctx, scopeIDs)` returning distinct active tags with memory counts and last-used timestamps across a scope subtree.
+  - Added `Store.CountMemoriesWithAnyTag(ctx, scopeIDs, fromTags, toTag)` and transactional `Store.BulkRenameTag(ctx, scopeIDs, fromTags, toTag)` that deduplicates resulting tag arrays, triggers FTS5 updates, logs audit events, and preserves `updated_at` so recency decay is unaffected.
+  - Taught `Store.ApplyProposal()` to execute `proposal_type = 'update'` proposals carrying `kind = "tag_merge"` (`TagMergeProposalPayload`) atomically inside the proposal transaction.
+- **Two-Pass Tag Clustering Engine (`internal/taxonomy/cluster.go`)**:
+  - **Pass 1 (Lexical normalization — offline, zero LLM)**: Case folding, separator normalization (`auth_flow` ↔ `auth-flow`), conservative singular/plural stemming (`decisions` → `decision`, `memories` → `memory`), and Levenshtein distance ≤ 1 for tags ≥ 5 characters.
+  - **Pass 2 (Semantic similarity — local embedder)**: Embeds distinct tags and clusters pairs with cosine similarity ≥ `agent.tag_similarity_threshold` (default `0.86`, configurable via TOML, `centmem config set`, or `CENTMEM_AGENT_TAG_SIMILARITY_THRESHOLD`), safely skipping hash-based `StubEmbedder` (`embed.IsStub`) to avoid random hash-collision false positives.
+  - Deterministic canonical tag selection: highest-frequency tag in each cluster (tie-break: lowercase kebab-case, shortest length, lexicographic).
+- **Curate Integration & `centmem tags` CLI (`internal/agent/engine.go`, `cmd/centmem/handlers_tags.go`, `cmd/centmem/handlers_curate.go`)**:
+  - Extended `centmem curate --type` to accept `tags` and included tag clustering in `--type all`, working in both offline and online LLM modes (optional LLM refinement of cluster canonical/reasoning with deterministic fallback) with pending-proposal deduplication.
+  - Added `centmem tags list [--scope <scope>]` and `centmem tags merge --scope <scope> --from a,b --to canonical [--dry-run]` CLI commands with golden-file JSON contract tests.
+- **Web UI Tag Hygiene & `tag_merge` Proposals (`internal/ui/server.go`, `ProposalsView.tsx`, `MemoryBrowser.tsx`)**:
+  - Added `GET /api/tags?scope=<scope>[&children=true|false]` returning scope tag inventory and detected hygiene clusters.
+  - Updated `ProposalsView.tsx` to render `tag_merge` proposals with a `TAG MERGE` badge, source-tag → canonical-tag pills, affected memory count, and reasoning.
+  - Added a compact Tag Hygiene & Quick Filter bar in `MemoryBrowser.tsx` with clickable tag count pills and a cluster hygiene indicator badge.
+
 ## [2.1.6] - 2026-11-27
 
 Opt-in Webhook / Notification Hooks for Proposal Lifecycle Events.
@@ -583,6 +605,7 @@ hierarchical memory store.
 - `~/.centmem` permissions enforced (`0700` dir, `0600` DB), verified by
   `doctor`.
 
+[2.2.0]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.2.0
 [2.1.6]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.6
 [2.1.5]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.5
 [2.1.4]: https://github.com/aradenta-labs/cent-mem/releases/tag/v2.1.4

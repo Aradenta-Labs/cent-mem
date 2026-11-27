@@ -25,7 +25,7 @@ const (
 	EventProposalsDismissed = "proposals.dismissed"
 	EventHooksTest          = "hooks.test"
 
-	UserAgent             = "centmem/2.1.6"
+	UserAgent             = "centmem/2.2.0"
 	DefaultTimeoutSeconds = 5
 
 	maxConcurrency      = 4

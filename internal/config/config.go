@@ -102,18 +102,20 @@ func DefaultLLMConfig() LLMConfig {
 }
 
 type AgentConfig struct {
-	Enabled             bool    `json:"enabled" toml:"enabled"`
-	MaxReasoningSteps   int     `json:"max_reasoning_steps" toml:"max_reasoning_steps"`
-	ConfidenceThreshold float64 `json:"confidence_threshold" toml:"confidence_threshold"`
-	AutoApplySafeLinks  bool    `json:"auto_apply_safe_links" toml:"auto_apply_safe_links"`
+	Enabled                bool    `json:"enabled" toml:"enabled"`
+	MaxReasoningSteps      int     `json:"max_reasoning_steps" toml:"max_reasoning_steps"`
+	ConfidenceThreshold    float64 `json:"confidence_threshold" toml:"confidence_threshold"`
+	AutoApplySafeLinks     bool    `json:"auto_apply_safe_links" toml:"auto_apply_safe_links"`
+	TagSimilarityThreshold float64 `json:"tag_similarity_threshold" toml:"tag_similarity_threshold"`
 }
 
 func DefaultAgentConfig() AgentConfig {
 	return AgentConfig{
-		Enabled:             true,
-		MaxReasoningSteps:   8,
-		ConfidenceThreshold: 0.75,
-		AutoApplySafeLinks:  false,
+		Enabled:                true,
+		MaxReasoningSteps:      8,
+		ConfidenceThreshold:    0.75,
+		AutoApplySafeLinks:     false,
+		TagSimilarityThreshold: 0.86,
 	}
 }
 
@@ -471,6 +473,16 @@ func Load() (Config, error) {
 			cfg.Agent.AutoApplySafeLinks = b
 		}
 	}
+	if v := os.Getenv("CENTMEM_AGENT_TAG_SIMILARITY_THRESHOLD"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || !(f > 0.0 && f <= 1.0) {
+			return Config{}, fmt.Errorf("config: invalid agent.tag_similarity_threshold=%q: must be > 0.0 and <= 1.0", v)
+		}
+		cfg.Agent.TagSimilarityThreshold = f
+	}
+	if cfg.Agent.TagSimilarityThreshold == 0 {
+		cfg.Agent.TagSimilarityThreshold = 0.86
+	}
 
 	// 8b. Apply Hooks env overrides (CENTMEM_HOOKS_*).
 	if v := os.Getenv("CENTMEM_HOOKS_ENABLED"); v != "" {
@@ -579,6 +591,9 @@ func validateAgentConfig(a AgentConfig) error {
 	}
 	if a.ConfidenceThreshold < 0.0 || a.ConfidenceThreshold > 1.0 {
 		return fmt.Errorf("config: invalid agent.confidence_threshold=%f: must be between 0.0 and 1.0", a.ConfidenceThreshold)
+	}
+	if a.TagSimilarityThreshold != 0 && !(a.TagSimilarityThreshold > 0.0 && a.TagSimilarityThreshold <= 1.0) {
+		return fmt.Errorf("config: invalid agent.tag_similarity_threshold=%f: must be > 0.0 and <= 1.0", a.TagSimilarityThreshold)
 	}
 	return nil
 }

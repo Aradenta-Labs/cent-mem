@@ -48,10 +48,11 @@ var commands = map[string]commandEntry{
 	"links":     {cmdLinks, "links <memory_id> [--all] [--include-suggested]", []string{"--all", "--include-suggested"}},
 	"serve":     {cmdServe, "serve [--mcp]", []string{"--mcp"}},
 	"ask":       {cmdAsk, "ask <question> [--scope <scope>] [--top N] [--interactive]", []string{"--scope", "--top", "--interactive"}},
-	"curate":    {cmdCurate, "curate [--scope <scope>] [--type contradictions|dedup|all] [--apply] [--dry-run]", []string{"--scope", "--type", "--apply", "--dry-run"}},
+	"curate":    {cmdCurate, "curate [--scope <scope>] [--type contradictions|dedup|tags|all] [--apply] [--dry-run]", []string{"--scope", "--type", "--apply", "--dry-run"}},
 	"summarize": {cmdSummarize, "summarize [--scope <scope>] [--focus <topic>] [--format markdown|json] [--save]", []string{"--scope", "--focus", "--format", "--save"}},
 	"proposals": {cmdProposals, "proposals <list|show|apply|dismiss> [id] [--scope <scope>] [--status <s>] [--limit N] [--offset N]", []string{"--scope", "--status", "--limit", "--offset"}},
 	"scope":     {cmdScope, "scope <delete|list> [path] [--force]", []string{"--force"}},
+	"tags":      {cmdTags, "tags <list|merge> [--scope <scope>] [--from a,b] [--to canonical] [--dry-run]", []string{"--scope", "--from", "--to", "--dry-run"}},
 	"export":    {cmdExport, "export --scope <scope> [--format json|csv] [--type t] [--tags a,b] [--since d] [--until d] [--agent a] [--output <path>]", []string{"--scope", "--format", "--type", "--tags", "--since", "--until", "--agent", "--output"}},
 	"import":    {cmdImport, "import <file> [--dry-run]", []string{"--dry-run"}},
 }

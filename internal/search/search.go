@@ -120,6 +120,14 @@ func (s *Searcher) WithEmbedder(e embed.Embedder) *Searcher {
 	return s
 }
 
+// Embedder returns the underlying embedder configured on this Searcher.
+func (s *Searcher) Embedder() embed.Embedder {
+	if s == nil {
+		return nil
+	}
+	return s.emb
+}
+
 // WithDecayDays configures the recency decay half-life in days.
 // If days <= 0, decay is disabled (the default).
 // Returns a copy of the Searcher for safe concurrent chaining.

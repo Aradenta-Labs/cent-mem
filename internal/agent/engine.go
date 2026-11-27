@@ -11,9 +11,12 @@ import (
 	"strings"
 
 	"github.com/aradenta-labs/cent-mem/internal/config"
+	"github.com/aradenta-labs/cent-mem/internal/embed"
 	"github.com/aradenta-labs/cent-mem/internal/hooks"
+	"github.com/aradenta-labs/cent-mem/internal/scope"
 	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
+	"github.com/aradenta-labs/cent-mem/internal/taxonomy"
 )
 
 var citationRegex = regexp.MustCompile(`\[id:\s*(\d+)\]`)
@@ -159,11 +162,11 @@ func (e *Engine) Ask(ctx context.Context, question string, opts InquiryOptions) 
 	return res, nil
 }
 
-// Curate runs autonomous memory curation (contradictions, deduplication, or both).
+// Curate runs autonomous memory curation (contradictions, deduplication, tag clustering, or all).
 func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult, error) {
-	scope := opts.Scope
-	if scope == "" {
-		scope = "global"
+	scopePath := opts.Scope
+	if scopePath == "" {
+		scopePath = "global"
 	}
 	curateType := opts.Type
 	if curateType == "" {
@@ -171,7 +174,47 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	}
 
 	if e.isOffline() {
-		return e.offlineCurate(ctx, scope, curateType, opts.AutoApply, opts.DryRun)
+		return e.offlineCurate(ctx, scopePath, curateType, opts.AutoApply, opts.DryRun)
+	}
+
+	if curateType == "tags" {
+		tagClusters, createdIDs, appliedIDs, createdSummaries, appliedSummaries, err := e.curateTags(ctx, scopePath, opts.AutoApply, opts.DryRun, true)
+		if err != nil {
+			return nil, err
+		}
+		if !opts.DryRun && e.hooks != nil {
+			if len(createdSummaries) > 0 {
+				e.hooks.Emit(hooks.EventProposalsCreated, hooks.Payload{
+					Scope:     scopePath,
+					Count:     len(createdSummaries),
+					Proposals: createdSummaries,
+				})
+			}
+			if len(appliedSummaries) > 0 {
+				e.hooks.Emit(hooks.EventProposalsApplied, hooks.Payload{
+					Scope:     scopePath,
+					Count:     len(appliedSummaries),
+					Proposals: appliedSummaries,
+				})
+			}
+		}
+		var scannedCount int
+		if e.store != nil {
+			if sc, parseErr := scope.Parse(scopePath); parseErr == nil {
+				if ids, idErr := e.store.ResolveScopeIDs(ctx, sc, false, true); idErr == nil && len(ids) > 0 {
+					if count, countErr := e.store.Count(ctx, store.ListQuery{ScopeIDs: ids, Status: "active"}); countErr == nil {
+						scannedCount = int(count)
+					}
+				}
+			}
+		}
+		return &CurateResult{
+			ProposalsCreated: createdIDs,
+			ProposalsApplied: appliedIDs,
+			ScannedMemories:  scannedCount,
+			TagClustersFound: tagClusters,
+			FallbackUsed:     false,
+		}, nil
 	}
 
 	var prompt string
@@ -184,7 +227,7 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 		prompt = CurateContradictionsPrompt + "\n\n" + CurateDedupPrompt
 	}
 
-	userMsg := fmt.Sprintf("Run memory curation for scope %q. Inspect memories, find conflicts and duplicates, and create proposals.", scope)
+	userMsg := fmt.Sprintf("Run memory curation for scope %q. Inspect memories, find conflicts and duplicates, and create proposals.", scopePath)
 	if opts.DryRun {
 		ctx = context.WithValue(ctx, dryRunContextKey, true)
 		userMsg += " (DRY RUN: do not persist changes to store)"
@@ -196,7 +239,7 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	}
 
 	// Track proposals count before loop
-	existingProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope, Limit: 10000})
+	existingProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scopePath, Limit: 10000})
 	preExistingMap := make(map[int64]bool)
 	for _, p := range existingProps {
 		preExistingMap[p.ID] = true
@@ -205,16 +248,16 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	_, _, err := e.RunReActLoop(ctx, messages, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[centmem/agent] Curate ReAct loop failed, falling back to offline mode: %v\n", err)
-		return e.offlineCurate(ctx, scope, curateType, opts.AutoApply, opts.DryRun)
+		return e.offlineCurate(ctx, scopePath, curateType, opts.AutoApply, opts.DryRun)
 	}
 
 	// Find newly created proposals
-	afterProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scope, Limit: 10000})
+	afterProps, _ := e.store.ListProposals(ctx, store.ProposalListQuery{ScopePath: scopePath, Limit: 10000})
 	createdIDs := make([]int64, 0)
 	appliedIDs := make([]int64, 0)
 	createdSummaries := make([]hooks.ProposalSummary, 0)
 	appliedSummaries := make([]hooks.ProposalSummary, 0)
-	var contradictionsCount, duplicatesCount int
+	var contradictionsCount, duplicatesCount, tagClustersCount int
 
 	for _, p := range afterProps {
 		if !preExistingMap[p.ID] {
@@ -238,17 +281,29 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 		}
 	}
 
+	if curateType == "all" {
+		tc, tCreated, tApplied, tCreatedSum, tAppliedSum, tagErr := e.curateTags(ctx, scopePath, opts.AutoApply, opts.DryRun, true)
+		if tagErr != nil {
+			return nil, tagErr
+		}
+		tagClustersCount = tc
+		createdIDs = append(createdIDs, tCreated...)
+		appliedIDs = append(appliedIDs, tApplied...)
+		createdSummaries = append(createdSummaries, tCreatedSum...)
+		appliedSummaries = append(appliedSummaries, tAppliedSum...)
+	}
+
 	if !opts.DryRun && e.hooks != nil {
 		if len(createdSummaries) > 0 {
 			e.hooks.Emit(hooks.EventProposalsCreated, hooks.Payload{
-				Scope:     scope,
+				Scope:     scopePath,
 				Count:     len(createdSummaries),
 				Proposals: createdSummaries,
 			})
 		}
 		if len(appliedSummaries) > 0 {
 			e.hooks.Emit(hooks.EventProposalsApplied, hooks.Payload{
-				Scope:     scope,
+				Scope:     scopePath,
 				Count:     len(appliedSummaries),
 				Proposals: appliedSummaries,
 			})
@@ -256,7 +311,7 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 	}
 
 	var scannedCount int
-	if count, countErr := e.store.Count(ctx, store.ListQuery{ScopePath: scope, Status: "active"}); countErr == nil {
+	if count, countErr := e.store.Count(ctx, store.ListQuery{ScopePath: scopePath, Status: "active"}); countErr == nil {
 		scannedCount = int(count)
 	}
 
@@ -266,6 +321,7 @@ func (e *Engine) Curate(ctx context.Context, opts CurateOptions) (*CurateResult,
 		ScannedMemories:     scannedCount,
 		ContradictionsFound: contradictionsCount,
 		DuplicatesFound:     duplicatesCount,
+		TagClustersFound:    tagClustersCount,
 		FallbackUsed:        false,
 	}, nil
 }
@@ -458,7 +514,7 @@ func (e *Engine) offlineAsk(ctx context.Context, question, scope string, top int
 	}
 }
 
-func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, autoApply bool, dryRun bool) (*CurateResult, error) {
+func (e *Engine) offlineCurate(ctx context.Context, scopePath, curateType string, autoApply bool, dryRun bool) (*CurateResult, error) {
 	if e.store == nil {
 		return &CurateResult{
 			ProposalsCreated: []int64{},
@@ -468,7 +524,7 @@ func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, au
 	}
 
 	memories, err := e.store.List(ctx, store.ListQuery{
-		ScopePath: scope,
+		ScopePath: scopePath,
 		Status:    "active",
 		Limit:     500,
 	})
@@ -480,7 +536,7 @@ func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, au
 	appliedIDs := make([]int64, 0)
 	createdSummaries := make([]hooks.ProposalSummary, 0)
 	appliedSummaries := make([]hooks.ProposalSummary, 0)
-	var duplicatesCount int
+	var duplicatesCount, tagClustersCount int
 
 	if curateType == "dedup" || curateType == "all" {
 		// Exact hash and identical content grouping
@@ -542,31 +598,289 @@ func (e *Engine) offlineCurate(ctx context.Context, scope, curateType string, au
 		}
 	}
 
+	if curateType == "tags" || curateType == "all" {
+		tc, tCreated, tApplied, tCreatedSum, tAppliedSum, tagErr := e.curateTags(ctx, scopePath, autoApply, dryRun, false)
+		if tagErr != nil {
+			return nil, tagErr
+		}
+		tagClustersCount = tc
+		createdIDs = append(createdIDs, tCreated...)
+		appliedIDs = append(appliedIDs, tApplied...)
+		createdSummaries = append(createdSummaries, tCreatedSum...)
+		appliedSummaries = append(appliedSummaries, tAppliedSum...)
+	}
+
 	if !dryRun && e.hooks != nil {
 		if len(createdSummaries) > 0 {
 			e.hooks.Emit(hooks.EventProposalsCreated, hooks.Payload{
-				Scope:     scope,
+				Scope:     scopePath,
 				Count:     len(createdSummaries),
 				Proposals: createdSummaries,
 			})
 		}
 		if len(appliedSummaries) > 0 {
 			e.hooks.Emit(hooks.EventProposalsApplied, hooks.Payload{
-				Scope:     scope,
+				Scope:     scopePath,
 				Count:     len(appliedSummaries),
 				Proposals: appliedSummaries,
 			})
 		}
 	}
 
+	scannedMemories := len(memories)
+	if curateType == "tags" {
+		if sc, parseErr := scope.Parse(scopePath); parseErr == nil {
+			if ids, idErr := e.store.ResolveScopeIDs(ctx, sc, false, true); idErr == nil {
+				if len(ids) == 0 {
+					scannedMemories = 0
+				} else if count, countErr := e.store.Count(ctx, store.ListQuery{ScopeIDs: ids, Status: "active"}); countErr == nil {
+					scannedMemories = int(count)
+				}
+			}
+		}
+	}
+
 	return &CurateResult{
 		ProposalsCreated:    createdIDs,
 		ProposalsApplied:    appliedIDs,
-		ScannedMemories:     len(memories),
+		ScannedMemories:     scannedMemories,
 		DuplicatesFound:     duplicatesCount,
 		ContradictionsFound: 0,
+		TagClustersFound:    tagClustersCount,
 		FallbackUsed:        true,
 	}, nil
+}
+
+func (e *Engine) curateTags(
+	ctx context.Context,
+	scopePath string,
+	autoApply bool,
+	dryRun bool,
+	useLLMRefine bool,
+) (int, []int64, []int64, []hooks.ProposalSummary, []hooks.ProposalSummary, error) {
+	createdIDs := make([]int64, 0)
+	appliedIDs := make([]int64, 0)
+	createdSummaries := make([]hooks.ProposalSummary, 0)
+	appliedSummaries := make([]hooks.ProposalSummary, 0)
+
+	if e.store == nil {
+		return 0, createdIDs, appliedIDs, createdSummaries, appliedSummaries, nil
+	}
+
+	sc, err := scope.Parse(scopePath)
+	if err != nil {
+		return 0, createdIDs, appliedIDs, createdSummaries, appliedSummaries, err
+	}
+	scopeIDs, err := e.store.ResolveScopeIDs(ctx, sc, false, true)
+	if err != nil {
+		return 0, createdIDs, appliedIDs, createdSummaries, appliedSummaries, err
+	}
+	if len(scopeIDs) == 0 {
+		return 0, createdIDs, appliedIDs, createdSummaries, appliedSummaries, nil
+	}
+
+	stats, err := e.store.ListTagStats(ctx, scopeIDs)
+	if err != nil {
+		return 0, createdIDs, appliedIDs, createdSummaries, appliedSummaries, err
+	}
+	if len(stats) < 2 {
+		return 0, createdIDs, appliedIDs, createdSummaries, appliedSummaries, nil
+	}
+
+	threshold := e.cfg.TagSimilarityThreshold
+	if threshold <= 0 {
+		threshold = taxonomy.DefaultSimilarityThreshold
+	}
+	var emb embed.Embedder
+	if e.searcher != nil {
+		emb = e.searcher.Embedder()
+	}
+
+	clusters, err := taxonomy.ClusterTags(ctx, stats, taxonomy.Options{
+		SimilarityThreshold: threshold,
+		Embedder:            emb,
+	})
+	if err != nil {
+		return 0, createdIDs, appliedIDs, createdSummaries, appliedSummaries, err
+	}
+	if len(clusters) == 0 {
+		return 0, createdIDs, appliedIDs, createdSummaries, appliedSummaries, nil
+	}
+
+	// Build default reasons; optionally let online LLM refine cluster canonical/reasoning.
+	reasons := make([]string, len(clusters))
+	for i, cl := range clusters {
+		switch cl.MatchMethod {
+		case "semantic":
+			reasons[i] = fmt.Sprintf("Semantic tag cluster detected (cosine similarity %.2f >= %.2f)", cl.Similarity, threshold)
+		case "hybrid":
+			reasons[i] = fmt.Sprintf("Lexical and semantic tag cluster detected (cosine similarity %.2f)", cl.Similarity)
+		default:
+			reasons[i] = "Lexical tag normalization cluster detected (case, separator, singular/plural, or typo match)"
+		}
+	}
+
+	if useLLMRefine && !dryRun && !e.isOffline() && e.client != nil {
+		e.refineTagClustersWithLLM(ctx, clusters, reasons)
+	}
+
+	// Deduplicate against already pending tag_merge proposals in this scope.
+	pendingKeys := make(map[string]bool)
+	if !dryRun {
+		existing, _ := e.store.ListProposals(ctx, store.ProposalListQuery{
+			ScopePath:    scopePath,
+			Status:       "pending",
+			ProposalType: "update",
+			Limit:        1000,
+		})
+		for _, p := range existing {
+			var tm store.TagMergeProposalPayload
+			if json.Unmarshal([]byte(p.PayloadJSON), &tm) == nil && tm.Kind == "tag_merge" {
+				pendingKeys[tagMergeKey(tm.ToTag, tm.FromTags)] = true
+			}
+		}
+	}
+
+	clustersFound := 0
+	for i, cl := range clusters {
+		// Store.BulkRenameTag always writes lowercase tags via joinTags; ensure canonical is lowercase
+		// and all members differing from it (including case-only variants) are listed in fromTags.
+		toTag := strings.TrimSpace(strings.ToLower(cl.Canonical))
+		if toTag == "" {
+			continue
+		}
+		fromTags := make([]string, 0, len(cl.Members))
+		for _, m := range cl.Members {
+			if m != toTag {
+				fromTags = append(fromTags, m)
+			}
+		}
+		sort.Strings(fromTags)
+		if len(fromTags) == 0 {
+			continue
+		}
+
+		affected, err := e.store.CountMemoriesWithAnyTag(ctx, scopeIDs, fromTags, toTag)
+		if err != nil || affected == 0 {
+			continue
+		}
+		clustersFound++
+		if dryRun {
+			continue
+		}
+		key := tagMergeKey(toTag, fromTags)
+		if pendingKeys[key] {
+			continue
+		}
+		pendingKeys[key] = true
+
+		payloadBytes, _ := json.Marshal(store.TagMergeProposalPayload{
+			Kind:          "tag_merge",
+			FromTags:      fromTags,
+			ToTag:         toTag,
+			AffectedCount: affected,
+		})
+		title := fmt.Sprintf("Merge tags %s → %s", strings.Join(fromTags, ", "), toTag)
+		propID, err := e.store.CreateProposal(ctx, &store.Proposal{
+			ScopePath:    scopePath,
+			ProposalType: "update",
+			Title:        title,
+			Reasoning:    reasons[i],
+			PayloadJSON:  string(payloadBytes),
+		})
+		if err != nil {
+			continue
+		}
+		createdIDs = append(createdIDs, propID)
+		summary := hooks.ProposalSummary{ID: propID, Type: "update", Title: title}
+		createdSummaries = append(createdSummaries, summary)
+		if autoApply {
+			if err := e.store.ApplyProposal(ctx, propID); err == nil {
+				appliedIDs = append(appliedIDs, propID)
+				appliedSummaries = append(appliedSummaries, summary)
+			}
+		}
+	}
+
+	return clustersFound, createdIDs, appliedIDs, createdSummaries, appliedSummaries, nil
+}
+
+func (e *Engine) refineTagClustersWithLLM(ctx context.Context, clusters []taxonomy.Cluster, reasons []string) {
+	input, err := json.Marshal(clusters)
+	if err != nil {
+		return
+	}
+	resp, err := e.client.Chat(ctx, &ChatRequest{
+		Model: e.llmCfg.Model,
+		Messages: []ChatMessage{
+			{
+				Role:    "system",
+				Content: `You refine tag canonicalization proposals. Given a JSON array of tag clusters, return ONLY a JSON array of objects [{"index": 0, "canonical": "<one of members>", "reasoning": "<concise 1-sentence reason>"}]. Do not add commentary.`,
+			},
+			{
+				Role:    "user",
+				Content: string(input),
+			},
+		},
+	})
+	if err != nil || len(resp.Choices) == 0 {
+		return
+	}
+	raw := strings.TrimSpace(resp.Choices[0].Message.Content)
+	// Strip optional markdown code fences if present.
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSuffix(raw, "```")
+	raw = strings.TrimSpace(raw)
+
+	var refinements []struct {
+		Index     int    `json:"index"`
+		Canonical string `json:"canonical"`
+		Reasoning string `json:"reasoning"`
+	}
+	if err := json.Unmarshal([]byte(raw), &refinements); err != nil {
+		return
+	}
+	for _, ref := range refinements {
+		if ref.Index < 0 || ref.Index >= len(clusters) {
+			continue
+		}
+		if r := strings.TrimSpace(ref.Reasoning); r != "" {
+			reasons[ref.Index] = r
+		}
+		cand := strings.TrimSpace(strings.ToLower(ref.Canonical))
+		if cand == "" || cand == clusters[ref.Index].Canonical {
+			continue
+		}
+		// Only accept canonical if it matches one of the cluster's members (case-insensitively).
+		found := false
+		for _, m := range clusters[ref.Index].Members {
+			if strings.ToLower(m) == cand {
+				found = true
+				break
+			}
+		}
+		if found {
+			var newAliases []string
+			for _, m := range clusters[ref.Index].Members {
+				if m != cand {
+					newAliases = append(newAliases, m)
+				}
+			}
+			sort.Strings(newAliases)
+			clusters[ref.Index].Canonical = cand
+			clusters[ref.Index].Aliases = newAliases
+		}
+	}
+}
+
+func tagMergeKey(toTag string, fromTags []string) string {
+	cp := make([]string, len(fromTags))
+	for i, t := range fromTags {
+		cp[i] = strings.TrimSpace(strings.ToLower(t))
+	}
+	sort.Strings(cp)
+	return strings.TrimSpace(strings.ToLower(toTag)) + "|" + strings.Join(cp, ",")
 }
 
 func (e *Engine) offlineSummarize(ctx context.Context, scope string, focus string) (*SummarizeResult, error) {

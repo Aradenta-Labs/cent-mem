@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useTransition, useRef } from 'react';
-import { Copy, Check, Sparkles, X, Database, Download, Upload, Trash2 } from 'lucide-react';
+import { Copy, Check, Sparkles, X, Database, Download, Upload, Trash2, Tag, AlertTriangle } from 'lucide-react';
 import { ScopeNode } from '../types/scope';
-import { Memory, MemoryFilters } from '../types/memory';
+import { Memory, MemoryFilters, TagStat, TagCluster } from '../types/memory';
 import { StoreStats } from '../types/stats';
-import { fetchMemories, fetchMemoryDetail, fetchStats, forgetMemory, restoreMemory, getExportUrl, importMemories, apiFetch } from '../services/api';
+import { fetchMemories, fetchMemoryDetail, fetchStats, fetchTags, forgetMemory, restoreMemory, getExportUrl, importMemories, apiFetch } from '../services/api';
 import { Badge } from './Badge';
 import { Button } from './Button';
 import { FiltersPanel } from './FiltersPanel';
@@ -56,6 +56,9 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
   const [stats, setStats] = useState<StoreStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState<boolean>(true);
+  const [tagStats, setTagStats] = useState<TagStat[]>([]);
+  const [tagClusters, setTagClusters] = useState<TagCluster[]>([]);
+  const [showAllTags, setShowAllTags] = useState<boolean>(false);
 
   // Inspector & Keyboard Focus States
   const [focusedMemoryId, setFocusedMemoryId] = useState<number | null>(null);
@@ -196,12 +199,29 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     loadStats();
   }, [loadStats]);
 
+  // Fetch tag inventory & hygiene clusters for scope
+  const loadTags = useCallback(async () => {
+    try {
+      const res = await fetchTags(selectedScope, childrenFilter);
+      setTagStats(res.tags);
+      setTagClusters(res.clusters);
+    } catch {
+      setTagStats([]);
+      setTagClusters([]);
+    }
+  }, [selectedScope, childrenFilter, refreshKey]);
+
+  useEffect(() => {
+    loadTags();
+  }, [loadTags]);
+
   // When scope changes, reset offset and clear selection
   useEffect(() => {
     setOffset(0);
     setFocusedMemoryId(null);
     setSelectedMemory(null);
     setDrawerEditMode(false);
+    setShowAllTags(false);
   }, [selectedScope]);
 
   const handleOpenMemory = useCallback((memory: Memory) => {
@@ -226,13 +246,14 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
       setMemories((prev) => prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m)));
       setSelectedMemory(updated);
       setDrawerEditMode(false);
+      loadTags();
       showToast({
         title: `Memory #${updated.id} updated`,
         message: reindexed ? 'Changes saved and queued for re-indexing.' : 'Tags updated.',
         variant: 'success',
       });
     },
-    [showToast]
+    [showToast, loadTags]
   );
 
   // Confirm deletion and trigger undoable toast
@@ -240,6 +261,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
     await forgetMemory(memory.id);
     setMemories((prev) => prev.filter((m) => m.id !== memory.id));
     setTotal((prev) => Math.max(0, prev - 1));
+    loadTags();
     if (selectedMemory?.id === memory.id) {
       setSelectedMemory(null);
       setDrawerEditMode(false);
@@ -272,6 +294,8 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
         source_session: memory.source_session,
       });
       await loadMemories();
+      loadStats();
+      loadTags();
       showToast({
         title: 'Memory restored',
         variant: 'success',
@@ -344,6 +368,7 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
       if (rep.imported > 0) {
         loadMemories();
         loadStats();
+        loadTags();
       }
     } catch (err) {
       showToast({
@@ -706,6 +731,114 @@ export const MemoryBrowser: React.FC<MemoryBrowserProps> = ({
         onResetFilters={handleResetFilters}
         isFiltered={isFiltered}
       />
+
+      {/* Compact Tag Hygiene & Quick Filter Summary */}
+      {tagStats.length > 0 && (
+        <div
+          aria-label="Tag hygiene and filter summary"
+          style={{
+            backgroundColor: 'var(--surface-primary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--space-2) var(--space-4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 'var(--space-2)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', flex: 1, minWidth: 0 }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--text-muted)',
+                marginRight: '2px',
+              }}
+            >
+              <Tag size={12} />
+              <span>Tags ({tagStats.length})</span>
+            </span>
+            {(showAllTags ? tagStats : tagStats.slice(0, 10)).map((ts) => {
+              const active = tagFilter.toLowerCase() === ts.tag.toLowerCase();
+              return (
+                <button
+                  key={ts.tag}
+                  type="button"
+                  onClick={() => handleTagChange(active ? '' : ts.tag)}
+                  title={active ? `Clear tag filter "${ts.tag}"` : `Filter by tag "${ts.tag}" (${ts.count})`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 8px',
+                    borderRadius: 'var(--radius-pill)',
+                    border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
+                    backgroundColor: active ? 'var(--accent-lightest)' : 'var(--surface-secondary)',
+                    color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                    fontSize: '11px',
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: active ? 600 : 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span>{ts.tag}</span>
+                  <span className="tabular-nums" style={{ fontSize: '10px', opacity: 0.75 }}>
+                    {ts.count}
+                  </span>
+                </button>
+              );
+            })}
+            {tagStats.length > 10 && (
+              <button
+                type="button"
+                onClick={() => setShowAllTags((prev) => !prev)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: '2px 4px',
+                  fontSize: '11px',
+                  color: 'var(--accent-primary)',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                {showAllTags ? 'Show less' : `+${tagStats.length - 10} more`}
+              </button>
+            )}
+          </div>
+
+          {tagClusters.length > 0 && (
+            <div
+              title={tagClusters
+                .map((c) => `${c.aliases.join(', ')} → ${c.canonical}`)
+                .join(' · ') + ' (run "centmem curate --type tags" to stage merge proposals)'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-pill)',
+                backgroundColor: 'var(--color-warning-bg)',
+                border: '1px solid var(--color-warning-border)',
+                color: 'var(--color-warning-text)',
+                fontSize: '11px',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <AlertTriangle size={12} color="var(--color-warning-icon)" />
+              <span className="tabular-nums">
+                {tagClusters.length} tag {tagClusters.length === 1 ? 'cluster' : 'clusters'} to normalize
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Memory Table */}
       <MemoryTable

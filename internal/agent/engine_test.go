@@ -15,6 +15,7 @@ import (
 	"github.com/aradenta-labs/cent-mem/internal/agent"
 	"github.com/aradenta-labs/cent-mem/internal/config"
 	"github.com/aradenta-labs/cent-mem/internal/hooks"
+	"github.com/aradenta-labs/cent-mem/internal/search"
 	"github.com/aradenta-labs/cent-mem/internal/store"
 )
 
@@ -593,5 +594,356 @@ func TestEngine_Curate_OnlineReAct_WebhooksAutoApplyAndDryRun(t *testing.T) {
 	}
 	if !eventsSeen[hooks.EventProposalsCreated] || !eventsSeen[hooks.EventProposalsApplied] {
 		t.Fatalf("expected both proposals.created and proposals.applied, got %v", eventsSeen)
+	}
+}
+
+type semanticTagEmbedder struct {
+	vectors map[string][]float32
+}
+
+func (e *semanticTagEmbedder) Dims() int    { return 4 }
+func (e *semanticTagEmbedder) Close() error { return nil }
+func (e *semanticTagEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, t := range texts {
+		if v, ok := e.vectors[t]; ok {
+			out[i] = v
+		} else {
+			out[i] = []float32{0, 0, 0, 0}
+		}
+	}
+	return out, nil
+}
+
+func TestEngine_CurateTags_OfflineAndSemanticAndIdempotent(t *testing.T) {
+	s, _ := setupTestStoreAndSearcher(t)
+	ctx := context.Background()
+
+	emb := &semanticTagEmbedder{
+		vectors: map[string][]float32{
+			"database": {0.98, 0.20, 0, 0},
+			"db":       {0.97, 0.24, 0, 0},
+			"sqlite":   {0.95, 0.31, 0, 0},
+			"decision": {0, 0, 1, 0},
+			"decisions": {0, 0, 1, 0},
+		},
+	}
+	searcher := search.New(s).WithEmbedder(emb)
+
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:tax", Type: "note", Content: "Use WAL mode", Tags: []string{"database", "decision"}})
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:tax", Type: "note", Content: "Index created_at", Tags: []string{"database", "decisions"}})
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:tax/agent:dev", Type: "note", Content: "Local embedded store", Tags: []string{"db"}})
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:tax", Type: "note", Content: "FTS5 enabled", Tags: []string{"sqlite"}})
+
+	cfg := config.Config{
+		LLM:   config.LLMConfig{Backend: "disabled"},
+		Agent: config.DefaultAgentConfig(),
+	}
+	engine := agent.NewEngine(cfg, s, searcher)
+
+	// 1. Dry-run finds both clusters without staging proposals.
+	dryRes, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope:  "project:tax",
+		Type:   "tags",
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("Curate tags dry-run: %v", err)
+	}
+	if dryRes.TagClustersFound != 2 {
+		t.Fatalf("dry-run TagClustersFound = %d, want 2", dryRes.TagClustersFound)
+	}
+	if len(dryRes.ProposalsCreated) != 0 {
+		t.Fatalf("dry-run created proposals: %v", dryRes.ProposalsCreated)
+	}
+
+	// 2. Live run stages 2 tag_merge proposals.
+	res, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope: "project:tax",
+		Type:  "tags",
+	})
+	if err != nil {
+		t.Fatalf("Curate tags: %v", err)
+	}
+	if res.TagClustersFound != 2 || len(res.ProposalsCreated) != 2 {
+		t.Fatalf("curate tags: clusters=%d created=%v, want 2 each", res.TagClustersFound, res.ProposalsCreated)
+	}
+
+	// 3. Re-running while pending is idempotent (creates 0 duplicate proposals).
+	res2, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope: "project:tax",
+		Type:  "tags",
+	})
+	if err != nil {
+		t.Fatalf("Curate tags repeat: %v", err)
+	}
+	if len(res2.ProposalsCreated) != 0 {
+		t.Fatalf("expected 0 duplicate pending proposals on repeat, got %v", res2.ProposalsCreated)
+	}
+
+	// 4. Verify payload structure and apply all proposals.
+	props, err := s.ListProposals(ctx, store.ProposalListQuery{ScopePath: "project:tax", Status: "pending"})
+	if err != nil || len(props) != 2 {
+		t.Fatalf("ListProposals = %d, err=%v", len(props), err)
+	}
+	for _, p := range props {
+		if p.ProposalType != "update" {
+			t.Errorf("proposal %d type = %q, want update", p.ID, p.ProposalType)
+		}
+		var tm store.TagMergeProposalPayload
+		if err := json.Unmarshal([]byte(p.PayloadJSON), &tm); err != nil {
+			t.Fatalf("unmarshal payload: %v", err)
+		}
+		if tm.Kind != "tag_merge" || tm.ToTag == "" || len(tm.FromTags) == 0 || tm.AffectedCount <= 0 {
+			t.Errorf("unexpected tag_merge payload: %+v", tm)
+		}
+		if err := s.ApplyProposal(ctx, p.ID); err != nil {
+			t.Fatalf("ApplyProposal %d: %v", p.ID, err)
+		}
+	}
+
+	// 5. After applying, re-running curate finds 0 tag clusters.
+	res3, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope: "project:tax",
+		Type:  "tags",
+	})
+	if err != nil {
+		t.Fatalf("Curate tags after apply: %v", err)
+	}
+	if res3.TagClustersFound != 0 || len(res3.ProposalsCreated) != 0 {
+		t.Errorf("expected 0 clusters after applying merges, got clusters=%d created=%v", res3.TagClustersFound, res3.ProposalsCreated)
+	}
+}
+
+func TestEngine_CurateTags_OnlineLLMRefinement(t *testing.T) {
+	s, searcher := setupTestStoreAndSearcher(t)
+	ctx := context.Background()
+
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:llm-tax", Type: "note", Content: "Auth note 1", Tags: []string{"auth-flow"}})
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:llm-tax", Type: "note", Content: "Auth note 2", Tags: []string{"auth_flow"}})
+
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": `[{"index": 0, "canonical": "auth-flow", "reasoning": "Standardize separator style to kebab-case."}]`,
+					},
+				},
+			},
+		})
+	}))
+	defer llmSrv.Close()
+
+	cfg := config.Config{
+		LLM: config.LLMConfig{
+			Backend:        "openai_compatible",
+			Endpoint:       llmSrv.URL,
+			Model:          "mock-model",
+			TimeoutSeconds: 10,
+		},
+		Agent: config.DefaultAgentConfig(),
+	}
+	engine := agent.NewEngine(cfg, s, searcher)
+
+	res, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope: "project:llm-tax",
+		Type:  "tags",
+	})
+	if err != nil {
+		t.Fatalf("online Curate tags: %v", err)
+	}
+	if res.FallbackUsed {
+		t.Error("expected online mode (FallbackUsed=false)")
+	}
+	if res.TagClustersFound != 1 || len(res.ProposalsCreated) != 1 {
+		t.Fatalf("got clusters=%d created=%v, want 1", res.TagClustersFound, res.ProposalsCreated)
+	}
+	prop, err := s.GetProposal(ctx, res.ProposalsCreated[0])
+	if err != nil {
+		t.Fatalf("GetProposal: %v", err)
+	}
+	if prop.Reasoning != "Standardize separator style to kebab-case." {
+		t.Errorf("expected LLM-refined reasoning, got %q", prop.Reasoning)
+	}
+}
+
+func TestEngine_CurateTags_OnlineLLMRefinement_MixedCaseLegacyCluster(t *testing.T) {
+	s, searcher := setupTestStoreAndSearcher(t)
+	ctx := context.Background()
+
+	// Seed legacy mixed-case cluster with no lowercase tag present: "Databases" (2) beats "Database" (1).
+	// LLM refines canonical to "Database", which must match case-insensitively and normalize to "database".
+	id1, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:llm-mixed", Type: "note", Content: "DB note 1", Tags: []string{"databases"}})
+	id2, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:llm-mixed", Type: "note", Content: "DB note 2", Tags: []string{"databases"}})
+	id3, _, _ := s.PutMemory(ctx, store.MemoryInput{Scope: "project:llm-mixed", Type: "note", Content: "DB note 3", Tags: []string{"database"}})
+	for _, id := range []int64{id1, id2} {
+		if _, err := s.DB().ExecContext(ctx, `UPDATE memories SET tags = 'Databases' WHERE id = ?`, id); err != nil {
+			t.Fatalf("inject Databases on %d: %v", id, err)
+		}
+	}
+	if _, err := s.DB().ExecContext(ctx, `UPDATE memories SET tags = 'Database' WHERE id = ?`, id3); err != nil {
+		t.Fatalf("inject Database on %d: %v", id3, err)
+	}
+
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": `[{"index": 0, "canonical": "Database", "reasoning": "Prefer singular canonical tag."}]`,
+					},
+				},
+			},
+		})
+	}))
+	defer llmSrv.Close()
+
+	cfg := config.Config{
+		LLM: config.LLMConfig{
+			Backend:        "openai_compatible",
+			Endpoint:       llmSrv.URL,
+			Model:          "mock-model",
+			TimeoutSeconds: 10,
+		},
+		Agent: config.DefaultAgentConfig(),
+	}
+	engine := agent.NewEngine(cfg, s, searcher)
+
+	res, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope: "project:llm-mixed",
+		Type:  "tags",
+	})
+	if err != nil {
+		t.Fatalf("Curate tags mixed-case: %v", err)
+	}
+	if res.TagClustersFound != 1 || len(res.ProposalsCreated) != 1 {
+		t.Fatalf("got clusters=%d created=%v, want 1", res.TagClustersFound, res.ProposalsCreated)
+	}
+
+	prop, err := s.GetProposal(ctx, res.ProposalsCreated[0])
+	if err != nil {
+		t.Fatalf("GetProposal: %v", err)
+	}
+	var tm store.TagMergeProposalPayload
+	if err := json.Unmarshal([]byte(prop.PayloadJSON), &tm); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if tm.ToTag != "database" {
+		t.Errorf("to_tag = %q, want %q", tm.ToTag, "database")
+	}
+	if len(tm.FromTags) != 2 || tm.FromTags[0] != "Database" || tm.FromTags[1] != "Databases" {
+		t.Errorf("from_tags = %v, want [Database Databases]", tm.FromTags)
+	}
+	if tm.AffectedCount != 3 {
+		t.Errorf("affected_count = %d, want 3", tm.AffectedCount)
+	}
+
+	if err := s.ApplyProposal(ctx, prop.ID); err != nil {
+		t.Fatalf("ApplyProposal: %v", err)
+	}
+	for _, id := range []int64{id1, id2, id3} {
+		m, err := s.GetMemory(ctx, id)
+		if err != nil {
+			t.Fatalf("GetMemory %d: %v", id, err)
+		}
+		if len(m.Tags) != 1 || m.Tags[0] != "database" {
+			t.Errorf("memory %d tags = %v, want [database]", id, m.Tags)
+		}
+	}
+}
+
+func TestEngine_Curate_OnlineAll_TagClustersWebhooksAndChildScopeScan(t *testing.T) {
+	s, searcher := setupTestStoreAndSearcher(t)
+	ctx := context.Background()
+
+	// Seed memories ONLY in child scopes to verify ScannedMemories counts subtree.
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:combo/agent:a", Type: "note", Content: "Auth note 1", Tags: []string{"auth-flow"}})
+	_, _, _ = s.PutMemory(ctx, store.MemoryInput{Scope: "project:combo/agent:b", Type: "note", Content: "Auth note 2", Tags: []string{"auth_flow"}})
+
+	llmCalls := 0
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		llmCalls++
+		w.Header().Set("Content-Type", "application/json")
+		content := "No conflicts or duplicates found."
+		if llmCalls > 1 {
+			content = `[{"index": 0, "canonical": "auth-flow", "reasoning": "Prefer kebab-case for auth-flow."}]`
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"role": "assistant", "content": content}},
+			},
+		})
+	}))
+	defer llmSrv.Close()
+
+	var mu sync.Mutex
+	var eventsSeen []string
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p hooks.Payload
+		if err := json.NewDecoder(r.Body).Decode(&p); err == nil {
+			mu.Lock()
+			eventsSeen = append(eventsSeen, p.Event)
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hookSrv.Close()
+
+	cfg := config.Config{
+		LLM: config.LLMConfig{
+			Backend:        "openai_compatible",
+			Endpoint:       llmSrv.URL,
+			Model:          "mock-model",
+			TimeoutSeconds: 10,
+		},
+		Agent: config.DefaultAgentConfig(),
+		Hooks: config.HooksConfig{
+			Enabled:          true,
+			ProposalsCreated: hookSrv.URL,
+			ProposalsApplied: hookSrv.URL,
+			TimeoutSeconds:   3,
+		},
+	}
+	engine := agent.NewEngine(cfg, s, searcher)
+
+	// 1. Offline/online tags scan counts child scopes accurately (2 memories).
+	dryTags, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope:  "project:combo",
+		Type:   "tags",
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("Curate tags dry-run: %v", err)
+	}
+	if dryTags.ScannedMemories != 2 {
+		t.Errorf("ScannedMemories = %d, want 2 (from child scopes)", dryTags.ScannedMemories)
+	}
+
+	// 2. Combined online --type all + AutoApply + webhook emission.
+	res, err := engine.Curate(ctx, agent.CurateOptions{
+		Scope:     "project:combo",
+		Type:      "all",
+		AutoApply: true,
+	})
+	if err != nil {
+		t.Fatalf("Curate all online: %v", err)
+	}
+	flushCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	engine.FlushHooks(flushCtx)
+	cancel()
+
+	if res.TagClustersFound != 1 || len(res.ProposalsCreated) != 1 || len(res.ProposalsApplied) != 1 {
+		t.Fatalf("unexpected combo curate result: %+v", res)
+	}
+	mu.Lock()
+	gotEvents := append([]string(nil), eventsSeen...)
+	mu.Unlock()
+	if len(gotEvents) < 2 {
+		t.Fatalf("expected proposals.created and proposals.applied webhooks, got %v", gotEvents)
 	}
 }

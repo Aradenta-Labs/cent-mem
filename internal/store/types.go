@@ -259,6 +259,21 @@ type UpdateProposalPayload struct {
 	Tags     []string `json:"tags,omitempty"`
 }
 
+// TagMergeProposalPayload represents an 'update' proposal payload with kind="tag_merge".
+type TagMergeProposalPayload struct {
+	Kind          string   `json:"kind"` // "tag_merge"
+	FromTags      []string `json:"from_tags"`
+	ToTag         string   `json:"to_tag"`
+	AffectedCount int      `json:"affected_count"`
+}
+
+// TagStat aggregates usage of a distinct tag across active memories in a scope subtree.
+type TagStat struct {
+	Tag      string    `json:"tag"`
+	Count    int       `json:"count"`
+	LastUsed time.Time `json:"last_used"`
+}
+
 // ArchiveProposalPayload represents the structured payload for an 'archive' proposal.
 type ArchiveProposalPayload struct {
 	TargetID int64  `json:"target_id"`

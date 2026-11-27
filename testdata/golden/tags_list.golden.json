@@ -1,0 +1,17 @@
+{
+  "count": 2,
+  "ok": true,
+  "scope": "project:golden-tags",
+  "tags": [
+    {
+      "count": 2,
+      "last_used": "<TIMESTAMP>",
+      "tag": "database"
+    },
+    {
+      "count": 1,
+      "last_used": "<TIMESTAMP>",
+      "tag": "db"
+    }
+  ]
+}

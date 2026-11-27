@@ -422,6 +422,33 @@ func (s *Store) ApplyProposal(ctx context.Context, id int64) error {
 		}
 
 	case "update":
+		var meta struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal([]byte(p.PayloadJSON), &meta); err != nil {
+			return fmt.Errorf("store: invalid update payload: %w", err)
+		}
+		if meta.Kind == "tag_merge" {
+			var tmPayload TagMergeProposalPayload
+			if err := json.Unmarshal([]byte(p.PayloadJSON), &tmPayload); err != nil {
+				return fmt.Errorf("store: invalid tag_merge payload: %w", err)
+			}
+			if strings.TrimSpace(tmPayload.ToTag) == "" {
+				return fmt.Errorf("store: tag_merge to_tag cannot be empty")
+			}
+			if len(tmPayload.FromTags) == 0 {
+				return fmt.Errorf("store: tag_merge requires at least one from_tag")
+			}
+			scopeIDs, err := resolveSubtreeScopeIDsTx(ctx, tx, p.ScopePath)
+			if err != nil {
+				return fmt.Errorf("store: resolve scope for tag_merge: %w", err)
+			}
+			if _, err := bulkRenameTagTx(ctx, tx, scopeIDs, tmPayload.FromTags, tmPayload.ToTag); err != nil {
+				return fmt.Errorf("store: apply tag_merge: %w", err)
+			}
+			break
+		}
+
 		var payload UpdateProposalPayload
 		if err := json.Unmarshal([]byte(p.PayloadJSON), &payload); err != nil {
 			return fmt.Errorf("store: invalid update payload: %w", err)

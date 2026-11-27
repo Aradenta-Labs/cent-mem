@@ -1,8 +1,8 @@
 # v2.2.0 — Taxonomy & Tag Clustering
 
-**Version:** 2.2.0 (target)  
+**Version:** 2.2.0  
 **Owner:** Aradenta Labs  
-**Status:** Planned *(official roadmap item)*  
+**Status:** Implemented *(shipped in v2.2.0)*  
 **Schema Migration:** None *(reuses `agent_proposals` with `proposal_type = 'update'` and a `tag_merge` metadata action)*  
 **Source:** [docs/implementation-plan.md](../implementation-plan.md) · [docs/v2-nice-to-have.md](../v2-nice-to-have.md) — Medium Effort #5
 

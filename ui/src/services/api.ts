@@ -18,6 +18,7 @@ import {
   SuggestedLinksResponse,
   BatchSuggestedLinksResponse,
   GraphResponse,
+  TagsResponse,
 } from '../types/memory';
 import { StoreStats, StatsResponse } from '../types/stats';
 import {
@@ -252,6 +253,26 @@ export async function fetchTimeline(filters: TimelineFilters): Promise<TimelineR
     throw new Error(data.error?.message || 'Failed to load timeline');
   }
   return data;
+}
+
+export async function fetchTags(scope?: string, children = true): Promise<TagsResponse> {
+  const params = new URLSearchParams();
+  if (scope) params.set('scope', scope);
+  if (!children) params.set('children', 'false');
+  const query = params.toString();
+  const res = await apiFetch(`/api/tags${query ? `?${query}` : ''}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load tags: HTTP ${res.status}`);
+  }
+  const data: TagsResponse = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error?.message || 'Failed to load tags');
+  }
+  return {
+    ...data,
+    tags: data.tags || [],
+    clusters: data.clusters || [],
+  };
 }
 
 export async function fetchMemoryDetail(id: number): Promise<Memory> {

@@ -587,3 +587,63 @@ func TestConfig_LLMAndAgent(t *testing.T) {
 	}
 }
 
+func TestConfig_TagSimilarityThresholdValidation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CENTMEM_HOME", home)
+
+	// Default is 0.86.
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load defaults: %v", err)
+	}
+	if cfg.Agent.TagSimilarityThreshold != 0.86 {
+		t.Fatalf("default tag_similarity_threshold = %v, want 0.86", cfg.Agent.TagSimilarityThreshold)
+	}
+
+	// SetConfigValue accepts (0.0, 1.0] and rejects <= 0.0, > 1.0, NaN, and non-floats.
+	for _, valid := range []string{"0.01", "0.80", "1.0"} {
+		if err := config.SetConfigValue(&cfg, "agent.tag_similarity_threshold", valid); err != nil {
+			t.Errorf("SetConfigValue(%q) unexpected error: %v", valid, err)
+		}
+	}
+	for _, invalid := range []string{"0", "0.0", "-0.1", "1.01", "NaN", "Inf", "abc"} {
+		if err := config.SetConfigValue(&cfg, "agent.tag_similarity_threshold", invalid); err == nil {
+			t.Errorf("SetConfigValue(%q) expected error, got nil", invalid)
+		}
+	}
+
+	// Explicit env override accepts (0.0, 1.0] and rejects <= 0.0, > 1.0, NaN, and non-floats.
+	t.Setenv("CENTMEM_AGENT_TAG_SIMILARITY_THRESHOLD", "0.92")
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load with valid env threshold: %v", err)
+	}
+	if loaded.Agent.TagSimilarityThreshold != 0.92 {
+		t.Errorf("env tag_similarity_threshold = %v, want 0.92", loaded.Agent.TagSimilarityThreshold)
+	}
+
+	for _, invalid := range []string{"0", "0.0", "-0.5", "1.5", "NaN", "Inf", "-Inf", "not-a-float"} {
+		t.Setenv("CENTMEM_AGENT_TAG_SIMILARITY_THRESHOLD", invalid)
+		if _, err := config.Load(); err == nil {
+			t.Errorf("Load with CENTMEM_AGENT_TAG_SIMILARITY_THRESHOLD=%q expected error, got nil", invalid)
+		}
+	}
+
+	// TOML out-of-range values (< 0, > 1, NaN, Inf) are rejected by validateAgentConfig.
+	t.Setenv("CENTMEM_AGENT_TAG_SIMILARITY_THRESHOLD", "")
+	tomlPath := filepath.Join(home, "config.toml")
+	for _, badTOML := range []string{
+		"[agent]\ntag_similarity_threshold = -0.2\n",
+		"[agent]\ntag_similarity_threshold = 1.2\n",
+		"[agent]\ntag_similarity_threshold = nan\n",
+		"[agent]\ntag_similarity_threshold = inf\n",
+	} {
+		if err := os.WriteFile(tomlPath, []byte(badTOML), 0600); err != nil {
+			t.Fatalf("write toml: %v", err)
+		}
+		if _, err := config.Load(); err == nil {
+			t.Errorf("Load with TOML %q expected error, got nil", badTOML)
+		}
+	}
+}
+

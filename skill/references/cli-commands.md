@@ -425,6 +425,7 @@ centmem config set <key> <value>
 - `agent.max_reasoning_steps`: (`int`, default: `8`) Safety cycle guard limiting the maximum reasoning & tool-call iterations per agent turn.
 - `agent.confidence_threshold`: (`float`, default: `0.75`) Minimum model confidence score required to stage memory proposals.
 - `agent.auto_apply_safe_links`: (`bool`, default: `false`) When set to `true`, high-confidence (≥0.90) semantic relationship links bypass the proposals queue and are applied immediately.
+- `agent.tag_similarity_threshold`: (`float`, default: `0.86`) Minimum cosine similarity threshold for Pass 2 semantic tag clustering during `centmem curate --type tags|all`.
 
 #### Webhook / Notification Hook Settings (`hooks.*`) — v2.1.6
 Opt-in, disabled-by-default HTTP POST notifications for proposal lifecycle events. Zero network calls are made unless `hooks.enabled = true` and a valid `http://`/`https://` URL is configured for the event.
@@ -451,6 +452,7 @@ All configuration settings can be overridden at runtime via environment variable
 | `CENTMEM_AGENT_MAX_REASONING_STEPS` | `agent.max_reasoning_steps` | Override cycle guard step limit |
 | `CENTMEM_AGENT_CONFIDENCE_THRESHOLD` | `agent.confidence_threshold` | Override confidence threshold (0.0–1.0) |
 | `CENTMEM_AGENT_AUTO_APPLY_SAFE_LINKS` | `agent.auto_apply_safe_links` | Auto-apply safe link proposals (`true`/`false`) |
+| `CENTMEM_AGENT_TAG_SIMILARITY_THRESHOLD` | `agent.tag_similarity_threshold` | Semantic tag clustering cosine similarity threshold (`> 0.0` to `1.0`, default `0.86`) |
 | `CENTMEM_HOOKS_ENABLED` | `hooks.enabled` | Enable/disable webhook notifications (`true`/`false`) |
 | `CENTMEM_HOOKS_PROPOSALS_CREATED` | `hooks.proposals_created` | Override `proposals.created` webhook URL |
 | `CENTMEM_HOOKS_PROPOSALS_APPLIED` | `hooks.proposals_applied` | Override `proposals.applied` webhook URL |
@@ -1165,6 +1167,60 @@ centmem import <file> [--dry-run]
 
 ---
 
-## 19. Roadmap & Upcoming Milestones (Stage 4+)
+## 19. Taxonomy & Tag Clustering (`tags`, `curate --type tags`) (v2.2.0)
+
+### 19.1 `centmem tags list`
+Lists distinct tags, active memory counts, and last-used timestamps across a scope subtree.
+
+```bash
+centmem tags list [--scope <scope>]
+```
+- `--scope`: Scope path (default `global`).
+
+**Output:**
+```json
+{
+  "ok": true,
+  "scope": "project:cent-mem",
+  "tags": [
+    {"tag": "database", "count": 12, "last_used": "2026-11-27T09:00:00Z"}
+  ],
+  "count": 1
+}
+```
+
+### 19.2 `centmem tags merge`
+Atomically merges synonymous source tags into a single canonical tag across a scope subtree, deduplicating resulting tag arrays and preserving `updated_at`.
+
+```bash
+centmem tags merge --scope <scope> --from a,b --to canonical [--dry-run]
+```
+- `--scope`: Required scope path (includes descendant scopes).
+- `--from`: Comma-separated source tags to replace.
+- `--to`: Target canonical tag.
+- `--dry-run`: Preview `affected_count` without modifying stored memories.
+
+**Output:**
+```json
+{
+  "ok": true,
+  "dry_run": false,
+  "scope": "project:cent-mem",
+  "from_tags": ["db", "sqlite"],
+  "to_tag": "database",
+  "affected_count": 5
+}
+```
+
+### 19.3 `centmem curate --type tags`
+Runs lexical normalization (case folding, separator normalization, singular/plural stemming, Levenshtein ≤ 1 for tags ≥ 5 chars) and semantic embedding clustering (cosine similarity ≥ `agent.tag_similarity_threshold`, default `0.86`), staging reversible `tag_merge` update proposals in `agent_proposals`.
+
+```bash
+centmem curate --scope "project:$CENTMEM_PROJ" --type tags [--dry-run] [--apply]
+```
+
+---
+
+## 20. Roadmap & Upcoming Milestones (Stage 4+)
 With Stage 1 (Agent Engine & Proposals), Stage 2 (CLI Command Suite), and Stage 3 (Web UI Experience, Proposals Inbox & Scope Management) complete:
 - **Stage 4**: Background Autonomous Daemon Curation loop (`centmemd`) with idle memory scanning, periodic conflict resolution, and background proposal staging.
